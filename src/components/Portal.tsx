@@ -17,6 +17,10 @@ interface Props {
   seed?: number;
   state?: OrbState;
   interactive?: boolean;
+  /** 0 clear clouds … 1 soft focus */
+  soft?: number;
+  /** 0 clouds … 1 soft colour flow without clouds */
+  dream?: number;
 }
 
 // A circle cut out of a sheet of paper, laid over a larger flat sky.
@@ -44,6 +48,8 @@ uniform float u_day;
 uniform float u_cover;
 uniform float u_cirrus;
 uniform float u_stratus;
+uniform float u_soft;
+uniform float u_dream;
 uniform vec3 u_c0;
 uniform vec3 u_c1;
 uniform vec3 u_c2;
@@ -96,6 +102,21 @@ float cumulus(vec2 q, float ev) {
 }
 mat2 rot(float a) { float c = cos(a), s = sin(a); return mat2(c, -s, s, c); }
 
+// soft colour clouds that flow into each other (no edges at all)
+vec3 dreamSky(vec2 uv, vec2 windDir, float t, float e, vec2 seed, vec3 o0, vec3 o1, vec3 o2, vec3 o3, vec3 o4) {
+  vec2 q = uv * 0.6 + seed;
+  vec2 w1 = vec2(snoise(vec3(q * 0.9, e * 0.05)), snoise(vec3(q * 0.9 + 4.7, e * 0.05)));
+  vec2 q2 = q + 0.45 * w1 + windDir * t * 0.02;
+  float a = snoise(vec3(q2 + 1.3, e * 0.04));
+  float b = snoise(vec3(q2 * 1.2 + 8.1, e * 0.045));
+  float c = snoise(vec3(q2 * 0.9 + 3.3, e * 0.035));
+  vec3 col = mix(o0, o2, smoothstep(-0.7, 0.7, a));
+  col = mix(col, o4, smoothstep(-0.3, 0.8, b) * 0.8);
+  col = mix(col, o1, smoothstep(0.0, 0.9, c) * 0.65);
+  col = mix(col, o3, smoothstep(0.3, 0.9, -a) * 0.3);
+  return col;
+}
+
 void main() {
   vec2 p = v_uv * 2.0 - 1.0;
   float R = 0.97;
@@ -131,6 +152,12 @@ void main() {
   vec3 cLight = mix(mix(o1, o0, 0.4), oW, mix(0.0, 0.75, u_day));
   vec3 cShade = mix(mix(o0, o3, 0.55), cLight, 0.42 - 0.12 * u_day); // softer shadows at night
   vec3 cSilver = mix(cLight, oW, mix(0.25, 0.7, u_day));
+  // soft focus: clouds take on the sky's colours instead of white
+  cLight = mix(cLight, mix(o1, o2, 0.3), u_soft * 0.25);
+  cShade = mix(cShade, mix(o0, o4, 0.5), u_soft * 0.4);
+  cSilver = mix(cSilver, cLight, u_soft * 0.6);
+  float sw = 1.0 + 2.0 * u_soft; // edge width
+  float sb = 0.12 * (sw - 1.0);   // blur reaches out on both sides of the edge
 
   // ---- stratus: wide soft layers, barely moving
   vec2 su = suv * vec2(0.4, 1.4) + windDir * t * 0.02 + 0.1 * w;
@@ -151,21 +178,24 @@ void main() {
   float cov = mix(0.42, -0.22, u_cover) - 0.1 * u_level - 0.04 * u_energy; // lower = more cloud
   vec2 fu = suv * 2.0 + windDir * t * 0.032 + 0.08 * w;
   float farD = cumulus(fu + seed + 3.0, e * 0.02);
-  float farC = smoothstep(cov + 0.06, cov + 0.42, farD);
+  float farC = smoothstep(cov + 0.06 - sb, cov + 0.42 + sb, farD);
   ok = mix(ok, mix(cLight, ok, 0.35), farC * 0.42); // hazy, they sit far away
 
   float evolve = e * (0.025 + 0.045 * u_energy + 0.04 * u_level);
   vec2 nu = suv * 1.1 + windDir * t * 0.07 + vec2(0.0, -t * 0.006) + 0.1 * w;
   float nearD = cumulus(nu + seed + 7.0, evolve);
-  float nearC = smoothstep(cov - 0.02, cov + 0.26, nearD);
+  float nearC = smoothstep(cov - 0.02 - sb, cov + 0.26 + sb, nearD);
   // light from the upper left: denser toward the light means we are on the shaded side
   float nearL = cumulus(nu + vec2(-0.07, 0.09) + seed + 7.0, evolve);
-  float lit = clamp(0.62 + (nearD - nearL) * 3.2, 0.0, 1.0);
+  float lit = clamp(0.62 + (nearD - nearL) * 3.2 / sw, 0.0, 1.0);
   lit = lit * lit * (3.0 - 2.0 * lit);
   vec3 nearCol = mix(cShade, cLight, lit);
   float rim = nearC * (1.0 - smoothstep(cov + 0.04, cov + 0.22, nearD));
   nearCol = mix(nearCol, cSilver, rim * (0.3 + 0.5 * lit));
-  ok = mix(ok, nearCol, nearC * 0.95);
+  ok = mix(ok, nearCol, nearC * mix(0.95, 0.8, u_soft));
+
+  // dreamy colour flow (like a soft-focus photo of coloured clouds)
+  if (u_dream > 0.001) ok = mix(ok, dreamSky(uv, windDir, t, e, seed, o0, o1, o2, o3, o4), u_dream);
 
   vec3 sky = fromOk(ok);
   sky *= mix(0.82, 1.0, u_day); // night: a little deeper
@@ -177,7 +207,7 @@ void main() {
 
   // film grain
   float g = fract(sin(dot(gl_FragCoord.xy + fract(u_time) * 97.0, vec2(12.9898, 78.233))) * 43758.5453);
-  sky += (g - 0.5) * 0.02;
+  sky += (g - 0.5) * mix(0.02, 0.075, max(u_soft, u_dream));
   sky = clamp(sky, 0.0, 1.0);
 
   float inside = 1.0 - smoothstep(1.0 - px * 1.2, 1.0, r);
@@ -191,7 +221,7 @@ void main() {
  * along under the paper; it brightens with your voice and stirs at every
  * word the coach says.
  */
-export function Portal({ colors, size, daylight = 1, clouds = DEFAULT_CLOUDS, speed = 1, seed = 1, state = "idle", interactive = true }: Props) {
+export function Portal({ colors, size, daylight = 1, clouds = DEFAULT_CLOUDS, speed = 1, seed = 1, state = "idle", interactive = true, soft = 0, dream = 0 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const target = useRef(colors);
   const stateRef = useRef(state);
@@ -200,6 +230,8 @@ export function Portal({ colors, size, daylight = 1, clouds = DEFAULT_CLOUDS, sp
   dayRef.current = daylight;
   const cloudsRef = useRef(clouds);
   cloudsRef.current = clouds;
+  const lookRef = useRef({ soft, dream });
+  lookRef.current = { soft, dream };
   const input = useRef({ down: false, lastX: 0, lastY: 0, velX: 0, velY: 0, kick: 0 });
   const [fallback, setFallback] = useState(false);
 
@@ -225,7 +257,7 @@ export function Portal({ colors, size, daylight = 1, clouds = DEFAULT_CLOUDS, sp
     const U = {
       res: u("u_res"), time: u("u_time"), flow: u("u_flow"), energy: u("u_energy"), seed: u("u_seed"),
       press: u("u_press"), pan: u("u_pan"), kick: u("u_kick"), level: u("u_level"), day: u("u_day"),
-      cover: u("u_cover"), cirrus: u("u_cirrus"), stratus: u("u_stratus"),
+      cover: u("u_cover"), cirrus: u("u_cirrus"), stratus: u("u_stratus"), soft: u("u_soft"), dream: u("u_dream"),
       cols: [u("u_c0"), u("u_c1"), u("u_c2"), u("u_c3"), u("u_c4")],
     };
     // soft clouds don't need full retina resolution; keeps phones cool
@@ -284,6 +316,8 @@ export function Portal({ colors, size, daylight = 1, clouds = DEFAULT_CLOUDS, sp
       gl.uniform1f(U.cover, cl.cover);
       gl.uniform1f(U.cirrus, cl.cirrus);
       gl.uniform1f(U.stratus, cl.stratus);
+      gl.uniform1f(U.soft, lookRef.current.soft);
+      gl.uniform1f(U.dream, lookRef.current.dream);
       gl.uniform1f(U.kick, inp.kick);
       gl.uniform1f(U.level, level);
       gl.clearColor(0, 0, 0, 0);
