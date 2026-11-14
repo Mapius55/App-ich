@@ -3,7 +3,18 @@
 // everything that changes per request goes into `contextBlock()`.
 // No Deno-only imports here: the tests import this file with vitest.
 
-import { addDays, daysLeftLabel, goalProgress, habitStreak, habitWeek, perWeekLabel, streakLabel } from "../_shared/plan.ts";
+import {
+  addDays,
+  daysLeftLabel,
+  durationLabel,
+  goalEffort,
+  goalProgress,
+  habitStreak,
+  habitWeek,
+  hoursLabel,
+  perWeekLabel,
+  streakLabel,
+} from "../_shared/plan.ts";
 
 export const PERSONA = `Du bist der persönliche Coach in der App „I am“. Du begleitest eine Person durch ihre Tage und hilfst ihr, ihre Zeit nach dem auszurichten, was ihr wirklich wichtig ist.
 
@@ -17,7 +28,7 @@ export const PERSONA = `Du bist der persönliche Coach in der App „I am“. Du
 # Grenzen und Vertrauen
 - Stell keine zu persönlichen Fragen. Frag nicht von dir aus nach Gesundheit oder Diagnosen, Sexualität, Beziehungsproblemen, Geld, Religion oder Politik.
 - Erzählt die Person selbst davon, hör einfühlsam zu, ohne nachzubohren. Merk dir so etwas nur, wenn sie es möchte oder wenn es für ihre Planung klar nötig ist, und dann zurückhaltend formuliert.
-- Du bist weder Therapeut noch Ärztin. Ist jemand in einer Krise oder denkt an Selbstverletzung, nimm das ernst, bleib menschlich und weise sanft auf Hilfe hin: in der Schweiz Die Dargebotene Hand (Telefon 143), im Notfall 144.
+- Du bist weder Therapeut noch Ärztin und gibst keine medizinischen Ratschläge, auch nicht zu Schmerzen oder Verletzungen beim Training. Dafür verweist du freundlich an eine Fachperson. Ist jemand in einer Krise oder denkt an Selbstverletzung, nimm das ernst, bleib menschlich und weise sanft auf Hilfe hin: in der Schweiz Die Dargebotene Hand (Telefon 143), im Notfall 144.
 - Alles, was du dir merkst, sieht die Person auf der Seite „Was ich über dich weiss“ und kann es dort ändern oder löschen. Formuliere Erinnerungen deshalb ehrlich und so, dass sie sich darin wiedererkennt.
 
 # Werkzeuge
@@ -31,6 +42,8 @@ Rufe Werkzeuge still auf und kündige sie nicht an. Ein „Ich speichere das“ 
 - create_event, update_event, delete_event: Der Kalender „I am“ auf dem iPhone der Person. Nennt sie einen Termin mit Datum, z.B. ein Rennen, Training, Treffen, eine Prüfung oder Reise, trägst du ihn direkt ein, ohne zu fragen (kind termin). Danach sagst du in einem kurzen Halbsatz, dass er im Kalender steht. Fehlt die Uhrzeit, wird er ganztägig. Rechne relative Angaben wie „nächsten Samstag um 9“ vom heutigen Datum aus um. Prüfe die Liste „Kalender“ im Kontext, damit nichts doppelt eingetragen wird. Ändert sich etwas oder fällt etwas aus, passt du den Termin an oder löschst ihn. Ein Wecker ist nicht möglich. Wünscht sich die Person einen, trägst du einen Termin mit Erinnerung (reminder_minutes: 0) zur gewünschten Zeit ein und sagst ihr das.
 - Blöcke im Kalender: Zeit, die ihr gemeinsam plant, etwa eine Fokuszeit oder ein Training für ein Ziel, trägst du mit kind block ein, immer mit Ende und mit goal_id, wenn sie einem Ziel dient. Anders als Termine trägst du Blöcke erst nach ihrem Ja ein. Biete ab und zu an, die Schritte zu einem Ziel in den Kalender zu legen, z.B. die Trainings der nächsten Wochen. Kommt etwas dazwischen, etwa eine Krankheit, ein Umzug oder ein abgesagter Tag, verschiebst oder löschst du die betroffenen Blöcke und sagst es kurz.
 - create_goal, update_goal, delete_goal: Die Ziele auf der Seite „Plan“. Arbeitet die Person auf etwas Konkretes hin, etwa ein Rennen, eine Prüfung oder ein Projekt, oft mit Datum, legst du direkt ein Ziel an, sobald sie es klar sagt, ohne zu fragen, und keine Erinnerung. Den Tag selbst, z.B. den Renntag, trägst du zusätzlich als Termin ein. Erinnerungen der Kategorie ziel sind für Werte und Wünsche ohne konkreten Plan. Wird aus so einem Wunsch ein echtes Ziel, legst du das Ziel an und löschst die Erinnerung mit forget. Ist ein Ziel erreicht, pausiert oder aufgegeben, setzt du den status (done, paused, dropped). Löschen nur, wenn sie es ausdrücklich möchte.
+- Aufwand eines Ziels (effort_hours, weekly_hours, prior_hours bei create_goal und update_goal): Legst du ein Ziel an oder steht bei einem „Aufwand noch nicht geschätzt“, schätzt du den gesamten Aufwand in Stunden realistisch aus dem, was du über die Person weisst, und speicherst ihn als effort_hours. Zum Beispiel braucht die Vorbereitung auf einen Halbmarathon aus einer Laufbasis in etwa zwölf Wochen rund 50 bis 70 Stunden, eine Teilnahme an Olympischen Spielen eher 10'000 Stunden über viele Jahre. Sag die Schätzung in einem einzigen Satz, mit einer sinnvollen Spanne und was sie pro Woche bedeutet, und frag dann, wie viele Stunden pro Woche sie realistisch investieren kann (weekly_hours). Hat sie vorher schon viel investiert, etwa Jahre Training, fragst du einmal danach und speicherst es als prior_hours. Nennt sie eine andere Zahl, übernimmst du ihre. Die Etappen schlägst du erst danach vor, nicht in derselben Nachricht.
+- log_time: Erzählt sie, wie viel Zeit sie in ein Ziel gesteckt hat („heute 1,5 Stunden trainiert“), rufst du still log_time auf (hier minutes 90) und sagst höchstens ein kurzes, warmes Wort zum Fortschritt. Vergangene Blöcke eines Ziels zählen von selbst als geschafft. Gehört ihre Zeit zu so einem Block, gibst du dessen event_id mit, damit nichts doppelt zählt. Passt es auch zu einer Gewohnheit, hakst du die zusätzlich mit log_habit ab.
 - add_milestone, update_milestone, delete_milestone: Die Etappen eines Ziels. Nach einem neuen Ziel schlägst du in einem einzigen Satz drei bis fünf sinnvolle Etappen vor und speicherst sie mit add_milestone erst, wenn sie einverstanden ist, und so, wie sie sie haben möchte. Erzählt sie, dass sie eine Etappe geschafft hat, setzt du sie mit update_milestone auf done: true und sagst ein kurzes, warmes Wort dazu.
 - create_habit, update_habit, log_habit: Gewohnheiten, also Wiederkehrendes wie „dreimal pro Woche laufen“. Wünscht sie sich so etwas, fragst du kurz, ob du es als Gewohnheit anlegen sollst, und legst es nach ihrem Ja an. Erzählt sie, dass sie es getan hat („war heute laufen“), rufst du still log_habit auf. Erinnere nie an verpasste Gewohnheiten. Höchstens erwähnst du einmal eine schöne Serie. Möchte sie eine Gewohnheit nicht mehr, setzt du active: false.
 - Prüfe die Listen „Ziele“, „Gewohnheiten“ und „Kalender“ im Kontext, damit nichts doppelt angelegt wird.
@@ -59,7 +72,7 @@ Die Person hat die App zum ersten Mal geöffnet. Führe ein ausführliches, aber
 2. Was machst du im Alltag, etwa Arbeit, Ausbildung oder etwas anderes?
 3. Was ist dir im Leben gerade wichtig, ob Menschen, Dinge oder Werte?
 4. Wie sieht deine Woche aus, wann hast du Energie, bist du eher Morgen- oder Abendmensch?
-5. Worauf arbeitest du hin oder worauf freust du dich, also Ziele, Projekte, Rennen oder Termine in nächster Zeit? Ein konkretes Ziel legst du gleich mit create_goal an. Etappen und Kalender plant ihr später im täglichen Gespräch, damit das Kennenlernen leicht bleibt.
+5. Worauf arbeitest du hin oder worauf freust du dich, also Ziele, Projekte, Rennen oder Termine in nächster Zeit? Ein konkretes Ziel legst du gleich mit create_goal an und schätzt dabei still den Aufwand (effort_hours). Etappen, Zeit pro Woche und Kalender plant ihr später im täglichen Gespräch, damit das Kennenlernen leicht bleibt.
 6. Wobei soll ich dir helfen, oder was frisst dir Zeit und Energie?
 7. Welche Natur tut dir gut, also Orte, Landschaften, Lichtstimmungen? Wähle daraus mit set_nature_palette passende Farben und sag in einem Satz, dass der Kreis jetzt ihre Farben trägt.
 8. Wo wohnst du oder bist du meistens? (update_profile mit location_name) Rufe dabei request_location auf, ausser der Standort ist laut Kontext schon freigegeben.
@@ -73,7 +86,9 @@ Die Person ist auf der Startseite, und der Kreis begrüsst sie. Unten steht das 
 - Dann hilfst du, einen Fokus für heute zu finden, passend zu Stimmung, Energie und dem, was ihr wichtig ist. Wenn ihr euch einig seid, rufst du set_day_focus auf.
 - Am Morgen, wenn der Fokus steht und es zu ihrer Energie passt, oder wann immer sie danach fragt, planst du den Tag mit ihr: Schlag ein bis drei Zeitblöcke für heute vor, etwa für den Fokus, einen Schritt zu einem Ziel oder eine Gewohnheit. Sie passen in die freie Zeit zwischen ihren Einträgen von heute (im Kalender mit Anfang und Ende) und zu ihrer Energie. Sag sie in einem oder zwei Sätzen, so wie man spricht. Erst nach ihrem Ja trägst du sie ein: create_event mit kind block, goal_id, wenn ein Block einem Ziel dient, und reminder_minutes 10.
 - Ist die Person müde oder geht es ihr nicht gut, oder ist der Tag schon voll, plant ihr weniger oder nichts, und du lässt mehr Raum. Am Abend schaust du eher zurück, als zu planen.
-- Ab und zu, nicht jeden Tag, fragst du nach der nächsten offenen Etappe eines Ziels, vor allem, wenn ein Zieldatum näher rückt. Hat ein Ziel noch keine Etappen, schlägst du bei Gelegenheit welche vor.
+- Ab und zu, nicht jeden Tag, fragst du nach der nächsten offenen Etappe eines Ziels, vor allem, wenn ein Zieldatum näher rückt. Hat ein Ziel noch keine Etappen, schlägst du bei Gelegenheit welche vor. Fehlt die Schätzung des Aufwands oder die Zeit pro Woche, holst du das bei Gelegenheit nach (siehe „Aufwand eines Ziels“).
+- Steht bei einem Ziel „knapp“ oder „kaum machbar“, sagst du es ihr einmal ehrlich und sanft, ohne Drama, am besten, wenn ihr ohnehin über das Ziel sprecht oder plant. Schlag ein oder zwei Möglichkeiten vor: mehr Zeit pro Woche, ein Zwischenziel oder ein späteres Datum. Sie entscheidet, und du passt das Ziel danach an. Will sie es so lassen, ist das in Ordnung: Merk dir das kurz mit remember und sprich es nicht jeden Tag wieder an.
+- Stehen unter „Vergangene Blöcke ohne Rückmeldung“ Einträge, fragst du nach der Begrüssung höchstens einmal im Gespräch kurz und beiläufig danach, z.B. „Hat das Training gestern geklappt?“, bei mehreren in einer einzigen Frage. Ihre Antwort hältst du mit log_time und event_id fest: die tatsächlichen Minuten, die geplante Länge, wenn es wie geplant lief, oder 0, wenn es nicht stattgefunden hat. Weicht sie aus, lässt du es: Die Blöcke zählen dann von selbst. Frag sie nie aus.
 - Danach bist du einfach da, und sie kann dir jederzeit schreiben oder mit dir sprechen.`;
 
 export const MODE_TIDY = `# Jetzt: Stilles Aufräumen
@@ -94,6 +109,14 @@ export interface ContextGoal {
   target_date: string | null;
   status: string;
   milestones: { id: string; title: string; due_date: string | null; done_at: string | null; position: number }[];
+  /** estimated total hours, null = not estimated */
+  effort_hours?: number | null;
+  /** hours per week she can invest, null = unknown */
+  weekly_hours?: number | null;
+  /** hours invested before the app */
+  prior_hours?: number;
+  /** from the view goal_minutes: logged minutes and past blocks without an answer */
+  time?: { logged_minutes: number; block_minutes: number };
 }
 
 export interface ContextHabit {
@@ -138,6 +161,36 @@ export interface ContextInput {
   /** active habits */
   habits?: ContextHabit[];
   events?: ContextEvent[];
+  /** past planned blocks for a goal (last days) that nobody confirmed or corrected yet */
+  pastBlocks?: ContextEvent[];
+}
+
+const NO_TIME = { logged_minutes: 0, block_minutes: 0 };
+
+/**
+ * How big the goal is and whether her time is enough, e.g.
+ * "Aufwand ≈ 120 Std · geschafft 34 Std · bleiben 86 Std · 3.3 Wochen bis zum Ziel → nötig 26.2 Std/Woche · verfügbar 6 Std/Woche → kaum machbar".
+ */
+export function effortLine(g: Pick<ContextGoal, "target_date" | "effort_hours" | "weekly_hours" | "prior_hours" | "time">, today: string): string {
+  const e = goalEffort(
+    { effort_hours: g.effort_hours ?? null, weekly_hours: g.weekly_hours ?? null, prior_hours: g.prior_hours ?? 0, target_date: g.target_date, time: g.time ?? NO_TIME },
+    today,
+  );
+  const h = (n: number) => `${hoursLabel(n)} Std`;
+  const done = `geschafft ${h(e.done)}${g.prior_hours ? ` (davon ${h(g.prior_hours)} vorher)` : ""}`;
+  const available = e.available !== null ? `verfügbar ${h(e.available)}/Woche` : "Zeit pro Woche noch unbekannt";
+  if (e.effort === null) return ["Aufwand noch nicht geschätzt", e.done > 0 ? done : null, available].filter(Boolean).join(" · ");
+  const parts = [`Aufwand ≈ ${h(e.effort)}`, done];
+  if (e.feasibility === "erreicht") return `${parts.join(" · ")} → geschätzter Aufwand erreicht`;
+  parts.push(`bleiben ${h(e.remaining ?? 0)}`);
+  if (e.weeksLeft !== null && e.neededPerWeek !== null) {
+    const weeks = e.weeksLeft < 1 ? "weniger als eine Woche" : `${hoursLabel(e.weeksLeft)} ${e.weeksLeft === 1 ? "Woche" : "Wochen"}`;
+    parts.push(`${weeks} bis zum Ziel → nötig ${h(e.neededPerWeek)}/Woche`, available + (e.feasibility ? ` → ${e.feasibility}` : ""));
+  } else if (e.weeksToFinish !== null && e.available !== null) {
+    // no date (or it has passed): how long it takes with her weekly time
+    parts.push(`bei ${h(e.available)}/Woche noch ca. ${durationLabel(e.weeksToFinish)}`);
+  } else parts.push(available);
+  return parts.join(" · ");
 }
 
 function goalLines(goals: ContextGoal[], today: string): string {
@@ -154,6 +207,7 @@ function goalLines(goals: ContextGoal[], today: string): string {
         .filter(Boolean)
         .join(" · ");
       const why = g.why ? `\n  Warum: ${g.why}` : "";
+      const effort = `\n  ${effortLine(g, today)}`;
       const steps = [...g.milestones]
         .sort((a, b) => a.position - b.position)
         .map((m) => {
@@ -161,7 +215,7 @@ function goalLines(goals: ContextGoal[], today: string): string {
           return `\n  - [${m.id}] ${state}: ${m.title}${m.due_date ? ` · bis ${m.due_date}` : ""}`;
         })
         .join("");
-      return head + why + steps;
+      return head + why + effort + steps;
     })
     .join("\n");
 }
@@ -185,26 +239,42 @@ function habitLines(habits: ContextHabit[], goalTitle: (id?: string | null) => s
     .join("\n");
 }
 
-function eventLines(events: ContextEvent[], goalTitle: (id?: string | null) => string | null, today: string, tz: string): string {
-  if (!events.length) return "(keine)";
+/** "Sa., 14. Nov. (heute), 09:00–10:30" in the person's time zone; the weekday helps with relative dates. */
+function whenFormatter(today: string, tz: string): (e: ContextEvent) => string {
   const dayFmt = new Intl.DateTimeFormat("de-CH", { timeZone: tz, weekday: "short", day: "numeric", month: "short" });
   const timeFmt = new Intl.DateTimeFormat("de-CH", { timeZone: tz, hour: "2-digit", minute: "2-digit" });
   const keyFmt = new Intl.DateTimeFormat("en-CA", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit" });
-  // "Sa., 14. Nov. (heute)": the weekday helps with relative dates, the label with planning today.
   const relative: Record<string, string> = { [addDays(today, -1)]: " (gestern)", [today]: " (heute)", [addDays(today, 1)]: " (morgen)" };
   const dayLabel = (d: Date) => `${dayFmt.format(d)}${relative[keyFmt.format(d)] ?? ""}`;
+  return (e) => {
+    const start = new Date(e.starts_at);
+    const end = e.ends_at ? new Date(e.ends_at) : null;
+    const sameDay = !end || keyFmt.format(end) === keyFmt.format(start);
+    if (e.all_day) return sameDay ? `${dayLabel(start)}, ganztägig` : `${dayLabel(start)} bis ${dayLabel(end!)}, ganztägig`;
+    if (!end) return `${dayLabel(start)}, ${timeFmt.format(start)}`;
+    if (sameDay) return `${dayLabel(start)}, ${timeFmt.format(start)}–${timeFmt.format(end)}`;
+    return `${dayLabel(start)}, ${timeFmt.format(start)} bis ${dayLabel(end)}, ${timeFmt.format(end)}`;
+  };
+}
+
+function eventLines(events: ContextEvent[], goalTitle: (id?: string | null) => string | null, today: string, tz: string): string {
+  if (!events.length) return "(keine)";
+  const when = whenFormatter(today, tz);
   return events
     .map((e) => {
-      const start = new Date(e.starts_at);
-      const end = e.ends_at ? new Date(e.ends_at) : null;
-      const sameDay = !end || keyFmt.format(end) === keyFmt.format(start);
-      let when: string;
-      if (e.all_day) when = sameDay ? `${dayLabel(start)}, ganztägig` : `${dayLabel(start)} bis ${dayLabel(end!)}, ganztägig`;
-      else if (!end) when = `${dayLabel(start)}, ${timeFmt.format(start)}`;
-      else if (sameDay) when = `${dayLabel(start)}, ${timeFmt.format(start)}–${timeFmt.format(end)}`;
-      else when = `${dayLabel(start)}, ${timeFmt.format(start)} bis ${dayLabel(end)}, ${timeFmt.format(end)}`;
       const goal = goalTitle(e.goal_id);
-      return `- [${e.id}] ${when}: ${e.title}${e.location ? ` (${e.location})` : ""}${e.kind === "block" ? " · Block" : ""}${goal ? ` · für das Ziel „${goal}“` : ""}`;
+      return `- [${e.id}] ${when(e)}: ${e.title}${e.location ? ` (${e.location})` : ""}${e.kind === "block" ? " · Block" : ""}${goal ? ` · für das Ziel „${goal}“` : ""}`;
+    })
+    .join("\n");
+}
+
+function pastBlockLines(blocks: ContextEvent[], goalTitle: (id?: string | null) => string | null, today: string, tz: string): string {
+  if (!blocks.length) return "(keine)";
+  const when = whenFormatter(today, tz);
+  return blocks
+    .map((b) => {
+      const goal = goalTitle(b.goal_id);
+      return `- [${b.id}] ${when(b)}: ${b.title}${goal ? ` (Ziel „${goal}“)` : ""}`;
     })
     .join("\n");
 }
@@ -243,12 +313,15 @@ ${mem}
 ## Die letzten Tage
 ${days}
 
-## Ziele ([id] Titel · Zieldatum · Etappen, darunter die Etappen)
+## Ziele ([id] Titel · Zieldatum · Etappen, darunter Aufwand in Stunden und die Etappen)
 ${goalLines(goals, c.day)}
 
 ## Gewohnheiten ([id] Titel · wie oft · diese Woche · heute · Serie)
 ${habitLines(c.habits ?? [], goalTitle, c.day)}
 
 ## Kalender „I am“ ([id] Zeit: Titel · Block = gemeinsam geplante Zeit)
-${eventLines(c.events ?? [], goalTitle, c.day, tz)}`;
+${eventLines(c.events ?? [], goalTitle, c.day, tz)}
+
+## Vergangene Blöcke ohne Rückmeldung ([id] Zeit: Titel (Ziel) · zählen von selbst als geschafft)
+${pastBlockLines(c.pastBlocks ?? [], goalTitle, c.day, tz)}`;
 }

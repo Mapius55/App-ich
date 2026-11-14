@@ -31,12 +31,13 @@ const race = {
 const lines = (c: Partial<ContextInput>) => contextBlock({ ...base, ...c }).split("\n");
 
 describe("contextBlock: goals", () => {
-  it("shows goals with target date, progress and the milestones in order", () => {
+  it("shows goals with target date, progress, effort and the milestones in order", () => {
     const out = lines({ goals: [race] });
     const i = out.indexOf("- [g1] Halbmarathon Zürich · Zieldatum 2026-12-24 (noch 40 Tage) · 1 von 3 Etappen erledigt");
     expect(i).toBeGreaterThan(-1);
-    expect(out.slice(i + 1, i + 5)).toEqual([
+    expect(out.slice(i + 1, i + 6)).toEqual([
       "  Warum: Will sich selbst etwas beweisen.",
+      "  Aufwand noch nicht geschätzt · Zeit pro Woche noch unbekannt",
       "  - [m1] erledigt: 10 km am Stück · bis 2026-11-01",
       "  - [m2] offen, als Nächstes: 15 km laufen · bis 2026-12-01",
       "  - [m3] offen: 18 km laufen",
@@ -50,9 +51,62 @@ describe("contextBlock: goals", () => {
 
   it("says when there is nothing", () => {
     const out = contextBlock(base);
-    expect(out).toContain("## Ziele ([id] Titel · Zieldatum · Etappen, darunter die Etappen)\n(keine)");
+    expect(out).toContain("## Ziele ([id] Titel · Zieldatum · Etappen, darunter Aufwand in Stunden und die Etappen)\n(keine)");
     expect(out).toContain("## Gewohnheiten ([id] Titel · wie oft · diese Woche · heute · Serie)\n(keine)");
-    expect(out).toMatch(/## Kalender „I am“ .*\n\(keine\)$/);
+    expect(out).toMatch(/## Kalender „I am“ .*\n\(keine\)\n/);
+    expect(out).toMatch(/## Vergangene Blöcke ohne Rückmeldung .*\n\(keine\)$/);
+  });
+});
+
+describe("contextBlock: effort", () => {
+  const goal = { why: null, status: "active", milestones: [] };
+  const effortOf = (g: Record<string, unknown>) => {
+    const out = lines({ goals: [{ id: "g", title: "Ziel", target_date: null, ...goal, ...g }] });
+    return out[out.findIndex((l) => l.startsWith("- [g] Ziel")) + 1];
+  };
+
+  it("says honestly when the weekly time is far from enough", () => {
+    // 120 h, 30 h logged + 4 h of past blocks, 3.3 weeks to go, 6 h per week
+    const line = effortOf({ target_date: "2026-12-06", effort_hours: 120, weekly_hours: 6, prior_hours: 0, time: { logged_minutes: 1800, block_minutes: 240 } });
+    expect(line).toBe("  Aufwand ≈ 120 Std · geschafft 34 Std · bleiben 86 Std · 3.3 Wochen bis zum Ziel → nötig 26.2 Std/Woche · verfügbar 6 Std/Woche → kaum machbar");
+  });
+
+  it("shows how long a big goal without a date takes with her weekly time, prior hours included", () => {
+    const line = effortOf({ effort_hours: 10000, weekly_hours: 25, prior_hours: 1200, time: { logged_minutes: 0, block_minutes: 0 } });
+    expect(line).toBe("  Aufwand ≈ 10'000 Std · geschafft 1'200 Std (davon 1'200 Std vorher) · bleiben 8'800 Std · bei 25 Std/Woche noch ca. 7 Jahre");
+  });
+
+  it("asks for the weekly time when it's unknown, and says when the estimate is reached", () => {
+    expect(effortOf({ target_date: "2026-12-24", effort_hours: 60, weekly_hours: null, prior_hours: 0, time: { logged_minutes: 0, block_minutes: 0 } })).toBe(
+      "  Aufwand ≈ 60 Std · geschafft 0 Std · bleiben 60 Std · 5.9 Wochen bis zum Ziel → nötig 10.2 Std/Woche · Zeit pro Woche noch unbekannt",
+    );
+    expect(effortOf({ effort_hours: 10, weekly_hours: 2, prior_hours: 0, time: { logged_minutes: 600, block_minutes: 60 } })).toBe(
+      "  Aufwand ≈ 10 Std · geschafft 11 Std → geschätzter Aufwand erreicht",
+    );
+  });
+
+  it("marks goals without an estimate, with the time done so far", () => {
+    expect(effortOf({ effort_hours: null, weekly_hours: 3, prior_hours: 0, time: { logged_minutes: 90, block_minutes: 0 } })).toBe(
+      "  Aufwand noch nicht geschätzt · geschafft 1.5 Std · verfügbar 3 Std/Woche",
+    );
+  });
+});
+
+describe("contextBlock: past blocks without an answer", () => {
+  it("lists them with id, time and goal so the coach can ask once", () => {
+    const out = contextBlock({
+      ...base,
+      goals: [race],
+      pastBlocks: [
+        { id: "e7", title: "Lauftraining", starts_at: "2026-11-13T17:00:00Z", ends_at: "2026-11-13T18:30:00Z", all_day: false, location: null, kind: "block", goal_id: "g1" },
+        { id: "e8", title: "Intervalle", starts_at: "2026-11-10T06:00:00Z", ends_at: "2026-11-10T07:00:00Z", all_day: false, location: null, kind: "block", goal_id: "g1" },
+      ],
+    });
+    expect(out).toContain(
+      "## Vergangene Blöcke ohne Rückmeldung ([id] Zeit: Titel (Ziel) · zählen von selbst als geschafft)\n" +
+        "- [e7] Fr., 13. Nov. (gestern), 18:00–19:30: Lauftraining (Ziel „Halbmarathon Zürich“)\n" +
+        "- [e8] Di., 10. Nov., 07:00–08:00: Intervalle (Ziel „Halbmarathon Zürich“)",
+    );
   });
 });
 
@@ -124,7 +178,9 @@ describe("prompt texts", () => {
 
   it("write Swiss High German: no ß (except where the rule names it)", () => {
     for (const t of stable) expect(t.replace("statt „ß“", "")).not.toContain("ß");
-    expect(contextBlock({ ...base, goals: [race] })).not.toContain("ß");
+    const big = { ...race, id: "g2", target_date: null, effort_hours: 10000, weekly_hours: 20, prior_hours: 500, time: { logged_minutes: 60, block_minutes: 0 } };
+    const block = { id: "e7", title: "Lauftraining", starts_at: "2026-11-13T17:00:00Z", ends_at: "2026-11-13T18:30:00Z", all_day: false, location: null, kind: "block", goal_id: "g1" };
+    expect(contextBlock({ ...base, goals: [race, big], pastBlocks: [block] })).not.toContain("ß");
   });
 
   it("stay byte-stable for the prompt cache: no dates", () => {
@@ -137,5 +193,15 @@ describe("prompt texts", () => {
     }
     expect(MODE_CHECKIN).toContain("kind block");
     expect(MODE_CHECKIN).toContain("reminder_minutes 10");
+  });
+
+  it("explain effort and time", () => {
+    for (const name of ["effort_hours", "weekly_hours", "prior_hours", "log_time", "event_id", "10'000 Stunden", "medizinischen Ratschl"]) {
+      expect(PERSONA).toContain(name);
+    }
+    for (const name of ["knapp", "kaum machbar", "Vergangene Blöcke ohne Rückmeldung", "log_time", "höchstens einmal im Gespräch"]) {
+      expect(MODE_CHECKIN).toContain(name);
+    }
+    expect(MODE_ONBOARDING).toContain("effort_hours");
   });
 });

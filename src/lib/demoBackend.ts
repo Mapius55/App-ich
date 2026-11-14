@@ -12,6 +12,7 @@ import type {
   EventInput,
   Goal,
   GoalInput,
+  GoalTime,
   Habit,
   HabitInput,
   Memory,
@@ -21,7 +22,7 @@ import type {
 } from "./types";
 import { normaliseUsername, USERNAME_RE } from "./types";
 import type { NaturePalette } from "./palette";
-import { addDays, dayOf, weekStart } from "./plan";
+import { addDays, dayOf, goalEffort, hoursLabel, weekStart } from "./plan";
 
 interface DemoUser {
   passwordHash: string;
@@ -30,11 +31,14 @@ interface DemoUser {
   messages: Record<string, ChatMessage[]>;
   days: Record<string, DayState>;
   events: CalendarEvent[];
-  /** with their milestones */
-  goals: Goal[];
+  /** with their milestones; their time is worked out when read, like the view goal_minutes */
+  goals: StoredGoal[];
+  /** like the goal_time table */
+  goal_time: GoalTime[];
   /** done_days holds the whole history, like the habit_logs table */
   habits: Habit[];
 }
+type StoredGoal = Omit<Goal, "time">;
 
 // The demo coach understands simple appointments, e.g. "Samstag um 9 habe ich ein Rennen"
 // or "Training am 3.12. um 18:30". The real coach (Claude) understands anything.
@@ -125,6 +129,11 @@ export function parseDemoEvent(text: string, now = new Date()): { title: string;
 const GOAL_START = /^\s*(?:(mein ziel)(?:\s+ist)?(?:\s+es)?\s*[:,]?|ich (?:will|möchte|moechte))\s+/i;
 const DATE_WORDS = /(?:\s*\b(?:bis|am|zum|zur|im|in|vor|spätestens|ende|anfang|mitte)\b)+\s*$/i;
 const ARTICLE = /^(?:der|die|das|den|dem|ein|eine|einen|einem)\s+/i;
+// "um 18:30", "um 9 Uhr" – but not "um 10 kg", "um 5 Minuten"
+const CLOCK = /\bum \d{1,2}(?:[:.]\d{2})?(?!\d)(?!\s*(?:%|(?:kg|kilo|km|cm|m|meter|prozent|punkte|plätze|minuten|min|sekunden|sek|stunden|std|h|mal|x)(?![a-zäöü])))/i;
+const LEADING_CLOCK = /^um\s+\d{1,2}(?:[:.]\d{2}(?:\s*uhr)?|\s*uhr)(?![a-zäöü\d])[\s,]*/i;
+// appointments of everyday life; races and exams can be goals
+const EVERYDAY = new Set(["Training", "Arzttermin", "Termin"]);
 
 /** A goal in a message, or null. Title without the lead-in and the date words; target date as YYYY-MM-DD. */
 export function parseDemoGoal(text: string, now = new Date()): { title: string; target_date: string | null } | null {
@@ -133,8 +142,13 @@ export function parseDemoGoal(text: string, now = new Date()): { title: string; 
   let rest = text.slice(lead[0].length);
   if (/^(?:nicht|kein)/i.test(rest)) return null;
   const found = parseDemoDate(rest, now, ["day", "month"]);
-  // "ich will …" is everyday speech ("ich will heute früh schlafen"); only with a date is it a goal
-  if (!lead[1] && !found) return null;
+  // "ich will …" is everyday speech ("ich will heute früh schlafen"); only with a date is it a goal,
+  // and not with a clock time or an everyday appointment ("ich will am 5.12. zum Zahnarzt")
+  if (!lead[1]) {
+    if (!found || CLOCK.test(text)) return null;
+    const ev = parseDemoEvent(text, now);
+    if (ev && EVERYDAY.has(ev.title)) return null;
+  }
   if (found) {
     const before = rest.slice(0, found.index).replace(DATE_WORDS, "");
     const after = rest.slice(found.index + found.length);
@@ -143,7 +157,7 @@ export function parseDemoGoal(text: string, now = new Date()): { title: string; 
     rest = before + (ends ? ". " : " ") + after;
   }
   let title = rest.split(/[.!?;](?:\s|$)/)[0].replace(/\s+/g, " ").replace(/^[\s,:–-]+|[\s,:–-]+$/g, "");
-  title = title.replace(ARTICLE, "").slice(0, 120).trim();
+  title = title.replace(LEADING_CLOCK, "").replace(ARTICLE, "").slice(0, 120).trim();
   if (title.length < 3 || /^(?:das|dies|es|so)$/i.test(title)) return null;
   return { title: title[0].toUpperCase() + title.slice(1), target_date: found ? dayOf(found.date) : null };
 }
@@ -171,6 +185,75 @@ export function recogniseDemoHabits<H extends Pick<Habit, "title" | "active">>(t
   });
 }
 
+// Reported time: "heute 1,5 Stunden trainiert", "45 Minuten gelaufen", "2 Std gelernt".
+const AMOUNT = /(\d+(?:[.,]\d+)?)\s*(stunden?|std\.?|h|minuten?|min\.?)(?![a-zäöü])/gi;
+const AMOUNT_WORDS = /\b(eine?r?|zwei|drei|vier|fünf|halbe|anderthalb|eineinhalb|zweieinhalb)\s+(stunden?|std\.?|minuten?)(?![a-zäöü])/gi;
+const NUMBER_WORDS: Record<string, number> = {
+  ein: 1, eine: 1, einer: 1, zwei: 2, drei: 3, vier: 4, fünf: 5, halbe: 0.5, anderthalb: 1.5, eineinhalb: 1.5, zweieinhalb: 2.5,
+};
+// past participles ("gelernt", "gelaufen", "trainiert") besides the words in DONE;
+// "habe" alone is no hint here ("ich habe 1 Stunde Training" is a plan)
+const PAST = /^(?:ge[a-zäöü]{2,}(?:t|en)|[a-zäöü]+iert(?:e|en)?)$/;
+const spentHint = (x: string) => (DONE.has(x) && x !== "habe" && x !== "hab") || PAST.test(x);
+// "in 2 Stunden", "vor einer Stunde", "um 18h": a moment, not time spent
+const NOT_AMOUNT = /\b(?:in|vor|nach|alle|ab|bis|um)\s*$/i;
+// time that's planned, needed or available, not done
+const NOT_SPENT = new Set([...NOT_DONE, "zeit", "pro", "woche", "wochen", "geplant", "eingeplant", "brauche", "braucht", "frei", "dauert", "nötig"]);
+const TITLE_STOP = new Set(["eine", "einen", "einem", "mehr", "sein", "werden", "jeden", "jede", "viel", "machen", "schaffen", "bitte"]);
+
+/** Minutes a message reports as spent (e.g. "1,5 Stunden trainiert" → 90), or null. */
+export function parseDemoMinutes(text: string): { minutes: number; daysAgo: 0 | 1 } | null {
+  const t = text.replace(/\bheute\s+morgen\b/gi, "heute"); // "this morning", not tomorrow
+  const w = words(t);
+  if (!w.some(spentHint) || w.some((x) => NOT_SPENT.has(x))) return null;
+  const toMin = (unit: string) => (unit.toLowerCase().startsWith("m") ? 1 : 60);
+  const counts = (m: RegExpExecArray) => !NOT_AMOUNT.test(t.slice(0, m.index));
+  let minutes = 0;
+  for (const m of t.matchAll(AMOUNT)) if (counts(m)) minutes += Number(m[1].replace(",", ".")) * toMin(m[2]);
+  for (const m of t.matchAll(AMOUNT_WORDS)) if (counts(m)) minutes += NUMBER_WORDS[m[1].toLowerCase()] * toMin(m[2]);
+  minutes = Math.round(minutes);
+  if (minutes < 1 || minutes > 1440) return null;
+  return { minutes, daysAgo: /\bgestern\b/i.test(t) ? 1 : 0 };
+}
+
+/**
+ * Time a message reports for a goal: to the active goal whose title words appear in it,
+ * else to the only active goal. Null when nothing fits.
+ */
+export function recogniseDemoTime<G extends Pick<Goal, "title" | "status">>(text: string, goals: G[]): { goal: G; minutes: number; daysAgo: 0 | 1 } | null {
+  const spent = parseDemoMinutes(text);
+  if (!spent) return null;
+  const w = new Set(words(text));
+  const active = goals.filter((g) => g.status === "active");
+  const score = (g: G) => words(g.title).filter((x) => x.length >= 4 && !TITLE_STOP.has(x) && w.has(x)).length;
+  let best: G | null = null;
+  for (const g of active) if (score(g) > (best ? score(best) : 0)) best = g;
+  const goal = best ?? (active.length === 1 ? active[0] : null);
+  return goal ? { goal, ...spent } : null;
+}
+
+/** Hours or minutes as the coach says them: "45 Min", "1.5 Std". */
+export function minutesLabel(min: number): string {
+  return min < 60 ? `${min} Min` : `${hoursLabel(min / 60)} Std`;
+}
+
+/**
+ * The goal_time entry that answers a planned block (shared with the Supabase backend):
+ * done = its planned length (or `minutes`), not done = 0 minutes, on the block's local start day.
+ */
+export function blockTimeEntry(
+  ev: Pick<CalendarEvent, "kind" | "goal_id" | "starts_at" | "ends_at" | "all_day"> | null,
+  done: boolean,
+  minutes?: number,
+): { goal_id: string; day: string; minutes: number } {
+  if (!ev) throw new Error("Diesen Eintrag gibt es nicht mehr.");
+  if (ev.kind !== "block" || !ev.goal_id) throw new Error("Das ist kein geplanter Block für ein Ziel.");
+  const planned = ev.all_day || !ev.ends_at ? null : (Date.parse(ev.ends_at) - Date.parse(ev.starts_at)) / 60000;
+  const m = done ? (minutes ?? planned) : 0;
+  if (m === null || !Number.isFinite(m)) throw new Error("Wie lange hat es gedauert? Gib bitte die Minuten an.");
+  return { goal_id: ev.goal_id, day: dayOf(new Date(ev.starts_at)), minutes: Math.min(1440, Math.max(0, Math.round(m))) };
+}
+
 const KEY = "ich.demo.users";
 const SESSION = "ich.demo.session";
 
@@ -191,7 +274,7 @@ function defined<T extends object>(patch: T): Partial<T> {
 /** Start of the habit history the app shows: the current week and the 15 before it. */
 const habitsSince = () => addDays(weekStart(dayOf()), -15 * 7);
 
-const byGoalOrder = (a: Goal, b: Goal) =>
+const byGoalOrder = (a: Pick<Goal, "target_date" | "created_at">, b: Pick<Goal, "target_date" | "created_at">) =>
   a.target_date === b.target_date
     ? a.created_at.localeCompare(b.created_at)
     : a.target_date === null
@@ -199,8 +282,49 @@ const byGoalOrder = (a: Goal, b: Goal) =>
       : b.target_date === null
         ? -1
         : a.target_date.localeCompare(b.target_date);
-const withSortedMilestones = (g: Goal): Goal => ({ ...g, milestones: [...g.milestones].sort((a, b) => a.position - b.position) });
+// Like the view goal_minutes: logged time, plus past blocks of the goal nobody answered yet.
+function presenter(u: DemoUser, at = Date.now()): (g: StoredGoal) => Goal {
+  const answered = new Set(u.goal_time.flatMap((t) => (t.event_id ? [t.event_id] : [])));
+  return (g) => {
+    const logged = u.goal_time.reduce((sum, t) => (t.goal_id === g.id ? sum + t.minutes : sum), 0);
+    const blocks = u.events.reduce(
+      (sum, e) =>
+        e.goal_id === g.id && e.kind === "block" && !e.all_day && e.ends_at && Date.parse(e.ends_at) <= at && !answered.has(e.id)
+          ? sum + (Date.parse(e.ends_at) - Date.parse(e.starts_at)) / 60000
+          : sum,
+      0,
+    );
+    return {
+      ...g,
+      milestones: [...g.milestones].sort((a, b) => a.position - b.position),
+      time: { logged_minutes: logged, block_minutes: Math.round(blocks) },
+    };
+  };
+}
 const withRecentDays = (h: Habit, since = habitsSince()): Habit => ({ ...h, done_days: h.done_days.filter((d) => d >= since).sort() });
+
+// Like the check constraint on events.reminder_minutes: from a day after the start to a week before.
+function checkReminder(minutes: number | null | undefined) {
+  if (minutes === null || minutes === undefined) return;
+  if (!Number.isInteger(minutes) || minutes < -1440 || minutes > 10080)
+    throw new Error("Die Erinnerung muss zwischen einer Woche vorher und einem Tag danach liegen.");
+}
+
+// Like the checks on goals: hours from 0 up to a limit, one decimal (numeric(…, 1)).
+const EFFORT_LIMITS = { effort_hours: 100000, weekly_hours: 168, prior_hours: 100000 } as const;
+type EffortFields = Partial<Pick<Goal, "effort_hours" | "weekly_hours" | "prior_hours">>;
+function effortFields(p: Partial<GoalInput>): EffortFields {
+  const out: Record<string, number | null> = {};
+  for (const [key, max] of Object.entries(EFFORT_LIMITS) as [keyof typeof EFFORT_LIMITS, number][]) {
+    const v = p[key] as number | null | undefined;
+    if (v === undefined) continue;
+    if (v === null) out[key] = key === "prior_hours" ? 0 : null; // prior_hours is "not null default 0"
+    else if (typeof v !== "number" || !Number.isFinite(v) || v < 0 || v > max)
+      throw new Error(`Bitte eine Zahl zwischen 0 und ${hoursLabel(max)} Stunden.`);
+    else out[key] = Math.round(v * 10) / 10;
+  }
+  return out as EffortFields;
+}
 
 // Like the owner-check triggers in the database: links only to one's own goals.
 function checkGoal(u: DemoUser, goalId: string | null | undefined) {
@@ -250,7 +374,8 @@ export class DemoBackend implements Backend {
     // Demo users stored before the calendar or the plan existed lack these fields.
     for (const u of Object.values(users)) {
       u.events = (u.events ?? []).map((e) => ({ ...e, kind: e.kind ?? "termin", goal_id: e.goal_id ?? null }));
-      u.goals ??= [];
+      u.goals = (u.goals ?? []).map((g) => ({ ...g, effort_hours: g.effort_hours ?? null, weekly_hours: g.weekly_hours ?? null, prior_hours: g.prior_hours ?? 0 }));
+      u.goal_time ??= [];
       u.habits ??= [];
     }
     return users;
@@ -307,6 +432,7 @@ export class DemoBackend implements Backend {
       days: {},
       events: [],
       goals: [],
+      goal_time: [],
       habits: [],
     };
     this.save(users);
@@ -362,6 +488,7 @@ export class DemoBackend implements Backend {
   }
   async addEvent(e: EventInput, source: CalendarEvent["source"] = "person") {
     const ev: CalendarEvent = { ...e, kind: e.kind ?? "termin", goal_id: e.goal_id ?? null, id: uuid(), source, sequence: 0, updated_at: now() };
+    checkReminder(ev.reminder_minutes);
     this.mutate((u) => {
       checkGoal(u, ev.goal_id);
       u.events.push(ev);
@@ -374,6 +501,7 @@ export class DemoBackend implements Backend {
       const ev = u.events.find((e) => e.id === id);
       if (!ev) throw new Error("Diesen Eintrag gibt es nicht mehr.");
       checkGoal(u, patch.goal_id);
+      checkReminder(patch.reminder_minutes);
       // like the events_bump trigger, so a calendar file picks up the change
       Object.assign(ev, defined(patch), { sequence: (ev.sequence ?? 0) + 1, updated_at: now() });
       out = { ...ev };
@@ -381,19 +509,24 @@ export class DemoBackend implements Backend {
     return out;
   }
   async deleteEvent(id: string) {
-    this.mutate((u) => (u.events = u.events.filter((e) => e.id !== id)));
+    this.mutate((u) => {
+      u.events = u.events.filter((e) => e.id !== id);
+      // like "on delete set null": the time stays, without the block
+      for (const t of u.goal_time) if (t.event_id === id) t.event_id = null;
+    });
   }
 
-  async listGoals(all = false) {
-    return this.user()
-      .goals.filter((g) => all || g.status === "active" || g.status === "paused")
+  async listGoals(all = false): Promise<Goal[]> {
+    const u = this.user();
+    return u.goals
+      .filter((g) => all || g.status === "active" || g.status === "paused")
       .sort(byGoalOrder)
-      .map(withSortedMilestones);
+      .map(presenter(u));
   }
-  async addGoal(g: GoalInput, milestones: Pick<Milestone, "title" | "due_date">[] = [], source: Goal["source"] = "person") {
+  async addGoal(g: GoalInput, milestones: Pick<Milestone, "title" | "due_date">[] = [], source: Goal["source"] = "person"): Promise<Goal> {
     const id = uuid();
     const t = now();
-    const goal: Goal = {
+    const goal: StoredGoal = {
       id,
       title: g.title,
       why: g.why ?? null,
@@ -402,24 +535,35 @@ export class DemoBackend implements Backend {
       source,
       created_at: t,
       updated_at: t,
+      effort_hours: null,
+      weekly_hours: null,
+      prior_hours: 0,
+      ...effortFields(g),
       milestones: milestones.map((m, i) => ({ id: uuid(), goal_id: id, title: m.title, due_date: m.due_date ?? null, done_at: null, position: i })),
     };
-    this.mutate((u) => u.goals.push(goal));
-    return goal;
+    let out!: Goal;
+    this.mutate((u) => {
+      u.goals.push(goal);
+      out = presenter(u)(goal);
+    });
+    return out;
   }
-  async updateGoal(id: string, patch: Partial<GoalInput>) {
+  async updateGoal(id: string, patch: Partial<GoalInput>): Promise<Goal> {
     let out!: Goal;
     this.mutate((u) => {
       const g = u.goals.find((x) => x.id === id);
       if (!g) throw new Error("Dieses Ziel gibt es nicht mehr.");
-      Object.assign(g, defined(patch), { updated_at: now() });
-      out = withSortedMilestones(g);
+      // only the goal's own fields (a whole Goal passed as patch must not store its time)
+      const { title, why, target_date, status } = patch;
+      Object.assign(g, defined({ title, why, target_date, status }), effortFields(patch), { updated_at: now() });
+      out = presenter(u)(g);
     });
     return out;
   }
   async deleteGoal(id: string) {
     this.mutate((u) => {
       u.goals = u.goals.filter((g) => g.id !== id);
+      u.goal_time = u.goal_time.filter((t) => t.goal_id !== id); // cascade
       // like "on delete set null": habits and calendar entries stay, without the link
       for (const h of u.habits) if (h.goal_id === id) h.goal_id = null;
       for (const e of u.events)
@@ -444,7 +588,9 @@ export class DemoBackend implements Backend {
       const m = u.goals.flatMap((g) => g.milestones).find((x) => x.id === id);
       if (!m) throw new Error("Diese Etappe gibt es nicht mehr.");
       Object.assign(m, defined(rest));
-      if (done !== undefined) m.done_at = done ? now() : null;
+      // done keeps the moment it was first done (a second tap, another device)
+      if (done === true) m.done_at ??= now();
+      else if (done === false) m.done_at = null;
       out = { ...m };
     });
     return out;
@@ -452,6 +598,34 @@ export class DemoBackend implements Backend {
   async deleteMilestone(id: string) {
     this.mutate((u) => {
       for (const g of u.goals) g.milestones = g.milestones.filter((m) => m.id !== id);
+    });
+  }
+
+  async setBlockDone(eventId: string, done: boolean | null, minutes?: number) {
+    this.mutate((u) => {
+      if (done === null) {
+        u.goal_time = u.goal_time.filter((t) => t.event_id !== eventId);
+        return;
+      }
+      const entry = blockTimeEntry(u.events.find((e) => e.id === eventId) ?? null, done, minutes);
+      checkGoal(u, entry.goal_id);
+      const row = u.goal_time.find((t) => t.event_id === eventId);
+      if (row) Object.assign(row, entry, { source: "block" });
+      else u.goal_time.push({ id: uuid(), ...entry, source: "block", event_id: eventId, external_id: null, note: null });
+    });
+  }
+  async blockAnswers(eventIds: string[]) {
+    const ids = new Set(eventIds);
+    const out: Record<string, number> = {};
+    for (const t of this.user().goal_time) if (t.event_id && ids.has(t.event_id)) out[t.event_id] = t.minutes;
+    return out;
+  }
+  /** Time the coach logs for a goal ("heute 1,5 Stunden trainiert"). */
+  private logTime(goalId: string, day: string, minutes: number) {
+    if (!Number.isInteger(minutes) || minutes < 0 || minutes > 1440) throw new Error("Bitte zwischen 0 und 1440 Minuten.");
+    this.mutate((u) => {
+      checkGoal(u, goalId);
+      u.goal_time.push({ id: uuid(), goal_id: goalId, day, minutes, source: "coach", event_id: null, external_id: null, note: null });
     });
   }
 
@@ -541,6 +715,7 @@ export class DemoBackend implements Backend {
       events: u.events,
       goals: u.goals.map(({ milestones: _, ...g }) => g),
       milestones: u.goals.flatMap((g) => g.milestones),
+      goal_time: u.goal_time,
       habits: u.habits.map(({ done_days: _, ...h }) => h),
       habit_logs: u.habits.flatMap((h) => h.done_days.map((day) => ({ habit_id: h.id, day }))),
       days: u.days,
@@ -593,13 +768,17 @@ export class DemoBackend implements Backend {
     let goalNote = "";
     let calendarNote = "";
     let habitNote = "";
+    let timeNote = "";
+    // the demo makes no effort estimate; the real coach does
     const goalFound = req.message ? parseDemoGoal(req.message) : null;
     const goal = goalFound ? await this.addGoal(goalFound, [], "coach") : null;
     if (goal) {
-      onEvent({ type: "goal_saved", goal });
+      onEvent({ type: "goal_saved", goal, created: true });
       goalNote = `Schön, „${goal.title}“ ist jetzt dein Ziel. Du findest es unter Plan. `;
     }
-    const parsed = req.message ? parseDemoEvent(req.message) : null;
+    // "heute 1,5 Stunden trainiert": time for a goal (a report, so no appointment from it)
+    const spent = req.message && !goal ? recogniseDemoTime(req.message, await this.listGoals()) : null;
+    const parsed = req.message && !spent ? parseDemoEvent(req.message) : null;
     if (parsed) {
       const ev = await this.addEvent(
         {
@@ -626,6 +805,15 @@ export class DemoBackend implements Backend {
     if (habitsDone.length) {
       const names = habitsDone.map((h) => `„${h.title}“`).join(" und ");
       habitNote = `Stark, ${names} ${habitsDone.length > 1 ? "sind" : "ist"} für heute abgehakt. `;
+    }
+    if (spent) {
+      this.logTime(spent.goal.id, addDays(req.context.day, -spent.daysAgo), spent.minutes);
+      onEvent({ type: "time_logged", goal_id: spent.goal.id, title: spent.goal.title, minutes: spent.minutes });
+      const amount = `${minutesLabel(spent.minutes)} für „${spent.goal.title}“`;
+      timeNote = habitNote ? `Und ${amount} sind notiert. ` : `Stark, ${amount}. `;
+      const fresh = (await this.listGoals()).find((g) => g.id === spent.goal.id);
+      const effort = fresh ? goalEffort(fresh, req.context.day) : null;
+      if (effort?.effort) timeNote += `Damit hast du ${hoursLabel(effort.done)} von ≈ ${hoursLabel(effort.effort)} Std geschafft. `;
     }
     if (req.mode === "onboarding") {
       const step = history.filter((m) => m.role === "user").length + (req.message ? 1 : 0);
@@ -663,6 +851,13 @@ export class DemoBackend implements Backend {
         reply = `${greet}, ${name}. Wie geht es dir heute?`;
       } else if (goal) {
         reply = "Was wäre ein erster kleiner Schritt dahin?";
+      } else if (/\btag\b.*\bplanen\b/i.test(req.message)) {
+        // "Lass uns meinen Tag planen." (from Plan): no mood, no focus from it
+        reply = "Gern. Was ist heute das Wichtigste, und wann hast du Zeit dafür?";
+        const next = (await this.listGoals()).find((g) => g.status === "active");
+        if (next) reply += ` Für „${next.title}“ schlage ich einen Block ${new Date().getHours() < 17 ? "heute" : "morgen"} um 18 Uhr vor, eine Stunde.`;
+      } else if (habitsDone.length || spent) {
+        reply = "Was steht heute sonst noch an?";
       } else if (userTurns === 1) {
         const mood = moodFrom(req.message);
         this.mutate((u) => (u.days[req.context.day] = { day: req.context.day, mood, focus: u.days[req.context.day]?.focus ?? null }));
@@ -671,8 +866,6 @@ export class DemoBackend implements Backend {
           mood.valence < 0
             ? "Danke, dass du das teilst. Dann machen wir es heute ruhig. Was wäre eine kleine Sache, die dir heute guttun würde?"
             : "Schön zu hören. Was ist heute das Wichtigste für dich?";
-      } else if (habitsDone.length) {
-        reply = "Was steht heute sonst noch an?";
       } else {
         const focus = req.message.slice(0, 80);
         this.mutate((u) => (u.days[req.context.day] = { ...(u.days[req.context.day] ?? { day: req.context.day, mood: null }), focus }));
@@ -680,7 +873,7 @@ export class DemoBackend implements Backend {
         reply = "Gut, das ist dein Fokus für heute. (Im Demo-Modus antworte ich nur einfach – mit der echten KI wird das ein richtiges Gespräch.)";
       }
     }
-    reply = goalNote + calendarNote + habitNote + reply;
+    reply = goalNote + calendarNote + habitNote + timeNote + reply;
     await this.say(reply, onEvent);
     this.push(thread, "assistant", reply);
     onEvent({ type: "done" });

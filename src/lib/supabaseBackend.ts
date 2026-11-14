@@ -10,6 +10,7 @@ import type {
   EventInput,
   Goal,
   GoalInput,
+  GoalTime,
   Habit,
   HabitInput,
   Memory,
@@ -19,6 +20,7 @@ import type {
 } from "./types";
 import { normaliseUsername, USERNAME_RE } from "./types";
 import { addDays, dayOf, weekStart } from "./plan";
+import { blockTimeEntry } from "./demoBackend";
 
 // Supabase Auth works with e-mail addresses. People here log in with a plain
 // username, so each username maps to an internal address on a reserved,
@@ -27,9 +29,51 @@ const USERNAME_DOMAIN = import.meta.env.VITE_USERNAME_EMAIL_DOMAIN || "nutzer.ap
 
 const toEmail = (username: string) => `${normaliseUsername(username)}@${USERNAME_DOMAIN}`;
 
-// A goal row as PostgREST returns it with its embedded milestones.
-type GoalRow = Omit<Goal, "milestones"> & { milestones: Milestone[] | null };
-const toGoal = (row: GoalRow): Goal => ({ ...row, milestones: [...(row.milestones ?? [])].sort((a, b) => a.position - b.position) });
+// A goal row as PostgREST returns it, with its embedded milestones. Postgres numeric
+// can come back as a string, so the hours are converted.
+type Numeric = number | string | null;
+type GoalRow = Omit<Goal, "milestones" | "time" | "effort_hours" | "weekly_hours" | "prior_hours"> & {
+  milestones?: Milestone[] | null;
+  effort_hours: Numeric;
+  weekly_hours: Numeric;
+  prior_hours: Numeric;
+};
+type GoalMinutes = Goal["time"];
+const NO_TIME: GoalMinutes = { logged_minutes: 0, block_minutes: 0 };
+const toNumber = (v: Numeric | undefined): number | null => (v === null || v === undefined || v === "" ? null : Number(v));
+const toGoal = (row: GoalRow, time: GoalMinutes = NO_TIME): Goal => ({
+  ...row,
+  effort_hours: toNumber(row.effort_hours),
+  weekly_hours: toNumber(row.weekly_hours),
+  prior_hours: toNumber(row.prior_hours) ?? 0,
+  milestones: [...(row.milestones ?? [])].sort((a, b) => a.position - b.position),
+  time: { ...time },
+});
+/** prior_hours is "not null default 0": an emptied field means 0. */
+const goalRow = <T extends Partial<GoalInput>>(g: T): T => ((g.prior_hours as number | null | undefined) === null ? { ...g, prior_hours: 0 } : g);
+
+/** Splits ids for .in() filters, so the request URL stays short. */
+function chunks<T>(items: T[], size = 100): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
+  return out;
+}
+
+/** PostgREST returns at most max_rows (1000 on Supabase) per request; the export pages through. */
+const EXPORT_PAGE = 1000;
+// every table of the export with a stable order for paging (its primary key)
+const EXPORT_TABLES: [string, string[]][] = [
+  ["memories", ["id"]],
+  ["events", ["id"]],
+  ["goals", ["id"]],
+  ["milestones", ["id"]],
+  ["goal_time", ["id"]],
+  ["habits", ["id"]],
+  ["habit_logs", ["habit_id", "day"]],
+  ["days", ["user_id", "day"]],
+  ["messages", ["id"]],
+  ["push_subscriptions", ["id"]],
+];
 
 // A habit row with its embedded logs (only the days).
 type HabitRow = Omit<Habit, "done_days"> & { habit_logs: { day: string }[] | null };
@@ -168,19 +212,37 @@ export class SupabaseBackend implements Backend {
     if (error) throw error;
   }
 
+  /** Minutes per goal from the view goal_minutes (logged time and past blocks not yet answered). */
+  private async goalMinutes(ids: string[]): Promise<Map<string, GoalMinutes>> {
+    const out = new Map<string, GoalMinutes>();
+    for (const part of chunks(ids)) {
+      const { data, error } = await this.sb.from("goal_minutes").select("*").in("goal_id", part);
+      if (error) throw error;
+      for (const r of data as { goal_id: string; logged_minutes: Numeric; block_minutes: Numeric }[])
+        out.set(r.goal_id, { logged_minutes: toNumber(r.logged_minutes) ?? 0, block_minutes: toNumber(r.block_minutes) ?? 0 });
+    }
+    return out;
+  }
+
+  private async withTime(rows: GoalRow[]): Promise<Goal[]> {
+    const time = rows.length ? await this.goalMinutes(rows.map((r) => r.id)) : new Map<string, GoalMinutes>();
+    return rows.map((r) => toGoal(r, time.get(r.id)));
+  }
+
   async listGoals(all = false): Promise<Goal[]> {
     let q = this.sb.from("goals").select("*, milestones(*)");
     if (!all) q = q.in("status", ["active", "paused"]);
     const { data, error } = await q.order("target_date", { ascending: true, nullsFirst: false }).order("created_at", { ascending: true });
     if (error) throw error;
-    return (data as GoalRow[]).map(toGoal);
+    return this.withTime(data as GoalRow[]);
   }
 
   async addGoal(g: GoalInput, milestones: Pick<Milestone, "title" | "due_date">[] = []): Promise<Goal> {
-    const { data, error } = await this.sb.from("goals").insert({ ...g, source: "person" }).select().single();
+    const { data, error } = await this.sb.from("goals").insert({ ...goalRow(g), source: "person" }).select().single();
     if (error) throw error;
-    const goal = data as Omit<Goal, "milestones">;
-    if (!milestones.length) return { ...goal, milestones: [] };
+    // a new goal has no time and no blocks yet
+    const goal = data as GoalRow;
+    if (!milestones.length) return toGoal(goal);
     const rows = milestones.map((m, i) => ({ goal_id: goal.id, title: m.title, due_date: m.due_date, position: i }));
     const res = await this.sb.from("milestones").insert(rows).select();
     if (res.error) {
@@ -192,9 +254,10 @@ export class SupabaseBackend implements Backend {
   }
 
   async updateGoal(id: string, patch: Partial<GoalInput>): Promise<Goal> {
-    const { data, error } = await this.sb.from("goals").update(patch).eq("id", id).select("*, milestones(*)").single();
+    const { data, error } = await this.sb.from("goals").update(goalRow(patch)).eq("id", id).select("*, milestones(*)").single();
     if (error) throw error;
-    return toGoal(data as GoalRow);
+    const [goal] = await this.withTime([data as GoalRow]);
+    return goal;
   }
 
   async deleteGoal(id: string) {
@@ -214,8 +277,21 @@ export class SupabaseBackend implements Backend {
 
   async updateMilestone(id: string, patch: Partial<Pick<Milestone, "title" | "due_date" | "position">> & { done?: boolean }): Promise<Milestone> {
     const { done, ...rest } = patch;
-    const row = done === undefined ? rest : { ...rest, done_at: done ? new Date().toISOString() : null };
-    const { data, error } = await this.sb.from("milestones").update(row).eq("id", id).select().single();
+    const row: Record<string, unknown> = Object.fromEntries(Object.entries(rest).filter(([, v]) => v !== undefined));
+    if (done === false) row.done_at = null;
+    let out: Milestone | null = null;
+    if (done !== true || Object.keys(row).length) {
+      const { data, error } = await this.sb.from("milestones").update(row).eq("id", id).select().single();
+      if (error) throw error;
+      out = data as Milestone;
+    }
+    if (done !== true) return out!;
+    // Done keeps the moment it was first done (a second tap, another device).
+    const set = await this.sb.from("milestones").update({ done_at: new Date().toISOString() }).eq("id", id).is("done_at", null).select();
+    if (set.error) throw set.error;
+    if (set.data.length) return set.data[0] as Milestone;
+    if (out) return out;
+    const { data, error } = await this.sb.from("milestones").select().eq("id", id).single();
     if (error) throw error;
     return data as Milestone;
   }
@@ -223,6 +299,39 @@ export class SupabaseBackend implements Backend {
   async deleteMilestone(id: string) {
     const { error } = await this.sb.from("milestones").delete().eq("id", id);
     if (error) throw error;
+  }
+
+  async setBlockDone(eventId: string, done: boolean | null, minutes?: number) {
+    if (done === null) {
+      // no answer any more: the block counts by itself again
+      const { error } = await this.sb.from("goal_time").delete().eq("event_id", eventId);
+      if (error) throw error;
+      return;
+    }
+    const ev = await this.sb.from("events").select("kind, goal_id, starts_at, ends_at, all_day").eq("id", eventId).maybeSingle();
+    if (ev.error) throw ev.error;
+    const fields = { ...blockTimeEntry(ev.data as Pick<CalendarEvent, "kind" | "goal_id" | "starts_at" | "ends_at" | "all_day"> | null, done, minutes), source: "block" as GoalTime["source"] };
+    // Update, else insert: the unique index on event_id is partial, which PostgREST's upsert can't target.
+    const update = () => this.sb.from("goal_time").update(fields).eq("event_id", eventId).select("id");
+    const upd = await update();
+    if (upd.error) throw upd.error;
+    if (upd.data.length) return;
+    const ins = await this.sb.from("goal_time").insert({ ...fields, event_id: eventId });
+    if (!ins.error) return;
+    if (ins.error.code !== "23505") throw ins.error;
+    // answered on another device at the same moment: this answer wins
+    const again = await update();
+    if (again.error) throw again.error;
+  }
+
+  async blockAnswers(eventIds: string[]): Promise<Record<string, number>> {
+    const out: Record<string, number> = {};
+    for (const part of chunks([...new Set(eventIds)])) {
+      const { data, error } = await this.sb.from("goal_time").select("event_id, minutes").in("event_id", part);
+      if (error) throw error;
+      for (const r of data as Pick<GoalTime, "event_id" | "minutes">[]) if (r.event_id) out[r.event_id] = r.minutes;
+    }
+    return out;
   }
 
   async listHabits(): Promise<Habit[]> {
@@ -335,14 +444,26 @@ export class SupabaseBackend implements Backend {
     return ((await res.json()).text as string) ?? "";
   }
 
-  async exportData() {
-    const tables = ["memories", "events", "goals", "milestones", "habits", "habit_logs", "days", "messages", "push_subscriptions"] as const;
-    const out: Record<string, unknown> = { exported_at: new Date().toISOString(), profile: await this.getProfile() };
-    for (const t of tables) {
-      const { data, error } = await this.sb.from(t).select("*");
+  /** All rows of a table, page by page in a stable order. */
+  private async readAll(table: string, order: string[]): Promise<unknown[]> {
+    const rows: unknown[] = [];
+    let total: number | null = null;
+    for (;;) {
+      let q = this.sb.from(table).select("*", rows.length ? undefined : { count: "exact" });
+      for (const col of order) q = q.order(col, { ascending: true });
+      const { data, error, count } = await q.range(rows.length, rows.length + EXPORT_PAGE - 1);
       if (error) throw error;
-      out[t] = data;
+      if (!rows.length) total = count ?? null;
+      rows.push(...(data ?? []));
+      // a server with a smaller max_rows sends shorter pages; the count says when it's complete
+      const complete = total === null ? (data?.length ?? 0) < EXPORT_PAGE : rows.length >= total;
+      if (!data?.length || complete) return rows;
     }
+  }
+
+  async exportData() {
+    const out: Record<string, unknown> = { exported_at: new Date().toISOString(), profile: await this.getProfile() };
+    for (const [table, order] of EXPORT_TABLES) out[table] = await this.readAll(table, order);
     return out;
   }
 
