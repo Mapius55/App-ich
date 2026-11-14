@@ -1,0 +1,5 @@
+# Minimal Supabase CLI config. The project itself is linked with `supabase link`.
+project_id = "app-ich"
+
+[functions.coach]
+verify_jwt = true
