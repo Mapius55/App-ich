@@ -134,3 +134,41 @@ describe("goal effort", () => {
     expect(durationLabel(20)).toBe("5 Monate");
   });
 });
+
+import { dayMinutes, heatLevel, heatThresholds, yearWeeks } from "../src/lib/plan";
+
+describe("year view", () => {
+  const day = (iso: string) => iso.slice(0, 10); // tests run in UTC-like local days
+  it("sums logged time and unanswered past blocks per day", () => {
+    const log = [
+      { day: "2026-11-10", minutes: 60 },
+      { day: "2026-11-10", minutes: 30 },
+      { day: "2026-11-11", minutes: 0 }, // a block that didn't happen
+    ];
+    const blocks = [
+      { id: "b1", starts_at: "2026-11-12T16:00:00Z", ends_at: "2026-11-12T17:30:00Z", all_day: false, kind: "block", goal_id: "g" },
+      { id: "b2", starts_at: "2026-11-11T16:00:00Z", ends_at: "2026-11-11T17:00:00Z", all_day: false, kind: "block", goal_id: "g" }, // answered
+      { id: "b3", starts_at: "2026-11-20T16:00:00Z", ends_at: "2026-11-20T17:00:00Z", all_day: false, kind: "block", goal_id: "g" }, // future
+      { id: "t1", starts_at: "2026-11-13T09:00:00Z", ends_at: "2026-11-13T10:00:00Z", all_day: false, kind: "termin", goal_id: null },
+    ];
+    const m = dayMinutes(log, blocks, new Set(["b2"]), new Date("2026-11-14T12:00:00Z"), day);
+    expect(m).toEqual({ "2026-11-10": 90, "2026-11-12": 90 });
+  });
+  it("four steps fitted to her own days", () => {
+    const t = heatThresholds([10, 20, 30, 60, 90, 120, 180, 240]);
+    expect(t).toEqual([30, 90, 180]);
+    expect(heatLevel(0, t)).toBe(0);
+    expect(heatLevel(20, t)).toBe(1);
+    expect(heatLevel(60, t)).toBe(2);
+    expect(heatLevel(150, t)).toBe(3);
+    expect(heatLevel(300, t)).toBe(4);
+    expect(heatThresholds([])).toEqual([15, 45, 90]);
+  });
+  it("53 whole weeks ending with this week", () => {
+    const w = yearWeeks("2026-11-14");
+    expect(w.length).toBe(53);
+    expect(w.at(-1)![0]).toBe("2026-11-09");
+    expect(w[0][0]).toBe("2025-11-10"); // 52 weeks before this Monday
+    expect(w.every((x) => x.length === 7)).toBe(true);
+  });
+});

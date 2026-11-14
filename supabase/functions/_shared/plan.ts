@@ -243,3 +243,61 @@ export function durationLabel(weeks: number): string {
   if (months < 24) return `${Math.round(months)} Monate`;
   return `${Math.round(months / 12)} Jahre`;
 }
+
+// ---------- the year at a glance: minutes for goals per day ----------
+
+/**
+ * Minutes that went into goals per local day: logged time, plus past planned blocks
+ * for a goal that nobody answered yet (an answered block is already in the log).
+ * `dayOfIso` turns an ISO start time into the person's local day.
+ */
+export function dayMinutes(
+  log: { day: string; minutes: number }[],
+  blocks: { id: string; starts_at: string; ends_at: string | null; all_day: boolean; kind: string; goal_id: string | null }[],
+  answered: Set<string>,
+  now: Date,
+  dayOfIso: (iso: string) => string,
+): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const t of log) if (t.minutes > 0) out[t.day] = (out[t.day] ?? 0) + t.minutes;
+  for (const b of blocks) {
+    if (b.kind !== "block" || !b.goal_id || b.all_day || !b.ends_at || answered.has(b.id)) continue;
+    const end = new Date(b.ends_at).getTime();
+    if (end > now.getTime()) continue;
+    const min = Math.min(1440, Math.max(0, Math.round((end - new Date(b.starts_at).getTime()) / 60000)));
+    if (!min) continue;
+    const d = dayOfIso(b.starts_at);
+    out[d] = (out[d] ?? 0) + min;
+  }
+  return out;
+}
+
+/**
+ * Four steps from "a little" to "a lot", fitted to the person's own days, so a few
+ * minutes and three hours of training both get their range: the upper limits of
+ * steps 1–3 are the quartiles of the active days, never below 15/45/90 minutes.
+ */
+export function heatThresholds(values: number[]): [number, number, number] {
+  const v = values.filter((x) => x > 0).sort((a, b) => a - b);
+  const q = (p: number) => (v.length ? v[Math.min(v.length - 1, Math.floor(p * v.length))] : 0);
+  const t1 = Math.max(15, q(0.25));
+  const t2 = Math.max(45, t1 + 1, q(0.5));
+  const t3 = Math.max(90, t2 + 1, q(0.75));
+  return [t1, t2, t3];
+}
+
+/** 0 = nothing, 1..4 = stronger */
+export function heatLevel(minutes: number, t: [number, number, number]): 0 | 1 | 2 | 3 | 4 {
+  if (!minutes || minutes <= 0) return 0;
+  if (minutes <= t[0]) return 1;
+  if (minutes <= t[1]) return 2;
+  if (minutes <= t[2]) return 3;
+  return 4;
+}
+
+/** The days of the year view: whole weeks (Monday first) ending with the week of `today`, `weeks` long. */
+export function yearWeeks(today: string, weeks = 53): string[][] {
+  const lastMonday = weekStart(today);
+  const first = addDays(lastMonday, -7 * (weeks - 1));
+  return Array.from({ length: weeks }, (_, w) => Array.from({ length: 7 }, (_, d) => addDays(first, w * 7 + d)));
+}
