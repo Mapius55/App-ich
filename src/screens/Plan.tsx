@@ -10,6 +10,7 @@ import { GoalSheet } from "../components/plan/GoalSheet";
 import { HabitRow } from "../components/plan/HabitRow";
 import { HabitSheet } from "../components/plan/HabitSheet";
 import { IphoneConnect } from "../components/plan/IphoneConnect";
+import { YearView } from "../components/plan/YearView";
 import { IconBack, IconChevron, IconPlus } from "../components/plan/icons";
 
 // "Plan": goals with their steps, habits for the week and the calendar, on one
@@ -165,6 +166,15 @@ export function Plan({ onBack, onPlanDay, eventsVersion, planVersion, showConnec
           {error}
         </p>
       )}
+
+      <section className="plan-section" aria-labelledby="plan-year">
+        <div className="plan-section-head">
+          <h2 id="plan-year" className="pill">
+            Dein Jahr
+          </h2>
+        </div>
+        <YearView goals={all} today={today} refresh={eventsVersion + planVersion + version} />
+      </section>
 
       <section className="plan-section" aria-labelledby="plan-goals">
         <div className="plan-section-head">

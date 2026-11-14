@@ -637,6 +637,8 @@ async function runTool(
         if (!row.title || !row.starts_at) throw new ToolInputError("title und start sind nötig");
         if (endsBeforeStart(row.starts_at, row.ends_at)) throw new ToolInputError("end liegt vor start");
         const allDay = row.all_day === true;
+        // a planned block needs an end to count toward its goal: one hour unless said otherwise
+        if (row.kind === "block" && !allDay && !row.ends_at) row.ends_at = new Date(Date.parse(String(row.starts_at)) + 3600_000).toISOString();
         row.reminder_minutes = input.reminder_minutes !== undefined ? reminder(allDay) : defaultReminder(allDay, row.kind);
         const { data, error } = await sb.from("events").insert({ ...row, user_id: userId, source: "coach" }).select().single();
         if (error) throw missingGoal(error);
@@ -867,8 +869,7 @@ async function runTool(
       const insert = () =>
         sb.from("goal_time").insert({ ...fields, user_id: userId, source: eventId ? "block" : "coach", event_id: eventId, note: note ?? null });
       if (eventId) {
-        // One answer per block; a new one replaces it. (The unique index on event_id is partial,
-        // which an upsert's ON CONFLICT can't target through PostgREST, hence update-or-insert.)
+        // One answer per block; a new one replaces it (update, else insert; a race ends in an update).
         const update = () => sb.from("goal_time").update(fields).eq("event_id", eventId).select("id");
         let res = await update();
         if (res.error) throw res.error;
@@ -883,18 +884,45 @@ async function runTool(
         if (ins.error) throw missingGoal(ins.error);
       }
       send({ type: "time_logged", goal_id: goalId, title: goalRes.data.title, minutes });
-      const goal = await loadGoal(sb, goalId);
-      send({ type: "goal_saved", goal });
-      // The new totals, so the coach can mention the progress in a word.
-      const e = goalEffort(goal, day);
-      return JSON.stringify({
-        ok: true,
-        done_hours: e.done,
-        remaining_hours: e.remaining,
-        needed_per_week: e.neededPerWeek,
-        feasibility: e.feasibility,
-        aufwand: effortLine(goal, day),
-      });
+      // Without event_id, time on a day with a past, unanswered block of this goal may be that block:
+      // tell the model, so it can answer the block instead of counting twice.
+      let hint: string | undefined;
+      if (!eventId) {
+        try {
+          const blocks = await sb
+            .from("events")
+            .select("id, starts_at, ends_at, goal_time(id)")
+            .eq("goal_id", goalId)
+            .eq("kind", "block")
+            .eq("all_day", false)
+            .gte("starts_at", new Date(Date.now() - 8 * DAY_MS).toISOString())
+            .lte("ends_at", new Date().toISOString());
+          const open = (blocks.data ?? []).filter((b) => localDay(b.starts_at, ctx.tz) === logDay && !(b.goal_time as unknown[] | null)?.length);
+          if (open.length)
+            hint = `Achtung: An diesem Tag gibt es einen geplanten Block ohne Rückmeldung (${open.map((b) => b.id).join(", ")}), der schon von selbst zählt. War die Zeit dieser Block, trag sie mit log_time und event_id ein und lösche diesen Eintrag nicht doppelt; war es zusätzlich, ist alles richtig.`;
+        } catch (err) {
+          console.error(err);
+        }
+      }
+      // The new totals, so the coach can mention the progress in a word. The time is saved
+      // already: a failure here must not look like a failed save (a retry would count twice).
+      try {
+        const goal = await loadGoal(sb, goalId);
+        send({ type: "goal_saved", goal });
+        const e = goalEffort(goal, day);
+        return JSON.stringify({
+          ok: true,
+          done_hours: e.done,
+          remaining_hours: e.remaining,
+          needed_per_week: e.neededPerWeek,
+          feasibility: e.feasibility,
+          aufwand: effortLine(goal, day),
+          ...(hint ? { hint } : {}),
+        });
+      } catch (err) {
+        console.error(err);
+        return JSON.stringify({ ok: true, ...(hint ? { hint } : {}) });
+      }
     }
     case "request_location": {
       send({ type: "request_location" });
@@ -989,15 +1017,16 @@ async function converse({ sb, userId, body, send }: { sb: SupabaseClient; userId
     sb.from("days").select("day, mood, focus").lt("day", context.day).order("day", { ascending: false }).limit(14),
     // Appointments from two days back on, also far out (a race in spring), so nothing is entered twice.
     sb.from("events").select(eventCols).eq("kind", "termin").gte("starts_at", iso(now - 2 * DAY_MS)).order("starts_at").limit(60),
-    // Planned blocks only near at hand, so many of them can't crowd out the appointments.
+    // Planned blocks in their own query, so many of them can't crowd out the appointments;
+    // two months ahead, so the coach can still move a planned training plan when something comes up.
     sb
       .from("events")
       .select(eventCols)
       .eq("kind", "block")
       .gte("starts_at", iso(now - 2 * DAY_MS))
-      .lt("starts_at", iso(now + 14 * DAY_MS))
+      .lt("starts_at", iso(now + 60 * DAY_MS))
       .order("starts_at")
-      .limit(80),
+      .limit(150),
     // Past blocks for a goal from the last week, with any answer (goal_time) given for them.
     sb
       .from("events")

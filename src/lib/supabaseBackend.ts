@@ -334,6 +334,23 @@ export class SupabaseBackend implements Backend {
     return out;
   }
 
+  async listGoalTime(from: string, to: string): Promise<GoalTime[]> {
+    const out: GoalTime[] = [];
+    for (let start = 0; ; start += 1000) {
+      const { data, error } = await this.sb
+        .from("goal_time")
+        .select("id, goal_id, day, minutes, source, event_id, external_id, note")
+        .gte("day", from)
+        .lte("day", to)
+        .order("day")
+        .order("id")
+        .range(start, start + 999);
+      if (error) throw error;
+      out.push(...(data as GoalTime[]));
+      if (data.length < 1000) return out;
+    }
+  }
+
   async listHabits(): Promise<Habit[]> {
     // The filter on habit_logs.day limits the embedded logs, not the habits.
     const { data, error } = await this.sb

@@ -290,7 +290,7 @@ function presenter(u: DemoUser, at = Date.now()): (g: StoredGoal) => Goal {
     const blocks = u.events.reduce(
       (sum, e) =>
         e.goal_id === g.id && e.kind === "block" && !e.all_day && e.ends_at && Date.parse(e.ends_at) <= at && !answered.has(e.id)
-          ? sum + (Date.parse(e.ends_at) - Date.parse(e.starts_at)) / 60000
+          ? sum + Math.min(1440, (Date.parse(e.ends_at) - Date.parse(e.starts_at)) / 60000)
           : sum,
       0,
     );
@@ -502,8 +502,16 @@ export class DemoBackend implements Backend {
       if (!ev) throw new Error("Diesen Eintrag gibt es nicht mehr.");
       checkGoal(u, patch.goal_id);
       checkReminder(patch.reminder_minutes);
+      const before = { ...ev };
       // like the events_bump trigger, so a calendar file picks up the change
       Object.assign(ev, defined(patch), { sequence: (ev.sequence ?? 0) + 1, updated_at: now() });
+      // like the events_block_answer trigger: a block's answer follows the block
+      const notPastBlock = ev.kind !== "block" || ev.all_day || !ev.ends_at || new Date(ev.ends_at).getTime() > Date.now() || !ev.goal_id;
+      if (notPastBlock || ev.starts_at !== before.starts_at || ev.ends_at !== before.ends_at) {
+        u.goal_time = u.goal_time.filter((t) => t.event_id !== id);
+      } else if (ev.goal_id !== before.goal_id) {
+        for (const t of u.goal_time) if (t.event_id === id) t.goal_id = ev.goal_id!;
+      }
       out = { ...ev };
     });
     return out;
@@ -619,6 +627,12 @@ export class DemoBackend implements Backend {
     const out: Record<string, number> = {};
     for (const t of this.user().goal_time) if (t.event_id && ids.has(t.event_id)) out[t.event_id] = t.minutes;
     return out;
+  }
+  async listGoalTime(from: string, to: string) {
+    return this.user()
+      .goal_time.filter((t) => t.day >= from && t.day <= to)
+      .map((t) => ({ ...t }))
+      .sort((a, b) => a.day.localeCompare(b.day));
   }
   /** Time the coach logs for a goal ("heute 1,5 Stunden trainiert"). */
   private logTime(goalId: string, day: string, minutes: number) {
@@ -858,6 +872,9 @@ export class DemoBackend implements Backend {
         if (next) reply += ` Für „${next.title}“ schlage ich einen Block ${new Date().getHours() < 17 ? "heute" : "morgen"} um 18 Uhr vor, eine Stunde.`;
       } else if (habitsDone.length || spent) {
         reply = "Was steht heute sonst noch an?";
+      } else if (parseDemoMinutes(req.message) && (await this.listGoals()).filter((g) => g.status === "active").length > 1) {
+        // time reported, but which goal? ask instead of guessing (and no mood or focus from it)
+        reply = "Stark. Für welches Ziel zählt das?";
       } else if (userTurns === 1) {
         const mood = moodFrom(req.message);
         this.mutate((u) => (u.days[req.context.day] = { day: req.context.day, mood, focus: u.days[req.context.day]?.focus ?? null }));

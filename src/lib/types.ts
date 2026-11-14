@@ -211,6 +211,8 @@ export interface Backend {
   setBlockDone(eventId: string, done: boolean | null, minutes?: number): Promise<void>;
   /** Answers given for blocks: event_id → minutes (0 = didn't happen). */
   blockAnswers(eventIds: string[]): Promise<Record<string, number>>;
+  /** Time entries for goals on days in [from, to] (YYYY-MM-DD, inclusive), for the year view. */
+  listGoalTime(from: string, to: string): Promise<GoalTime[]>;
 
   /** Active habits with the days they were done (last ~16 weeks). */
   listHabits(): Promise<Habit[]>;

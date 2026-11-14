@@ -3,8 +3,8 @@ import { backend } from "../lib/backend";
 import type { CoachContext, CoachEvent, Goal } from "../lib/types";
 import type { OrbState } from "./Portal";
 import { pulseOrb } from "../lib/orbSignals";
-import { eventWhen, shortDay } from "../lib/dates";
-import { hoursLabel, perWeekLabel } from "../lib/plan";
+import { eventWhen, minutesLabel, shortDay } from "../lib/dates";
+import { perWeekLabel } from "../lib/plan";
 import { isAudioUnlocked, listenOnce, Speaker, splitSentences, unlockAudio, type ListenHandle } from "../lib/voice";
 
 // The conversation as pure voice: the coach speaks (no text on screen), you
@@ -164,8 +164,10 @@ export function VoiceConversation({ mode, thread, context, onEvent, onOrbState, 
             pulseOrb(0.4);
             onEventRef.current(e);
           } else if (e.type === "time_logged") {
+            // the goal_saved that follows for the same goal needs no second toast
+            toasted.current.set(e.goal_id, Date.now());
             if (e.minutes > 0) {
-              toast({ label: `+${hoursLabel(e.minutes / 60)} Std`, title: e.title, icon: "check" });
+              toast({ label: `+${minutesLabel(e.minutes)}`, title: e.title, icon: "check" });
               pulseOrb(0.4);
             }
             onEventRef.current(e);

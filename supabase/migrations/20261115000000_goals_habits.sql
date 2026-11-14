@@ -133,8 +133,9 @@ create table public.goal_time (
   note text check (note is null or length(note) <= 300),
   created_at timestamptz not null default now()
 );
-create unique index goal_time_event_idx on public.goal_time (event_id) where event_id is not null;
-create unique index goal_time_external_idx on public.goal_time (user_id, source, external_id) where external_id is not null;
+-- plain (not partial) unique indexes, so upserts can target them; NULLs stay distinct
+create unique index goal_time_event_idx on public.goal_time (event_id);
+create unique index goal_time_external_idx on public.goal_time (user_id, source, external_id);
 create index goal_time_goal_idx on public.goal_time (goal_id, day);
 create index goal_time_user_idx on public.goal_time (user_id);
 alter table public.goal_time enable row level security;
@@ -148,7 +149,7 @@ create view public.goal_minutes with (security_invoker = true) as
 select g.id as goal_id,
   coalesce((select sum(t.minutes) from public.goal_time t where t.goal_id = g.id), 0)::integer as logged_minutes,
   coalesce((
-    select sum(extract(epoch from (e.ends_at - e.starts_at)) / 60)
+    select sum(least(1440, extract(epoch from (e.ends_at - e.starts_at)) / 60))
     from public.events e
     where e.goal_id = g.id and e.kind = 'block' and not e.all_day
       and e.ends_at is not null and e.ends_at <= now()
@@ -169,3 +170,20 @@ end;
 $$;
 create trigger goal_time_event_owner before insert or update of event_id on public.goal_time
   for each row execute function public.check_event_owner();
+
+-- When a planned block changes, its answer must follow: moved into the future, made all-day or
+-- no longer a block -> the answer goes; linked to another goal -> the answer moves along.
+create function public.sync_block_answer() returns trigger language plpgsql as $$
+begin
+  if new.kind <> 'block' or new.all_day or new.ends_at is null or new.ends_at > now() or new.goal_id is null then
+    delete from public.goal_time where event_id = new.id;
+  elsif new.starts_at is distinct from old.starts_at or new.ends_at is distinct from old.ends_at then
+    delete from public.goal_time where event_id = new.id; -- the old answer was for another time
+  elsif new.goal_id is distinct from old.goal_id then
+    update public.goal_time set goal_id = new.goal_id where event_id = new.id;
+  end if;
+  return null;
+end;
+$$;
+create trigger events_block_answer after update of starts_at, ends_at, all_day, kind, goal_id on public.events
+  for each row execute function public.sync_block_answer();
