@@ -8,7 +8,8 @@
 
 import Anthropic from "npm:@anthropic-ai/sdk@1.8.0";
 import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2.119.0";
-import { contextBlock, MODE_CHECKIN, MODE_ONBOARDING, PERSONA } from "./prompt.ts";
+import { contextBlock, MODE_CHECKIN, MODE_ONBOARDING, MODE_TIDY, PERSONA } from "./prompt.ts";
+import { zonedToUtc } from "../_shared/ics.ts";
 
 const MODEL = "claude-opus-5-5";
 // Conversation, not heavy reasoning: low effort keeps replies quick on the phone.
@@ -21,14 +22,14 @@ const CORS = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
-const CATEGORIES = ["person", "arbeit", "werte", "rhythmus", "ziel", "termin", "natur", "anderes"] as const;
+const CATEGORIES = ["person", "arbeit", "werte", "rhythmus", "ziel", "termin", "ort", "natur", "anderes"] as const;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const HEX_RE = /^#[0-9a-fA-F]{6}$/;
 
 type Ev = Record<string, unknown> & { type: string };
 
 interface ReqBody {
-  mode: "onboarding" | "checkin";
+  mode: "onboarding" | "checkin" | "tidy";
   thread: string;
   message?: string;
   context: { day: string; localTime: string; timezone: string; season: string; phase: string; weather?: string; hasLocation: boolean };
@@ -36,7 +37,7 @@ interface ReqBody {
 
 function parseBody(raw: unknown): ReqBody {
   const b = raw as Partial<ReqBody>;
-  if (b?.mode !== "onboarding" && b?.mode !== "checkin") throw new Error("mode");
+  if (b?.mode !== "onboarding" && b?.mode !== "checkin" && b?.mode !== "tidy") throw new Error("mode");
   if (typeof b.thread !== "string" || !(b.thread === "onboarding" || DATE_RE.test(b.thread))) throw new Error("thread");
   if (b.message !== undefined && (typeof b.message !== "string" || b.message.length > 4000)) throw new Error("message");
   const c = b.context;
@@ -145,6 +146,53 @@ const TOOLS: Anthropic.Beta.BetaTool[] = [
     eager_input_streaming: true,
   },
   {
+    name: "create_event",
+    description:
+      "Trägt einen Termin direkt in den Kalender „I am“ auf dem iPhone der Person ein (Rennen, Training, Treffen, Prüfung …). Zeiten in der lokalen Zeit der Person.",
+    input_schema: {
+      type: "object",
+      properties: {
+        title: { type: "string", description: "Kurz, z.B. „Halbmarathon Zürich“." },
+        start: { type: "string", description: "YYYY-MM-DDTHH:MM (lokal) oder YYYY-MM-DD für ganztägig." },
+        end: { type: "string", description: "Optional, gleiches Format wie start." },
+        location: { type: "string" },
+        notes: { type: "string" },
+        reminder_minutes: {
+          type: "integer",
+          description: "Erinnerung so viele Minuten vorher (Standard 30). Bei ganztägigen Terminen weglassen (dann 8 Uhr am Tag).",
+        },
+      },
+      required: ["title", "start"],
+      additionalProperties: false,
+    },
+    eager_input_streaming: true,
+  },
+  {
+    name: "update_event",
+    description: "Ändert einen Termin im Kalender „I am“ (id aus dem Kontext).",
+    input_schema: {
+      type: "object",
+      properties: {
+        id: { type: "string" },
+        title: { type: "string" },
+        start: { type: "string" },
+        end: { type: "string" },
+        location: { type: "string" },
+        notes: { type: "string" },
+        reminder_minutes: { type: "integer" },
+      },
+      required: ["id"],
+      additionalProperties: false,
+    },
+    eager_input_streaming: true,
+  },
+  {
+    name: "delete_event",
+    description: "Löscht einen Termin aus dem Kalender „I am“, z.B. wenn er abgesagt wurde.",
+    input_schema: { type: "object", properties: { id: { type: "string" } }, required: ["id"], additionalProperties: false },
+    eager_input_streaming: true,
+  },
+  {
     name: "request_location",
     description: "Zeigt in der App einen Knopf, um den Standort freizugeben (für Wetter und Sonnenuntergang in den Farben).",
     input_schema: { type: "object", properties: {}, additionalProperties: false },
@@ -184,14 +232,14 @@ const optDate = (v: unknown): string | null | undefined => {
 async function runTool(
   name: string,
   input: Record<string, unknown>,
-  ctx: { sb: SupabaseClient; userId: string; day: string; mode: ReqBody["mode"]; send: (e: Ev) => void },
+  ctx: { sb: SupabaseClient; userId: string; day: string; tz: string; mode: ReqBody["mode"]; send: (e: Ev) => void },
 ): Promise<string> {
   const { sb, userId, day, send } = ctx;
   switch (name) {
     case "remember": {
       const category = String(input.category);
       if (!(CATEGORIES as readonly string[]).includes(category)) throw new ToolInputError("unbekannte Kategorie");
-      const row = { user_id: userId, content: str(input.content, 2000, "content"), category, event_date: optDate(input.event_date) ?? null };
+      const row = { user_id: userId, content: str(input.content, 2000, "content"), category, event_date: optDate(input.event_date) ?? null, source: "coach" };
       const { data, error } = await sb.from("memories").insert(row).select().single();
       if (error) throw error;
       send({ type: "memory", memory: data });
@@ -204,7 +252,10 @@ async function runTool(
       const d = optDate(input.event_date);
       if (d !== undefined) patch.event_date = d;
       if (!Object.keys(patch).length) throw new ToolInputError("nichts zu ändern");
-      const { data, error } = await sb.from("memories").update(patch).eq("id", id).select().maybeSingle();
+      let q = sb.from("memories").update(patch).eq("id", id);
+      // While tidying up on its own, the coach only touches its own notes, never what the person wrote or confirmed.
+      if (ctx.mode === "tidy") q = q.eq("source", "coach");
+      const { data, error } = await q.select().maybeSingle();
       if (error) throw error;
       if (!data) throw new ToolInputError("Erinnerung nicht gefunden");
       send({ type: "memory_updated", memory: data });
@@ -212,8 +263,11 @@ async function runTool(
     }
     case "forget": {
       const id = str(input.id, 64, "id");
-      const { error } = await sb.from("memories").delete().eq("id", id);
+      let q = sb.from("memories").delete().eq("id", id);
+      if (ctx.mode === "tidy") q = q.eq("source", "coach");
+      const { data, error } = await q.select("id");
       if (error) throw error;
+      if (!data?.length) throw new ToolInputError(ctx.mode === "tidy" ? "selbst eingetragen – bitte stehen lassen" : "Erinnerung nicht gefunden");
       send({ type: "memory_deleted", id });
       return JSON.stringify({ ok: true });
     }
@@ -252,6 +306,52 @@ async function runTool(
       const { error } = await sb.from("profiles").update(patch).eq("id", userId);
       if (error) throw error;
       send({ type: "profile", profile: patch });
+      return JSON.stringify({ ok: true });
+    }
+    case "create_event":
+    case "update_event": {
+      const row: Record<string, unknown> = {};
+      const when = (v: unknown, field: string) => {
+        const txt = str(v, 20, field);
+        try {
+          return { iso: zonedToUtc(txt, ctx.tz), allDay: !txt.includes("T") };
+        } catch {
+          throw new ToolInputError(`${field}: YYYY-MM-DDTHH:MM oder YYYY-MM-DD`);
+        }
+      };
+      if (input.title !== undefined) row.title = str(input.title, 200, "title");
+      if (input.start !== undefined) {
+        const s0 = when(input.start, "start");
+        row.starts_at = s0.iso;
+        row.all_day = s0.allDay;
+        if (s0.allDay && input.reminder_minutes === undefined && name === "create_event") row.reminder_minutes = -480; // 08:00 that day
+      }
+      if (input.end !== undefined) row.ends_at = when(input.end, "end").iso;
+      if (input.location !== undefined) row.location = str(input.location, 200, "location");
+      if (input.notes !== undefined) row.notes = str(input.notes, 2000, "notes");
+      if (input.reminder_minutes !== undefined) row.reminder_minutes = Math.round(num(input.reminder_minutes, 0, 10080, "reminder_minutes"));
+      if (name === "create_event") {
+        if (!row.title || !row.starts_at) throw new ToolInputError("title und start sind nötig");
+        if (row.reminder_minutes === undefined) row.reminder_minutes = 30;
+        const { data, error } = await sb.from("events").insert({ ...row, user_id: userId, source: "coach" }).select().single();
+        if (error) throw error;
+        send({ type: "event_created", event: data });
+        return JSON.stringify({ ok: true, id: data.id });
+      }
+      const id = str(input.id, 64, "id");
+      if (!Object.keys(row).length) throw new ToolInputError("nichts zu ändern");
+      const { data, error } = await sb.from("events").update(row).eq("id", id).select().maybeSingle();
+      if (error) throw error;
+      if (!data) throw new ToolInputError("Termin nicht gefunden");
+      send({ type: "event_updated", event: data });
+      return JSON.stringify({ ok: true });
+    }
+    case "delete_event": {
+      const id = str(input.id, 64, "id");
+      const { data, error } = await sb.from("events").delete().eq("id", id).select("id, title");
+      if (error) throw error;
+      if (!data?.length) throw new ToolInputError("Termin nicht gefunden");
+      send({ type: "event_deleted", id, title: data[0].title });
       return JSON.stringify({ ok: true });
     }
     case "request_location": {
@@ -329,16 +429,29 @@ function friendlyError(err: unknown): string {
 async function converse({ sb, userId, body, send }: { sb: SupabaseClient; userId: string; body: ReqBody; send: (e: Ev) => void }) {
   const { mode, thread, message, context } = body;
 
-  const [profileRes, memoriesRes, historyRes, daysRes] = await Promise.all([
+  const [profileRes, memoriesRes, historyRes, daysRes, eventsRes] = await Promise.all([
     sb.from("profiles").select("display_name, location_name, summary, nature_palette").eq("id", userId).single(),
-    sb.from("memories").select("id, category, event_date, content").order("created_at", { ascending: true }).limit(400),
-    sb.from("messages").select("role, content").eq("thread", thread).order("id", { ascending: false }).limit(80),
-    sb.from("days").select("day, mood, focus").lt("day", context.day).order("day", { ascending: false }).limit(7),
+    sb.from("memories").select("id, category, event_date, content, source").order("created_at", { ascending: true }).limit(400),
+    mode === "tidy"
+      ? Promise.resolve({ data: [] as { role: string; content: string }[] })
+      : sb.from("messages").select("role, content").eq("thread", thread).order("id", { ascending: false }).limit(80),
+    // Two weeks of mood and energy, so the coach can notice patterns.
+    sb.from("days").select("day, mood, focus").lt("day", context.day).order("day", { ascending: false }).limit(14),
+    sb
+      .from("events")
+      .select("id, title, starts_at, all_day, location")
+      .gte("starts_at", new Date(Date.now() - 2 * 24 * 3600 * 1000).toISOString())
+      .order("starts_at")
+      .limit(60),
   ]);
   if (profileRes.error) throw profileRes.error;
 
-  const opener = message ?? (mode === "onboarding" ? "(Die App wird zum ersten Mal geöffnet.)" : "(Die App wurde gerade geöffnet.)");
-  await sb.from("messages").insert({ user_id: userId, thread, role: "user", content: opener, hidden: !message });
+  const opener =
+    mode === "tidy"
+      ? "(Stilles Aufräumen der Erinnerungen.)"
+      : (message ?? (mode === "onboarding" ? "(Die App wird zum ersten Mal geöffnet.)" : "(Die App wurde gerade geöffnet.)"));
+  // Tidying is invisible: nothing goes into the conversation.
+  if (mode !== "tidy") await sb.from("messages").insert({ user_id: userId, thread, role: "user", content: opener, hidden: !message });
 
   const history: Anthropic.Beta.BetaMessageParam[] = (historyRes.data ?? [])
     .reverse()
@@ -349,7 +462,7 @@ async function converse({ sb, userId, body, send }: { sb: SupabaseClient; userId
 
   const system: Anthropic.Beta.BetaTextBlockParam[] = [
     // Stable: persona + mode rules (cached across requests).
-    { type: "text", text: `${PERSONA}\n\n${mode === "onboarding" ? MODE_ONBOARDING : MODE_CHECKIN}`, cache_control: { type: "ephemeral" } },
+    { type: "text", text: `${PERSONA}\n\n${mode === "onboarding" ? MODE_ONBOARDING : mode === "tidy" ? MODE_TIDY : MODE_CHECKIN}`, cache_control: { type: "ephemeral" } },
     // Changes every turn: time, weather, memories.
     {
       type: "text",
@@ -358,11 +471,28 @@ async function converse({ sb, userId, body, send }: { sb: SupabaseClient; userId
         profile: profileRes.data,
         memories: memoriesRes.data ?? [],
         recentDays: daysRes.data ?? [],
+        events: (eventsRes.data ?? []).map((e) => ({
+          id: e.id,
+          title: e.title,
+          when: new Intl.DateTimeFormat("de-CH", {
+            timeZone: context.timezone || "Europe/Zurich",
+            weekday: "short",
+            day: "numeric",
+            month: "short",
+            ...(e.all_day ? {} : { hour: "2-digit", minute: "2-digit" }),
+          }).format(new Date(e.starts_at)),
+          location: e.location,
+        })),
       }),
     },
   ];
 
-  const tools = mode === "onboarding" ? TOOLS : TOOLS.filter((t) => t.name !== "finish_onboarding");
+  const tools =
+    mode === "onboarding"
+      ? TOOLS
+      : mode === "tidy"
+        ? TOOLS.filter((t) => ["remember", "update_memory", "forget"].includes(t.name))
+        : TOOLS.filter((t) => t.name !== "finish_onboarding");
   let fullText = "";
 
   for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
@@ -408,7 +538,7 @@ async function converse({ sb, userId, body, send }: { sb: SupabaseClient; userId
       toolUses.map(async (tu) => {
         try {
           const input = tu.input && typeof tu.input === "object" ? (tu.input as Record<string, unknown>) : {};
-          const out = await runTool(tu.name, input, { sb, userId, day: context.day, mode, send });
+          const out = await runTool(tu.name, input, { sb, userId, day: context.day, tz: context.timezone || "Europe/Zurich", mode, send });
           return { type: "tool_result" as const, tool_use_id: tu.id, content: out };
         } catch (e) {
           const msgText = e instanceof ToolInputError ? e.message : "Speichern fehlgeschlagen";
@@ -420,7 +550,7 @@ async function converse({ sb, userId, body, send }: { sb: SupabaseClient; userId
     messages.push({ role: "user", content: results });
   }
 
-  if (fullText.trim()) {
+  if (mode !== "tidy" && fullText.trim()) {
     await sb.from("messages").insert({ user_id: userId, thread, role: "assistant", content: fullText.trim() });
   }
 }

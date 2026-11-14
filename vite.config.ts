@@ -11,28 +11,30 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: "autoUpdate",
+      // own service worker (src/sw.ts): app shell offline + coach notifications
+      strategies: "injectManifest",
+      srcDir: "src",
+      filename: "sw.ts",
       includeAssets: ["icon.svg", "apple-touch-icon.png"],
       manifest: {
-        name: "App-ich",
-        short_name: "App-ich",
+        name: "I am",
+        short_name: "I am",
         description: "Dein persönlicher Coach für deine Zeit.",
         lang: "de-CH",
         start_url: base,
         scope: base,
         display: "standalone",
         orientation: "portrait",
-        background_color: "#1b1f4a",
-        theme_color: "#1b1f4a",
+        background_color: "#05060a",
+        theme_color: "#05060a",
         icons: [
           { src: "icon-192.png", sizes: "192x192", type: "image/png" },
           { src: "icon-512.png", sizes: "512x512", type: "image/png" },
           { src: "icon-512.png", sizes: "512x512", type: "image/png", purpose: "maskable" },
         ],
       },
-      workbox: {
-        navigateFallback: `${base}index.html`,
-        // Never cache API calls (Supabase, weather) in the service worker.
-        navigateFallbackDenylist: [/\/functions\//, /\/rest\//, /\/auth\//],
+      injectManifest: {
+        globPatterns: ["**/*.{js,css,html,svg,png,webmanifest}"],
       },
     }),
   ],

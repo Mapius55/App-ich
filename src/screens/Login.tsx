@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { backend } from "../lib/backend";
-import { Orb } from "../components/Orb";
+import { Portal } from "../components/Portal";
 import type { Palette } from "../lib/palette";
 
 export function Login({ palette }: { palette: Palette }) {
@@ -29,16 +29,22 @@ export function Login({ palette }: { palette: Palette }) {
     }
   };
 
+  const toggle = () => {
+    setMode(mode === "login" ? "signup" : "login");
+    setError(null);
+  };
+
   return (
     <main className="screen login">
-      <div className="login-orb">
-        <Orb colors={palette.orb} size={168} speed={palette.speed} seed={palette.seed} state={busy ? "thinking" : "idle"} />
+      <div className="login-portal">
+        <Portal colors={palette.orb} daylight={palette.daylight} size={230} speed={palette.speed} seed={palette.seed} state={busy ? "thinking" : "idle"} />
       </div>
-      <h1 className="title">{mode === "login" ? "Willkommen zurück" : "Schön, dass du da bist"}</h1>
-      <p className="subtitle">{mode === "login" ? "Melde dich an, um weiterzumachen." : "Erstelle dein Konto. Danach lernen wir uns kennen."}</p>
+      <span className="pill">{mode === "login" ? "Willkommen" : "Neu hier"}</span>
+      <h1 className="title">{mode === "login" ? "Schön, dass du zurück bist" : "Lass uns anfangen"}</h1>
+      <p className="lede">{mode === "login" ? "Melde dich an, um weiterzumachen." : "Erstelle dein Konto. Danach lernen wir uns kennen."}</p>
 
-      <form className="card form" onSubmit={submit}>
-        <label>
+      <form className="form" onSubmit={submit}>
+        <label className="field">
           <span>Benutzername</span>
           <input
             value={username}
@@ -50,7 +56,7 @@ export function Login({ palette }: { palette: Palette }) {
             required
           />
         </label>
-        <label>
+        <label className="field">
           <span>Passwort</span>
           <input
             type="password"
@@ -62,7 +68,7 @@ export function Login({ palette }: { palette: Palette }) {
           />
         </label>
         {mode === "signup" && (
-          <label>
+          <label className="field">
             <span>Passwort wiederholen</span>
             <input type="password" value={password2} onChange={(e) => setPassword2(e.target.value)} autoComplete="new-password" required />
           </label>
@@ -72,24 +78,21 @@ export function Login({ palette }: { palette: Palette }) {
             {error}
           </p>
         )}
-        <button className="btn primary" disabled={busy}>
-          {busy ? "Einen Moment …" : mode === "login" ? "Anmelden" : "Konto erstellen"}
-        </button>
+
+        <div className="dock login-dock">
+          <button type="submit" className="dock-main" disabled={busy} aria-label={mode === "login" ? "Anmelden" : "Konto erstellen"}>
+            <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M5 12h14M13 6l6 6-6 6" />
+            </svg>
+          </button>
+          <button type="button" className="dock-pill as-button" onClick={toggle}>
+            <span>{mode === "login" ? "Neu hier? Konto erstellen" : "Ich habe schon ein Konto"}</span>
+            <span className="dock-chevrons" aria-hidden="true">›››</span>
+          </button>
+        </div>
       </form>
 
-      <button
-        className="link"
-        onClick={() => {
-          setMode(mode === "login" ? "signup" : "login");
-          setError(null);
-        }}
-      >
-        {mode === "login" ? "Neu hier? Konto erstellen" : "Ich habe schon ein Konto"}
-      </button>
-
-      {backend.kind === "demo" && (
-        <p className="demo-note">Demo-Modus: noch ohne echte KI, alles bleibt auf diesem Gerät.</p>
-      )}
+      {backend.kind === "demo" && <p className="demo-note">Demo-Modus: noch ohne echte KI, alles bleibt auf diesem Gerät.</p>}
     </main>
   );
 }

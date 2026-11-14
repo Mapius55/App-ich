@@ -7,6 +7,7 @@ export interface Weather {
   cloudCover: number; // 0..100
   temperature: number; // °C
   description: string; // German, for the coach
+  elevation?: number; // metres above sea level of the location
   fetchedAt: number;
 }
 
@@ -51,6 +52,7 @@ export async function fetchWeather(lat: number, lon: number): Promise<Weather | 
       description,
       cloudCover: Number(data.current.cloud_cover ?? 0),
       temperature: Number(data.current.temperature_2m ?? 0),
+      elevation: typeof data.elevation === "number" ? data.elevation : undefined,
       fetchedAt: Date.now(),
     };
     try {

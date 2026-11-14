@@ -1,5 +1,5 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-import type { Backend, ChatMessage, CoachEvent, CoachRequest, DayState, Memory, Profile } from "./types";
+import type { Backend, CalendarEvent, ChatMessage, CoachContext, CoachEvent, CoachRequest, DayState, Memory, Profile, PushSubscriptionRow } from "./types";
 import { normaliseUsername, USERNAME_RE } from "./types";
 
 // Supabase Auth works with e-mail addresses. People here log in with a plain
@@ -101,7 +101,7 @@ export class SupabaseBackend implements Backend {
     return data as Memory;
   }
 
-  async updateMemory(id: string, patch: Partial<Pick<Memory, "content" | "category" | "event_date">>) {
+  async updateMemory(id: string, patch: Partial<Pick<Memory, "content" | "category" | "event_date" | "source">>) {
     const { error } = await this.sb.from("memories").update(patch).eq("id", id);
     if (error) throw error;
   }
@@ -109,6 +109,86 @@ export class SupabaseBackend implements Backend {
   async deleteMemory(id: string) {
     const { error } = await this.sb.from("memories").delete().eq("id", id);
     if (error) throw error;
+  }
+
+  async listEvents(): Promise<CalendarEvent[]> {
+    const since = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
+    const { data, error } = await this.sb.from("events").select("*").gte("starts_at", since).order("starts_at").limit(500);
+    if (error) throw error;
+    return data as CalendarEvent[];
+  }
+
+  async addEvent(e: Omit<CalendarEvent, "id" | "source">): Promise<CalendarEvent> {
+    const { data, error } = await this.sb.from("events").insert({ ...e, source: "person" }).select().single();
+    if (error) throw error;
+    return data as CalendarEvent;
+  }
+
+  async deleteEvent(id: string) {
+    const { error } = await this.sb.from("events").delete().eq("id", id);
+    if (error) throw error;
+  }
+
+  async calendarLink(): Promise<string | null> {
+    const id = await this.uid();
+    const { data, error } = await this.sb.from("profiles").select("calendar_token").eq("id", id).single();
+    if (error) throw error;
+    const tz = encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone);
+    return `${this.url.replace(/^https?:/, "webcal:")}/functions/v1/calendar?token=${data.calendar_token}&tz=${tz}`;
+  }
+
+  async renewCalendarLink() {
+    const id = await this.uid();
+    const { error } = await this.sb.from("profiles").update({ calendar_token: crypto.randomUUID() }).eq("id", id);
+    if (error) throw error;
+  }
+
+  private async fn(name: string, init: RequestInit = {}): Promise<Response> {
+    const { data } = await this.sb.auth.getSession();
+    const headers = new Headers(init.headers);
+    headers.set("apikey", this.anonKey);
+    if (data.session) headers.set("Authorization", `Bearer ${data.session.access_token}`);
+    if (init.body) headers.set("Content-Type", "application/json");
+    return fetch(`${this.url}/functions/v1/${name}`, { ...init, headers });
+  }
+
+  async pushPublicKey(): Promise<string | null> {
+    const res = await this.fn("push?action=key");
+    if (!res.ok) throw new Error("Der Benachrichtigungs-Dienst ist noch nicht eingerichtet.");
+    return (await res.json()).publicKey as string;
+  }
+
+  async savePushSubscription(s: PushSubscriptionRow) {
+    const { error } = await this.sb.from("push_subscriptions").upsert(s, { onConflict: "endpoint" });
+    if (error) throw error;
+  }
+
+  async deletePushSubscription(endpoint: string) {
+    const { error } = await this.sb.from("push_subscriptions").delete().eq("endpoint", endpoint);
+    if (error) throw error;
+  }
+
+  async sendTestPush(): Promise<number> {
+    const res = await this.fn("push", { method: "POST", body: JSON.stringify({ action: "test" }) });
+    if (!res.ok) throw new Error("Test-Nachricht konnte nicht gesendet werden.");
+    return (await res.json()).sent as number;
+  }
+
+  async exportData() {
+    const tables = ["memories", "events", "days", "messages", "push_subscriptions"] as const;
+    const out: Record<string, unknown> = { exported_at: new Date().toISOString(), profile: await this.getProfile() };
+    for (const t of tables) {
+      const { data, error } = await this.sb.from(t).select("*");
+      if (error) throw error;
+      out[t] = data;
+    }
+    return out;
+  }
+
+  async deleteAccount() {
+    const res = await this.fn("account", { method: "POST", body: JSON.stringify({ action: "delete" }) });
+    if (!res.ok) throw new Error("Das Konto konnte nicht gelöscht werden. Bitte später nochmal versuchen.");
+    await this.sb.auth.signOut();
   }
 
   async getMessages(thread: string): Promise<ChatMessage[]> {
@@ -125,6 +205,10 @@ export class SupabaseBackend implements Backend {
     const { data, error } = await this.sb.from("days").select("day, mood, focus").eq("day", day).maybeSingle();
     if (error) throw error;
     return (data as DayState) ?? null;
+  }
+
+  async tidy(context: CoachContext) {
+    await this.coach({ mode: "tidy", thread: context.day, context }, () => {});
   }
 
   async coach(req: CoachRequest, onEvent: (e: CoachEvent) => void, signal?: AbortSignal) {

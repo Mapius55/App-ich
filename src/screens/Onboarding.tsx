@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react";
-import { Orb, type OrbState } from "../components/Orb";
+import { Portal, type OrbState } from "../components/Portal";
 import { Conversation } from "../components/Conversation";
 import { requestCoords, type Coords } from "../lib/location";
 import type { Palette } from "../lib/palette";
@@ -43,7 +43,7 @@ export function Onboarding({ palette, context, onEvent, onCoords, hasCoords, onD
   const locationUi =
     askLocation && !hasCoords ? (
       <div className="inline-action">
-        <button className="btn soft" onClick={shareLocation}>
+        <button className="btn ghost" onClick={shareLocation}>
           Standort freigeben
         </button>
         <span className="hint">Damit passen sich die Farben an dein Wetter und deinen Sonnenuntergang an.</span>
@@ -54,8 +54,8 @@ export function Onboarding({ palette, context, onEvent, onCoords, hasCoords, onD
   return (
     <main className="screen chat-screen onboarding">
       <header className="chat-header">
-        <Orb colors={palette.orb} size={120} speed={palette.speed} seed={palette.seed} state={orbState} />
-        <p className="eyebrow">Kennenlernen</p>
+        <Portal colors={palette.orb} daylight={palette.daylight} size={170} speed={palette.speed} seed={palette.seed} state={orbState} />
+        <span className="pill">Kennenlernen</span>
       </header>
       <Conversation
         mode="onboarding"

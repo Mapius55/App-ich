@@ -1,0 +1,26 @@
+name: Coach-Nachrichten (Morgen/Abend)
+
+# Alle 15 Minuten fragt dieser Workflow die Funktion "push", ob jemandem
+# gerade seine Morgenfrage oder sein Abendrückblick zusteht. Braucht dieselben
+# Einstellungen wie "Deploy Supabase" (SUPABASE_PROJECT_REF, PUSH_CRON_SECRET).
+# Hinweis: GitHub startet geplante Läufe manchmal ein paar Minuten später.
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+jobs:
+  dispatch:
+    if: ${{ vars.SUPABASE_PROJECT_REF != '' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Nachrichten verschicken
+        env:
+          REF: ${{ vars.SUPABASE_PROJECT_REF }}
+          SECRET: ${{ secrets.PUSH_CRON_SECRET }}
+        run: |
+          curl -fsS -X POST "https://$REF.supabase.co/functions/v1/push" \
+            -H "Content-Type: application/json" \
+            -H "x-cron-secret: $SECRET" \
+            -d '{"action":"dispatch"}'

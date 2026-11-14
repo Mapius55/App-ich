@@ -1,14 +1,37 @@
 import { useCallback, useEffect, useState } from "react";
+import { flushSync } from "react-dom";
 import { backend } from "./lib/backend";
 import { storeCoords, storedCoords, type Coords } from "./lib/location";
 import { localDayKey, type Mood } from "./lib/palette";
 import { useSky } from "./lib/useSky";
 import type { CoachEvent, Profile } from "./lib/types";
-import { Orb } from "./components/Orb";
+import { Portal } from "./components/Portal";
+import { SkyBackground } from "./components/SkyBackground";
 import { Login } from "./screens/Login";
 import { Onboarding } from "./screens/Onboarding";
 import { Home } from "./screens/Home";
 import { Memories } from "./screens/Memories";
+import { Calendar } from "./screens/Calendar";
+import { Settings } from "./screens/Settings";
+
+// Screen changes zoom through the portal (View Transitions API, where the
+// browser has it; elsewhere screens simply fade in via CSS).
+type VT = { finished: Promise<void>; ready: Promise<void>; updateCallbackDone: Promise<void> };
+let transitionRunning = false;
+function withTransition(fn: () => void) {
+  const d = document as Document & { startViewTransition?: (cb: () => void) => VT };
+  // While one transition plays, further changes just happen inside it.
+  if (!d.startViewTransition || transitionRunning || window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    fn();
+    return;
+  }
+  transitionRunning = true;
+  const vt = d.startViewTransition(() => flushSync(fn));
+  const quiet = () => {};
+  vt.ready.catch(quiet);
+  vt.updateCallbackDone.catch(quiet);
+  vt.finished.catch(quiet).finally(() => (transitionRunning = false));
+}
 
 export default function App() {
   const [userId, setUserId] = useState<string | null | undefined>(undefined);
@@ -16,7 +39,8 @@ export default function App() {
   const [coords, setCoords] = useState<Coords | null>(() => storedCoords());
   const [mood, setMood] = useState<Mood | null>(null);
   const [focus, setFocus] = useState<string | null>(null);
-  const [view, setView] = useState<"home" | "memories">("home");
+  const [view, setView] = useState<"home" | "memories" | "calendar" | "settings">("home");
+  const [eventsVersion, setEventsVersion] = useState(0);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [day, setDay] = useState(() => localDayKey());
 
@@ -25,7 +49,7 @@ export default function App() {
   // Session: restored automatically, so a returning person skips the login.
   useEffect(() => {
     backend.currentUserId().then(setUserId);
-    return backend.onAuthChange((id) => setUserId(id));
+    return backend.onAuthChange((id) => withTransition(() => setUserId(id)));
   }, []);
 
   useEffect(() => {
@@ -37,7 +61,10 @@ export default function App() {
     backend
       .getProfile()
       .then((p) => {
-        setProfile(p);
+        withTransition(() => setProfile(p));
+        // keep the time zone current, so notifications arrive at your local time
+        const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+        if (p.timezone !== tz) backend.updateProfile({ timezone: tz }).catch(() => {});
         if (!storedCoords() && p.lat != null && p.lon != null) {
           const c = { lat: p.lat, lon: p.lon };
           storeCoords(c);
@@ -70,11 +97,11 @@ export default function App() {
     const r = document.documentElement.style;
     r.setProperty("--bg-top", palette.bgTop);
     r.setProperty("--bg-bottom", palette.bgBottom);
+    r.setProperty("--sky-1", palette.colors[0]);
+    r.setProperty("--sky-2", palette.colors[Math.floor(palette.colors.length / 2)]);
     r.setProperty("--text", palette.text);
     r.setProperty("--text-soft", palette.textSoft);
-    r.setProperty("--surface", palette.surface);
     r.setProperty("--accent", palette.orb[1]);
-    r.setProperty("--accent-2", palette.orb[3]);
     document.documentElement.dataset.sky = palette.isDark ? "dark" : "light";
   }, [palette]);
 
@@ -92,6 +119,11 @@ export default function App() {
       case "profile":
         setProfile((p) => (p ? { ...p, ...e.profile, onboarded: p.onboarded } : p));
         break;
+      case "event_created":
+      case "event_updated":
+      case "event_deleted":
+        setEventsVersion((v) => v + 1);
+        break;
     }
   }, []);
 
@@ -100,10 +132,18 @@ export default function App() {
     backend.updateProfile({ lat: c.lat, lon: c.lon }).catch(() => {});
   }, []);
 
+  return (
+    <>
+      <SkyBackground colors={palette.colors} ground={palette.ground} glow={palette.glow} />
+      {screen()}
+    </>
+  );
+
+  function screen() {
   if (userId === undefined || (userId && !profile && !loadError)) {
     return (
       <main className="screen center">
-        <Orb colors={palette.orb} size={160} speed={palette.speed} seed={palette.seed} state="thinking" />
+        <Portal colors={palette.orb} daylight={palette.daylight} size={220} speed={palette.speed} seed={palette.seed} state="thinking" interactive={false} />
       </main>
     );
   }
@@ -114,7 +154,7 @@ export default function App() {
     return (
       <main className="screen center">
         <p className="form-error">{loadError}</p>
-        <button className="btn soft" onClick={() => backend.signOut()}>
+        <button className="btn ghost" onClick={() => backend.signOut()}>
           Abmelden
         </button>
       </main>
@@ -129,12 +169,24 @@ export default function App() {
         onEvent={onEvent}
         onCoords={onCoords}
         hasCoords={!!coords}
-        onDone={() => setProfile((p) => (p ? { ...p, onboarded: true } : p))}
+        onDone={() => withTransition(() => setProfile((p) => (p ? { ...p, onboarded: true } : p)))}
       />
     );
   }
 
-  if (view === "memories") return <Memories onBack={() => setView("home")} />;
+  if (view === "memories") return <Memories onBack={() => withTransition(() => setView("home"))} />;
+  if (view === "calendar") return <Calendar onBack={() => withTransition(() => (setView("home"), setEventsVersion((v) => v + 1)))} />;
+  if (view === "settings")
+    return (
+      <Settings
+        profile={profile}
+        hasCoords={!!coords}
+        onBack={() => withTransition(() => setView("home"))}
+        onProfile={(patch) => setProfile((p) => (p ? { ...p, ...patch } : p))}
+        onCoords={(c) => (c ? onCoords(c) : setCoords(null))}
+        onOpenCalendar={() => withTransition(() => setView("calendar"))}
+      />
+    );
 
   return (
     <Home
@@ -145,8 +197,12 @@ export default function App() {
       day={day}
       focus={focus}
       onEvent={onEvent}
-      onOpenMemories={() => setView("memories")}
+      onOpenMemories={() => withTransition(() => setView("memories"))}
+      onOpenCalendar={() => withTransition(() => setView("calendar"))}
+      onOpenSettings={() => withTransition(() => setView("settings"))}
+      eventsVersion={eventsVersion}
       onSignOut={() => backend.signOut()}
     />
   );
+  }
 }
