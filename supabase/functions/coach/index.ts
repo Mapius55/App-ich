@@ -8,7 +8,7 @@
 
 import Anthropic from "npm:@anthropic-ai/sdk@1.8.0";
 import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2.119.0";
-import { contextBlock, MODE_CHECKIN, MODE_ONBOARDING, PERSONA } from "./prompt.ts";
+import { contextBlock, MODE_CHECKIN, MODE_ONBOARDING, MODE_TIDY, PERSONA } from "./prompt.ts";
 
 const MODEL = "claude-opus-5-5";
 // Conversation, not heavy reasoning: low effort keeps replies quick on the phone.
@@ -21,14 +21,14 @@ const CORS = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
-const CATEGORIES = ["person", "arbeit", "werte", "rhythmus", "ziel", "termin", "natur", "anderes"] as const;
+const CATEGORIES = ["person", "arbeit", "werte", "rhythmus", "ziel", "termin", "ort", "natur", "anderes"] as const;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const HEX_RE = /^#[0-9a-fA-F]{6}$/;
 
 type Ev = Record<string, unknown> & { type: string };
 
 interface ReqBody {
-  mode: "onboarding" | "checkin";
+  mode: "onboarding" | "checkin" | "tidy";
   thread: string;
   message?: string;
   context: { day: string; localTime: string; timezone: string; season: string; phase: string; weather?: string; hasLocation: boolean };
@@ -36,7 +36,7 @@ interface ReqBody {
 
 function parseBody(raw: unknown): ReqBody {
   const b = raw as Partial<ReqBody>;
-  if (b?.mode !== "onboarding" && b?.mode !== "checkin") throw new Error("mode");
+  if (b?.mode !== "onboarding" && b?.mode !== "checkin" && b?.mode !== "tidy") throw new Error("mode");
   if (typeof b.thread !== "string" || !(b.thread === "onboarding" || DATE_RE.test(b.thread))) throw new Error("thread");
   if (b.message !== undefined && (typeof b.message !== "string" || b.message.length > 4000)) throw new Error("message");
   const c = b.context;
@@ -191,7 +191,7 @@ async function runTool(
     case "remember": {
       const category = String(input.category);
       if (!(CATEGORIES as readonly string[]).includes(category)) throw new ToolInputError("unbekannte Kategorie");
-      const row = { user_id: userId, content: str(input.content, 2000, "content"), category, event_date: optDate(input.event_date) ?? null };
+      const row = { user_id: userId, content: str(input.content, 2000, "content"), category, event_date: optDate(input.event_date) ?? null, source: "coach" };
       const { data, error } = await sb.from("memories").insert(row).select().single();
       if (error) throw error;
       send({ type: "memory", memory: data });
@@ -204,7 +204,10 @@ async function runTool(
       const d = optDate(input.event_date);
       if (d !== undefined) patch.event_date = d;
       if (!Object.keys(patch).length) throw new ToolInputError("nichts zu ändern");
-      const { data, error } = await sb.from("memories").update(patch).eq("id", id).select().maybeSingle();
+      let q = sb.from("memories").update(patch).eq("id", id);
+      // While tidying up on its own, the coach only touches its own notes, never what the person wrote or confirmed.
+      if (ctx.mode === "tidy") q = q.eq("source", "coach");
+      const { data, error } = await q.select().maybeSingle();
       if (error) throw error;
       if (!data) throw new ToolInputError("Erinnerung nicht gefunden");
       send({ type: "memory_updated", memory: data });
@@ -212,8 +215,11 @@ async function runTool(
     }
     case "forget": {
       const id = str(input.id, 64, "id");
-      const { error } = await sb.from("memories").delete().eq("id", id);
+      let q = sb.from("memories").delete().eq("id", id);
+      if (ctx.mode === "tidy") q = q.eq("source", "coach");
+      const { data, error } = await q.select("id");
       if (error) throw error;
+      if (!data?.length) throw new ToolInputError(ctx.mode === "tidy" ? "selbst eingetragen – bitte stehen lassen" : "Erinnerung nicht gefunden");
       send({ type: "memory_deleted", id });
       return JSON.stringify({ ok: true });
     }
@@ -331,14 +337,21 @@ async function converse({ sb, userId, body, send }: { sb: SupabaseClient; userId
 
   const [profileRes, memoriesRes, historyRes, daysRes] = await Promise.all([
     sb.from("profiles").select("display_name, location_name, summary, nature_palette").eq("id", userId).single(),
-    sb.from("memories").select("id, category, event_date, content").order("created_at", { ascending: true }).limit(400),
-    sb.from("messages").select("role, content").eq("thread", thread).order("id", { ascending: false }).limit(80),
-    sb.from("days").select("day, mood, focus").lt("day", context.day).order("day", { ascending: false }).limit(7),
+    sb.from("memories").select("id, category, event_date, content, source").order("created_at", { ascending: true }).limit(400),
+    mode === "tidy"
+      ? Promise.resolve({ data: [] as { role: string; content: string }[] })
+      : sb.from("messages").select("role, content").eq("thread", thread).order("id", { ascending: false }).limit(80),
+    // Two weeks of mood and energy, so the coach can notice patterns.
+    sb.from("days").select("day, mood, focus").lt("day", context.day).order("day", { ascending: false }).limit(14),
   ]);
   if (profileRes.error) throw profileRes.error;
 
-  const opener = message ?? (mode === "onboarding" ? "(Die App wird zum ersten Mal geöffnet.)" : "(Die App wurde gerade geöffnet.)");
-  await sb.from("messages").insert({ user_id: userId, thread, role: "user", content: opener, hidden: !message });
+  const opener =
+    mode === "tidy"
+      ? "(Stilles Aufräumen der Erinnerungen.)"
+      : (message ?? (mode === "onboarding" ? "(Die App wird zum ersten Mal geöffnet.)" : "(Die App wurde gerade geöffnet.)"));
+  // Tidying is invisible: nothing goes into the conversation.
+  if (mode !== "tidy") await sb.from("messages").insert({ user_id: userId, thread, role: "user", content: opener, hidden: !message });
 
   const history: Anthropic.Beta.BetaMessageParam[] = (historyRes.data ?? [])
     .reverse()
@@ -349,7 +362,7 @@ async function converse({ sb, userId, body, send }: { sb: SupabaseClient; userId
 
   const system: Anthropic.Beta.BetaTextBlockParam[] = [
     // Stable: persona + mode rules (cached across requests).
-    { type: "text", text: `${PERSONA}\n\n${mode === "onboarding" ? MODE_ONBOARDING : MODE_CHECKIN}`, cache_control: { type: "ephemeral" } },
+    { type: "text", text: `${PERSONA}\n\n${mode === "onboarding" ? MODE_ONBOARDING : mode === "tidy" ? MODE_TIDY : MODE_CHECKIN}`, cache_control: { type: "ephemeral" } },
     // Changes every turn: time, weather, memories.
     {
       type: "text",
@@ -362,7 +375,12 @@ async function converse({ sb, userId, body, send }: { sb: SupabaseClient; userId
     },
   ];
 
-  const tools = mode === "onboarding" ? TOOLS : TOOLS.filter((t) => t.name !== "finish_onboarding");
+  const tools =
+    mode === "onboarding"
+      ? TOOLS
+      : mode === "tidy"
+        ? TOOLS.filter((t) => ["remember", "update_memory", "forget"].includes(t.name))
+        : TOOLS.filter((t) => t.name !== "finish_onboarding");
   let fullText = "";
 
   for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
@@ -420,7 +438,7 @@ async function converse({ sb, userId, body, send }: { sb: SupabaseClient; userId
     messages.push({ role: "user", content: results });
   }
 
-  if (fullText.trim()) {
+  if (mode !== "tidy" && fullText.trim()) {
     await sb.from("messages").insert({ user_id: userId, thread, role: "assistant", content: fullText.trim() });
   }
 }

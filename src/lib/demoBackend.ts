@@ -144,8 +144,8 @@ export class DemoBackend implements Backend {
   async listMemories() {
     return this.user().memories;
   }
-  async addMemory(m: Pick<Memory, "content" | "category" | "event_date">) {
-    const mem: Memory = { ...m, id: uuid(), created_at: now(), updated_at: now() };
+  async addMemory(m: Pick<Memory, "content" | "category" | "event_date"> & { source?: Memory["source"] }) {
+    const mem: Memory = { source: "person", ...m, id: uuid(), created_at: now(), updated_at: now() };
     this.mutate((u) => u.memories.push(mem));
     return mem;
   }
@@ -163,6 +163,10 @@ export class DemoBackend implements Backend {
   }
   async getDay(day: string) {
     return this.user().days[day] ?? null;
+  }
+
+  async tidy() {
+    // The scripted demo coach doesn't judge relevance; the real one does.
   }
 
   private push(thread: string, role: "user" | "assistant", content: string, hidden = false) {
@@ -191,7 +195,7 @@ export class DemoBackend implements Backend {
       const step = history.filter((m) => m.role === "user").length + (req.message ? 1 : 0);
       if (req.message && step >= 1) {
         const cat = ONBOARDING[step - 1]?.category ?? "anderes";
-        const mem = await this.addMemory({ content: req.message, category: cat, event_date: null });
+        const mem = await this.addMemory({ content: req.message, category: cat, event_date: null, source: "coach" });
         onEvent({ type: "memory", memory: mem });
         if (step === 1) {
           const name = req.message.replace(/^(ich bin|ich heisse|ich heiße|nenn mich)\s+/i, "").split(/[ ,.!]/)[0];

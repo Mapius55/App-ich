@@ -15,7 +15,12 @@ Ein persönlicher Coach für deine Zeit. Beim ersten Öffnen lernt er dich im Ge
   - einer kleinen täglichen Variation, damit er jeden Tag ein bisschen anders ist.
   Der Hintergrund der ganzen App wechselt mit. Am Tag ist er hell und ruhig, abends gibt es Sonnenuntergangsfarben.
 - **Täglicher Check-in**: Der Coach fragt, wie es dir geht, erinnert dich an Anstehendes und hilft, einen Fokus zu setzen. Der Fokus steht dann unter dem Kreis.
-- **Gedächtnis**: Der Coach merkt sich Termine, Rennen, Ziele und Werte. Alles ist unter Menü → „Was ich über dich weiss“ sichtbar und lässt sich ändern oder löschen.
+- **Gedächtnis**: Der Coach merkt sich vor allem
+  - deine **Energie**: wann du viel oder wenig hast, was sie dir gibt oder nimmt, und Muster über die letzten zwei Wochen,
+  - **wohin du gehst**: Reisen, Ausflüge, Trainingsorte,
+  - **Rennen und Termine** mit Datum. Danach fragt er, wie es lief.
+
+  Smalltalk und zu Persönliches speichert er nicht. Einmal am Tag räumt er still auf und löscht, was unwichtig, zu persönlich, doppelt oder lange vorbei ist. Was du selbst einträgst oder bearbeitest, lässt er stehen. Alles ist unter Menü → „Was ich über dich weiss“ sichtbar und lässt sich ändern oder löschen.
 - **Sprechen statt Tippen** über den Mikrofon-Knopf, sofern der Browser das kann (Chrome, Safari, Edge).
 - **Installierbar als App** auf dem Handy (PWA).
 - **Demo-Modus**: Solange Supabase nicht eingerichtet ist, läuft die App mit einem einfachen, vorgeschriebenen Coach ohne KI. So kannst du Kreis und Ablauf sofort ausprobieren.
@@ -31,7 +36,7 @@ Ein persönlicher Coach für deine Zeit. Beim ersten Öffnen lernt er dich im Ge
 ### 2. Supabase (Login + Daten)
 1. Auf [supabase.com](https://supabase.com) ein Gratis-Projekt anlegen. Als Region eignet sich z.B. *Central EU (Zurich)*.
 2. **Authentication → Sign In / Providers → Email**: **„Confirm email“ ausschalten.** Weil man sich mit Benutzernamen statt E-Mail anmeldet, kann keine Bestätigungs-Mail ankommen.
-3. **SQL Editor**: den Inhalt von `supabase/migrations/20261114000000_init.sql` einfügen und ausführen. Damit entstehen die Tabellen, und jede Person sieht nur ihre eigenen Daten (Row Level Security).
+3. **SQL Editor**: die Dateien in `supabase/migrations/` **der Reihe nach** einfügen und ausführen (zuerst `…000000_init.sql`, dann `…010000_memory_source_and_places.sql`). Damit entstehen die Tabellen, und jede Person sieht nur ihre eigenen Daten (Row Level Security). Mit der Supabase CLI geht das auch in einem Schritt: `supabase db push`.
 
 ### 3. KI-Coach (Claude) auf Supabase
 1. Einen API-Schlüssel auf [platform.claude.com](https://platform.claude.com) erstellen.

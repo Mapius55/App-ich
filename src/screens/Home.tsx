@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { backend } from "../lib/backend";
 import { Orb, type OrbState } from "../components/Orb";
 import { Conversation } from "../components/Conversation";
 import type { Palette } from "../lib/palette";
@@ -37,6 +38,33 @@ export function Home({ profile, palette, weather, context, day, focus, onEvent, 
     const t = setTimeout(() => setSettled(true), 1400);
     return () => clearTimeout(t);
   }, []);
+
+  // Once a day, a little after the greeting, the coach quietly tidies its notes:
+  // unimportant or too personal entries it made itself are removed.
+  useEffect(() => {
+    const key = `ich.tidy.${profile.id}`;
+    let last: string | null = null;
+    try {
+      last = localStorage.getItem(key);
+    } catch {
+      /* storage unavailable */
+    }
+    if (last === day) return;
+    const t = setTimeout(() => {
+      backend
+        .tidy(context())
+        .then(() => {
+          try {
+            localStorage.setItem(key, day);
+          } catch {
+            /* storage unavailable */
+          }
+        })
+        .catch(() => {});
+    }, 45 * 1000);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [day, profile.id]);
 
   const size = Math.round(Math.min(240, window.innerWidth * 0.56));
 

@@ -12,13 +12,14 @@ export interface Profile {
   lon: number | null;
 }
 
-export type MemoryCategory = "person" | "arbeit" | "werte" | "rhythmus" | "ziel" | "termin" | "natur" | "anderes";
+export type MemoryCategory = "person" | "arbeit" | "werte" | "rhythmus" | "ziel" | "termin" | "ort" | "natur" | "anderes";
 
 export interface Memory {
   id: string;
   content: string;
   category: MemoryCategory;
   event_date: string | null; // YYYY-MM-DD
+  source: "coach" | "person"; // the coach's clean-up never touches "person" entries
   created_at: string;
   updated_at: string;
 }
@@ -48,7 +49,7 @@ export interface CoachContext {
 }
 
 export interface CoachRequest {
-  mode: "onboarding" | "checkin";
+  mode: "onboarding" | "checkin" | "tidy";
   thread: string; // "onboarding" or YYYY-MM-DD
   message?: string; // absent = the app was just opened; coach speaks first
   context: CoachContext;
@@ -81,13 +82,15 @@ export interface Backend {
 
   listMemories(): Promise<Memory[]>;
   addMemory(m: Pick<Memory, "content" | "category" | "event_date">): Promise<Memory>;
-  updateMemory(id: string, patch: Partial<Pick<Memory, "content" | "category" | "event_date">>): Promise<void>;
+  updateMemory(id: string, patch: Partial<Pick<Memory, "content" | "category" | "event_date" | "source">>): Promise<void>;
   deleteMemory(id: string): Promise<void>;
 
   getMessages(thread: string): Promise<ChatMessage[]>;
   getDay(day: string): Promise<DayState | null>;
 
   coach(req: CoachRequest, onEvent: (e: CoachEvent) => void, signal?: AbortSignal): Promise<void>;
+  /** Quiet daily clean-up: the coach drops unimportant or too personal notes it made itself. */
+  tidy(context: CoachContext): Promise<void>;
 }
 
 export const USERNAME_RE = /^[a-z0-9._-]{3,30}$/;

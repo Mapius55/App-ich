@@ -1,5 +1,5 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-import type { Backend, ChatMessage, CoachEvent, CoachRequest, DayState, Memory, Profile } from "./types";
+import type { Backend, ChatMessage, CoachContext, CoachEvent, CoachRequest, DayState, Memory, Profile } from "./types";
 import { normaliseUsername, USERNAME_RE } from "./types";
 
 // Supabase Auth works with e-mail addresses. People here log in with a plain
@@ -101,7 +101,7 @@ export class SupabaseBackend implements Backend {
     return data as Memory;
   }
 
-  async updateMemory(id: string, patch: Partial<Pick<Memory, "content" | "category" | "event_date">>) {
+  async updateMemory(id: string, patch: Partial<Pick<Memory, "content" | "category" | "event_date" | "source">>) {
     const { error } = await this.sb.from("memories").update(patch).eq("id", id);
     if (error) throw error;
   }
@@ -125,6 +125,10 @@ export class SupabaseBackend implements Backend {
     const { data, error } = await this.sb.from("days").select("day, mood, focus").eq("day", day).maybeSingle();
     if (error) throw error;
     return (data as DayState) ?? null;
+  }
+
+  async tidy(context: CoachContext) {
+    await this.coach({ mode: "tidy", thread: context.day, context }, () => {});
   }
 
   async coach(req: CoachRequest, onEvent: (e: CoachEvent) => void, signal?: AbortSignal) {
