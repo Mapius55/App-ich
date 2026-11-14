@@ -60,3 +60,10 @@ export function localMidnightIso(day: string): string {
   const [y, m, d] = day.split("-").map(Number);
   return new Date(y, m - 1, d).toISOString();
 }
+
+/** minutes → "45 Min", "1 Std", "1.5 Std" */
+export function minutesLabel(min: number): string {
+  if (min < 60) return `${Math.max(0, Math.round(min))} Min`;
+  const h = Math.round((min / 60) * 10) / 10;
+  return `${String(h)} Std`;
+}
