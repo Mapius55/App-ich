@@ -174,6 +174,31 @@ export class SupabaseBackend implements Backend {
     return (await res.json()).sent as number;
   }
 
+  async voiceReady(): Promise<boolean> {
+    const res = await this.fn("voice?action=status");
+    return res.ok && !!(await res.json()).ready;
+  }
+
+  async speak(text: string): Promise<ArrayBuffer> {
+    const res = await this.fn("voice", { method: "POST", body: JSON.stringify({ action: "speak", text }) });
+    if (!res.ok) throw new Error(`Stimme ${res.status}`);
+    return res.arrayBuffer();
+  }
+
+  async transcribe(audio: Blob): Promise<string> {
+    const form = new FormData();
+    const ext = audio.type.includes("mp4") || audio.type.includes("aac") ? "m4a" : "webm";
+    form.append("audio", audio, `sprache.${ext}`);
+    const { data } = await this.sb.auth.getSession();
+    const res = await fetch(`${this.url}/functions/v1/voice`, {
+      method: "POST",
+      headers: { apikey: this.anonKey, ...(data.session ? { Authorization: `Bearer ${data.session.access_token}` } : {}) },
+      body: form,
+    });
+    if (!res.ok) throw new Error("Ich konnte dich gerade nicht verstehen. Versuch es nochmal.");
+    return ((await res.json()).text as string) ?? "";
+  }
+
   async exportData() {
     const tables = ["memories", "events", "days", "messages", "push_subscriptions"] as const;
     const out: Record<string, unknown> = { exported_at: new Date().toISOString(), profile: await this.getProfile() };

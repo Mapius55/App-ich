@@ -6,9 +6,9 @@ Ein persönlicher Coach für deine Zeit. Beim ersten Öffnen lernt er dich im Ge
 - **Name:** I am
 - **Logo:** „I am“ in Bodoni Moda mit feiner Schwung-Linie, auf dem blauen Pinsel-Hintergrund. Dateien liegen in `brand/` (`wordmark.svg`, `icon.svg`, `banner.png`), die App-Icons in `public/`. Neu erzeugen lassen sie sich mit `scripts/brand/` (siehe Kommentar in `make.cjs`).
 - **Schriften:** Inter Tight (fette Titel in Grossbuchstaben, Labels, Knöpfe) und Bodoni Moda (Logo, Text des Coaches). Beide sind frei (SIL Open Font License).
-- **Farben:** Das Blau gehört nur zum Logo. Die App nimmt ihre Farben aus einer Bibliothek von 100 benannten Farben (`src/lib/colors100.ts`). Sie wählt laufend die passendsten nach Sonnenstand am Ort, Wetter, Jahreszeit, Höhe über Meer, Stimmung und Lieblingsnatur. Nachts sind es dunkle Grün- und Blautöne. Im Menü steht unter „Farben heute“, welche gerade aktiv sind.
-- **Hintergrund:** Fast schwarzer Grund, darauf fliessendes Licht in Pinselstreifen, das ständig durch die Tagesfarben wandert (WebGL, in niedriger Auflösung, schont den Akku).
-- **Kreis:** Ein flacher Kreis, wie aus Papier ausgeschnitten, durch den man auf einen ziehenden Wolkenhimmel sieht. Drückt man darauf, kommt der Himmel näher. Zieht man den Finger, verschiebt sich der Himmel. Er reagiert auch auf die Stimme und auf jedes Wort des Coaches.
+- **Farben:** Das Blau gehört nur zum Logo. Die App nimmt **Farbwelten**: abgestimmte Kombinationen aus fünf Farben (z.B. „Tannennacht“, „Erstes Licht“, „Sommerhimmel“, „Glut“, „Regenblau“) in `src/lib/worlds.ts`, gebaut nach Harmonie-Regeln aus der Forschung (nahe Farbtöne, klare Helligkeitsstufen, keine trüben Braun- oder Olivtöne) und mit Wadas „Dictionary of Color Combinations“ als Vorlage. Welche Welt gilt, hängt vom Sonnenstand an deinem Ort, Wetter, Jahreszeit und Höhe über Meer ab. Zwischen zwei Welten wird fliessend über den Farbkreis gewechselt (OKLCh), nie über Grau. Stimmung und Lieblingsnatur färben leicht mit. Im Menü steht unter „Farben heute“, welche Welt gerade gilt.
+- **Hintergrund:** Fast schwarzer Grund, darauf Lichtfelder in den Farben der Welt, als Pinselstreifen. Die Felder überlagern sich wie Licht, nicht wie Farbe, deshalb entsteht kein Braun (WebGL, in niedriger Auflösung, schont den Akku).
+- **Kreis:** Ein flacher Kreis, wie aus Papier ausgeschnitten, durch den man auf weiche, ineinanderfliessende Farben sieht, wie unscharfe Wolken mit feinem Korn. Sie ziehen, falten sich, wirbeln ab und zu und folgen dem Wetter. Drückt man darauf, kommt der Himmel näher. Zieht man den Finger, verschiebt sich der Himmel. Er reagiert auch auf die Stimme und auf jedes Wort des Coaches.
 - **Animationen:** Die Wörter des Coaches erscheinen weich, Seiten zoomen ineinander, Elemente gleiten herein.
 
 ## Was schon funktioniert
@@ -16,6 +16,7 @@ Ein persönlicher Coach für deine Zeit. Beim ersten Öffnen lernt er dich im Ge
 - **Login mit Benutzername und Passwort.** Danach bleibst du eingeloggt und landest bei jedem Öffnen direkt beim Kreis.
 - **Kennenlernen (Onboarding)** als Gespräch mit der KI (Claude), etwa acht bis zehn Fragen.
 - **Der Kreis und der Himmel**: Die Farben entstehen aus dem Sonnenstand an deinem Ort, der Jahreszeit, dem Live-Wetter (Open-Meteo), der Höhe über Meer, deiner Stimmung und deiner Lieblingsnatur (siehe *Marke*).
+- **Sprachmodus**: Der Kreis füllt den Bildschirm, der Coach spricht mit einer echten Stimme (ElevenLabs, warme weibliche Stimme) und zeigt keinen Text. Du tippst auf den weissen Knopf und sprichst. Die App merkt an der Pause, wann du fertig bist, und schickt ab. Tippst du während der Coach spricht, unterbrichst du ihn. „Nochmal hören“ spielt die letzte Antwort erneut ab. Ein kleines Tastatur-Symbol öffnet bei Bedarf ein Textfeld, die Antwort kommt trotzdem als Stimme. Ohne ElevenLabs-Schlüssel spricht die Stimme des Handys.
 - **Täglicher Check-in**: Der Coach fragt, wie es dir geht, sagt dir das Wichtigste zuerst und hilft, einen Fokus zu setzen. Der Fokus steht unter der Begrüssung, darunter die nächsten Termine der Woche.
 - **Gedächtnis**: Der Coach merkt sich vor allem
   - deine **Energie**: wann du viel oder wenig hast, was sie dir gibt oder nimmt, und Muster über die letzten zwei Wochen,
@@ -49,6 +50,8 @@ Im Repository unter **Settings → Secrets and variables → Actions**:
 | Secret | `SUPABASE_DB_PASSWORD` | das Datenbank-Passwort aus Schritt 1 |
 | Secret | `ANTHROPIC_API_KEY` | [platform.claude.com](https://platform.claude.com) → API Keys |
 | Secret | `PUSH_CRON_SECRET` | ein beliebiges langes Passwort, z.B. aus einem Passwort-Manager |
+
+**Stimme (ElevenLabs):** Den Schlüssel von elevenlabs.io (Profil → API Keys) bei Supabase unter *Edge Functions → Secrets* als `ELEVENLABS_API_KEY` eintragen. Optional: `ELEVENLABS_VOICE_ID` für eine bestimmte Stimme.
 
 Die Schlüssel für Claude und die Datenbank liegen damit nur bei GitHub und auf dem Server, nie in der App oder auf dem Handy.
 
@@ -99,11 +102,12 @@ npm test                     # Tests: Kalender, Zeitzonen, Farben, Push-Verschl�
 ## Aufbau
 ```
 src/
-  lib/palette.ts, colors100.ts   Farb-Engine und 100er-Farbbibliothek
+  lib/palette.ts, worlds.ts      Farb-Engine und Farbwelten
   lib/sun.ts, weather.ts         Sonnenstand, Live-Wetter
   components/Portal.tsx          der Kreis (WebGL)
   components/SkyBackground.tsx   der fliessende Himmel (WebGL)
-  components/Conversation.tsx    Gespräch: Streaming, Spracheingabe, Kalender-Karten
+  components/VoiceConversation.tsx   Sprachmodus: Zuhören mit Pausen-Erkennung, Stimme Satz für Satz
+  lib/voice.ts                   Aufnahme, Wiedergabe, Fallback auf die Handy-Stimme
   screens/                       Login, Kennenlernen, Startseite, Gedächtnis, Kalender, Einstellungen
   lib/supabaseBackend.ts, demoBackend.ts   echte Daten bzw. Demo
   lib/push.ts, sw.ts             Benachrichtigungen (Service Worker)
@@ -113,6 +117,7 @@ supabase/
   functions/calendar/            Kalender „I am“ als Abo (iCalendar)
   functions/push/                Morgenfrage und Abendrückblick (Web Push, ohne Fremdbibliothek)
   functions/account/             Konto löschen
+  functions/voice/               Stimme und Spracherkennung (ElevenLabs)
   functions/_shared/             iCalendar- und Web-Push-Bausteine
 tests/                           automatische Tests (vitest)
 docs/farben-recherche.md         Farbforschung und Plan für Wada-Kombinationen (pausiert)
@@ -121,7 +126,6 @@ docs/farben-recherche.md         Farbforschung und Plan für Wada-Kombinationen 
 Charakter und Regeln des Coaches stehen auf Deutsch in `supabase/functions/coach/prompt.ts` und lassen sich dort direkt anpassen.
 
 ## Nächste Schritte (geplant)
-- Farben aus Sanzo Wadas „Dictionary of Color Combinations“ (siehe `docs/farben-recherche.md`)
 - Kalender lesen (Google/Apple), damit der Coach auch deine anderen Termine kennt
 - Strava oder andere Sport-Apps (Trainings und Rennen)
 - Passwort vergessen: braucht später eine echte E-Mail-Adresse, z.B. für die öffentliche Version

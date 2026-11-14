@@ -24,3 +24,22 @@ describe("demo appointment parser", () => {
     expect(parseDemoEvent("Mir geht es gut, danke", now)).toBeNull();
   });
 });
+
+import { splitSentences } from "../src/lib/voice";
+
+describe("splitting the coach's speech into sentences", () => {
+  it("sends complete sentences, keeps the rest", () => {
+    const [s, rest] = splitSentences("Hoi Marius. Wie geht es dir heute? Ich", 1);
+    expect(s).toEqual(["Hoi Marius.", "Wie geht es dir heute?"]);
+    expect(rest).toBe("Ich");
+  });
+  it("waits when a sentence might go on (z.B., numbers)", () => {
+    const [s, rest] = splitSentences("Das Rennen ist am 21.", 1);
+    expect(s).toEqual([]);
+    expect(rest).toBe("Das Rennen ist am 21.");
+  });
+  it("groups short sentences into longer pieces", () => {
+    const [s] = splitSentences("Gut. Schön. Das freut mich wirklich sehr, erzähl mir mehr davon. ", 30);
+    expect(s).toEqual(["Gut. Schön. Das freut mich wirklich sehr, erzähl mir mehr davon."]);
+  });
+});

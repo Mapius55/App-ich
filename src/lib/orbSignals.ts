@@ -5,7 +5,10 @@
 type Listener = (strength: number) => void;
 const listeners = new Set<Listener>();
 
-export const voice = { level: 0 }; // 0..1, updated while the microphone is open
+export const voice = {
+  level: 0, // 0..1 your voice, while the microphone is open
+  out: 0, // 0..1 the coach's voice, while it speaks
+};
 
 export function pulseOrb(strength = 0.35) {
   listeners.forEach((l) => l(strength));

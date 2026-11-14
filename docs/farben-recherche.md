@@ -1,6 +1,6 @@
-# Farben – Recherche & nächster Schritt (pausiert)
+# Farben – Recherche und Umsetzung
 
-Stand: Recherche abgeschlossen, Umsetzung pausiert. Ziel: Farben nicht mehr einzeln wählen,
+Stand: umgesetzt als **Farbwelten** in `src/lib/worlds.ts` (siehe unten, „Umsetzung“). Ziel: Farben nicht mehr einzeln wählen,
 sondern **erprobte Kombinationen** nehmen und nach Situation auslösen.
 
 ## Quelle für Kombinationen
@@ -21,3 +21,8 @@ sondern **erprobte Kombinationen** nehmen und nach Situation auslösen.
 2. Jede Situation (Nacht, blaue Stunde, Morgenrot, Morgen, Tag, goldene Stunde, Sonnenuntergang, Regen, Nebel, Schnee, schwere/leichte Stimmung, Jahreszeit) hat ein Zielprofil, z.B. Nacht = dunkel, kühl (dunkelgrün/blau, Wunsch), wenig gesättigt.
 3. Die App wählt die passendste Kombination (mit täglicher Variation) für den Kreis und lässt den Hintergrund durch 2–3 benachbarte Kombinationen fliessen.
 4. Vorschau-Blatt aller Situationen → Freigabe durch dich.
+
+## Umsetzung (Farbwelten)
+- Wadas Kombinationen wurden nach Situation ausgewertet (`scripts/colors/wada_analyse.py`). Viele enthalten erdige Druckfarben (Senf, Rostbraun, Beige), die auf dem dunklen, leuchtenden Grund bräunlich wirken. Deshalb sind die Farbwelten von Hand abgestimmt, mit Wada als Vorlage.
+- Grund für das frühere „Braungemisch“: Farben wurden wie Farbe gemischt (Orange + Blau = Braun-Grau). Jetzt überlagern sich Lichtfelder (Screen-Blend), Übergänge laufen in OKLCh über den Farbkreis, der Kreis mischt in OKLab.
+- Ein Test (`tests/palette.test.ts`) prüft, dass keine Welt trübe Farben enthält und Regen, Nebel, Schnee und Berge ihre Welt bekommen.

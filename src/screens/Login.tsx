@@ -37,7 +37,7 @@ export function Login({ palette }: { palette: Palette }) {
   return (
     <main className="screen login">
       <div className="login-portal">
-        <Portal colors={palette.orb} daylight={palette.daylight} size={230} speed={palette.speed} seed={palette.seed} state={busy ? "thinking" : "idle"} />
+        <Portal colors={palette.orb} daylight={palette.daylight} clouds={palette.clouds} size={230} speed={palette.speed} seed={palette.seed} state={busy ? "thinking" : "idle"} />
       </div>
       <span className="pill">{mode === "login" ? "Willkommen" : "Neu hier"}</span>
       <h1 className="title">{mode === "login" ? "Schön, dass du zurück bist" : "Lass uns anfangen"}</h1>

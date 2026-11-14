@@ -82,3 +82,28 @@ export function rgba(hex: string, alpha: number): string {
   const [r, g, b] = hexToRgb(hex);
   return `rgba(${r},${g},${b},${alpha})`;
 }
+
+/** Blend in OKLCh along the shorter hue arc: keeps colours clean (no grey/brown midpoints). */
+export function mixLch(a: string, b: string, t: number): string {
+  const A = rgbToOklab(hexToRgb(a));
+  const B = rgbToOklab(hexToRgb(b));
+  const cA = Math.hypot(A[1], A[2]);
+  const cB = Math.hypot(B[1], B[2]);
+  let hA = Math.atan2(A[2], A[1]);
+  let hB = Math.atan2(B[2], B[1]);
+  if (cA < 0.02) hA = hB; // a near-grey takes the other's hue
+  if (cB < 0.02) hB = hA;
+  let dh = hB - hA;
+  if (dh > Math.PI) dh -= 2 * Math.PI;
+  if (dh < -Math.PI) dh += 2 * Math.PI;
+  const L = A[0] + (B[0] - A[0]) * t;
+  const C = cA + (cB - cA) * t;
+  const h = hA + dh * t;
+  return rgbToHex(oklabToRgb([L, C * Math.cos(h), C * Math.sin(h)]));
+}
+
+/** OKLCh of a colour: [lightness 0..1, chroma, hue in degrees]. */
+export function lch(hex: string): [number, number, number] {
+  const [L, a, b] = rgbToOklab(hexToRgb(hex));
+  return [L, Math.hypot(a, b), ((Math.atan2(b, a) * 180) / Math.PI + 360) % 360];
+}

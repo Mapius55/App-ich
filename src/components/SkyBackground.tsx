@@ -1,13 +1,15 @@
 import { useEffect, useRef, useState } from "react";
-import { mix } from "../lib/color";
+import { mixLch } from "../lib/color";
 import { createProgram, hexToVec, NOISE } from "../lib/gl";
 
 // The living sky behind the whole app: an almost-black ground with soft
-// fields of light that flow through today's ~10 colours, brushed into
-// diagonal streaks. Rendered at a fraction of the screen resolution (it's
-// all soft light anyway) and at ~30 fps, so it stays light on the battery.
+// fields of light in the colours of today's colour world. Each colour is its
+// own field of light; where fields meet they add up like light (screen blend),
+// never like paint, so blue and orange make a glow, not brown.
+// Brushed into diagonal streaks. Rendered at a fraction of the screen
+// resolution and at ~30 fps, so it stays light on the battery.
 
-const N = 10;
+const N = 5; // main, accent, accent2, light, deep
 
 const FRAG = `
 precision highp float;
@@ -19,19 +21,12 @@ uniform vec3 u_ground;
 uniform vec3 u_cols[${N}];
 ${NOISE}
 
-vec3 pick(float i) {
-  vec3 c = u_cols[0];
-  for (int k = 0; k < ${N}; k++) { if (float(k) == i) c = u_cols[k]; }
-  return c;
-}
-// walk around the colour wheel: cyclic, smooth
-vec3 flow(float t) {
-  float x = fract(t) * ${N}.0;
-  float i = floor(x);
-  float f = smoothstep(0.0, 1.0, fract(x));
-  return mix(pick(i), pick(mod(i + 1.0, ${N}.0)), f);
-}
 mat2 rot(float a) { float c = cos(a), s = sin(a); return mat2(c, -s, s, c); }
+vec3 screenAdd(vec3 base, vec3 light) { return 1.0 - (1.0 - base) * (1.0 - light); }
+
+float field(vec2 q, vec2 drift, float scale, float t, float lo, float hi) {
+  return smoothstep(lo, hi, snoise(vec3(q * scale + drift, t)));
+}
 
 void main() {
   vec2 p = (v_uv - 0.5) * vec2(u_res.x / u_res.y, 1.0);
@@ -39,30 +34,35 @@ void main() {
 
   // slowly drifting, folded coordinates (fluid look)
   vec2 w = vec2(snoise(vec3(p * 1.1, t * 0.035)), snoise(vec3(p * 1.1 + 7.3, t * 0.035)));
-  vec2 q = p + 0.32 * w;
+  vec2 q = p + 0.3 * w;
 
-  // colour: travels through all of today's colours
-  float f = snoise(vec3(q * 0.85, t * 0.025));
-  vec3 col = flow(f * 0.45 + t * 0.012 + q.y * 0.25);
-  vec3 col2 = flow(f * 0.3 - t * 0.009 + q.x * 0.3 + 0.5);
-  col = mix(col, col2, smoothstep(-0.4, 0.6, snoise(vec3(q * 0.6 + 3.0, t * 0.02))) * 0.5);
-
-  // where the light falls: a broad diagonal band plus wandering clouds of light
+  // light lives up high and along a diagonal band, running out into black below
   vec2 d = rot(0.6) * p;
   float bandPos = d.y - 0.18 + 0.18 * snoise(vec3(d.x * 0.9, 1.0, t * 0.03));
-  float band = exp(-bandPos * bandPos * 10.0);
-  float clouds = smoothstep(0.05, 0.85, snoise(vec3(q * 0.75 + 11.0, t * 0.03)));
-  float light = clamp(band * 0.8 + clouds * 0.45, 0.0, 1.0);
-  // light lives up high and runs out into black further down (calm behind the text)
-  light *= mix(0.22, 1.0, smoothstep(-0.35, 0.3, p.y));
+  float band = exp(-bandPos * bandPos * 8.0);
+  float height = mix(0.2, 1.0, smoothstep(-0.38, 0.3, p.y));
 
   // brush streaks along the diagonal
   float streak = snoise(vec3(d.x * 0.7, d.y * 20.0, t * 0.05)) * 0.5 + 0.5;
   float streak2 = snoise(vec3(d.x * 1.6 + 4.0, d.y * 46.0, t * 0.04)) * 0.5 + 0.5;
-  light *= mix(0.55, 1.2, streak) * mix(0.85, 1.1, streak2);
-  light *= u_glow;
+  float brush = mix(0.55, 1.2, streak) * mix(0.85, 1.1, streak2);
 
-  vec3 c = mix(u_ground, col, clamp(light, 0.0, 1.0) * 0.92);
+  // one field of light per colour, each wandering on its own
+  float fMain   = field(q, vec2(0.0, t * 0.02), 0.8, t * 0.03, -0.25, 0.75);
+  float fAccent = field(q, vec2(5.3, -t * 0.018), 1.0, t * 0.028 + 3.0, -0.05, 0.8);
+  float fAcc2   = field(q, vec2(-3.1, t * 0.015), 1.15, t * 0.025 + 7.0, 0.2, 0.9);
+  float fLight  = field(q, vec2(9.7, t * 0.012), 0.7, t * 0.02 + 11.0, 0.35, 1.0);
+
+  // fields are either clearly lit or dark: no dim, murky in-between (dim orange on black reads as brown)
+  fMain = pow(fMain, 1.7); fAccent = pow(fAccent, 1.7); fAcc2 = pow(fAcc2, 1.8); fLight = pow(fLight, 2.0);
+  float light = (band * 0.85 + 0.3) * height * brush * u_glow;
+  vec3 ground = mix(u_ground, u_cols[4] * 0.3, 0.3);
+  vec3 c = ground;
+  c = screenAdd(c, u_cols[0] * fMain * light * 1.0);
+  c = screenAdd(c, u_cols[1] * fAccent * light * 0.8);
+  c = screenAdd(c, u_cols[2] * fAcc2 * light * 0.7);
+  c = screenAdd(c, u_cols[3] * fLight * light * band * 0.45);
+
   // keep the edges deep
   c *= 1.0 - 0.45 * smoothstep(0.25, 1.1, length(p * vec2(1.1, 0.9)));
   gl_FragColor = vec4(c, 1.0);
@@ -124,8 +124,8 @@ export function SkyBackground({ colors, ground, glow }: { colors: string[]; grou
 
       // colours glide (several seconds) instead of jumping
       const tgt = pad(target.current.colors);
-      cur = cur.map((c, i) => (c === tgt[i] ? c : mix(c, tgt[i], 0.04)));
-      curGround = curGround === target.current.ground ? curGround : mix(curGround, target.current.ground, 0.04);
+      cur = cur.map((c, i) => (c === tgt[i] ? c : mixLch(c, tgt[i], 0.04)));
+      curGround = curGround === target.current.ground ? curGround : mixLch(curGround, target.current.ground, 0.04);
       curGlow += (target.current.glow - curGlow) * 0.04;
 
       gl.uniform1f(uTime, t);

@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { backend } from "../lib/backend";
-import { Portal, type OrbState } from "../components/Portal";
-import { Conversation } from "../components/Conversation";
+import { type OrbState } from "../components/Portal";
+import { FitPortal } from "../components/FitPortal";
+import { VoiceConversation } from "../components/VoiceConversation";
 import { UpNext } from "../components/UpNext";
 import type { Palette } from "../lib/palette";
 import type { Weather } from "../lib/weather";
@@ -34,7 +35,6 @@ function greeting(isDark: boolean, d = new Date()): string {
 
 export function Home({ profile, palette, weather, context, day, focus, onEvent, onOpenMemories, onOpenCalendar, onOpenSettings, eventsVersion, onSignOut }: Props) {
   const [orbState, setOrbState] = useState<OrbState>("idle");
-  const [settled, setSettled] = useState(false);
   const [menu, setMenu] = useState(false);
   const [online, setOnline] = useState(navigator.onLine);
 
@@ -47,12 +47,6 @@ export function Home({ profile, palette, weather, context, day, focus, onEvent, 
       window.removeEventListener("online", on);
       window.removeEventListener("offline", off);
     };
-  }, []);
-
-  // The orb greets you alone for a moment, then makes room for the conversation.
-  useEffect(() => {
-    const t = setTimeout(() => setSettled(true), 1400);
-    return () => clearTimeout(t);
   }, []);
 
   // Once a day, a little after the greeting, the coach quietly tidies its notes:
@@ -82,7 +76,6 @@ export function Home({ profile, palette, weather, context, day, focus, onEvent, 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [day, profile.id]);
 
-  const size = Math.round(Math.min(330, window.innerWidth * 0.82));
   const today = new Intl.DateTimeFormat("de-CH", { weekday: "short", day: "numeric", month: "short" }).format(new Date());
 
   const menuButton = (
@@ -94,7 +87,7 @@ export function Home({ profile, palette, weather, context, day, focus, onEvent, 
   );
 
   return (
-    <main className={`screen home ${settled ? "settled" : "intro"}`}>
+    <main className="screen home voice-screen">
       <header className="topbar">
         <span className="pill">{today}</span>
         {!online && <span className="pill">Offline</span>}
@@ -134,11 +127,7 @@ export function Home({ profile, palette, weather, context, day, focus, onEvent, 
         </div>
       )}
 
-      <section className="hero">
-        <div className="hero-portal" style={{ "--orb": `${size}px` } as React.CSSProperties}>
-          <Portal colors={palette.orb} daylight={palette.daylight} size={size} speed={palette.speed} seed={palette.seed} state={orbState} />
-        </div>
-        <span className="pill hero-pill">Heute</span>
+      <section className="voice-hero">
         <h1 className="title greeting">
           {greeting(palette.isDark)}
           {profile.display_name ? `, ${profile.display_name}` : ""}
@@ -147,9 +136,10 @@ export function Home({ profile, palette, weather, context, day, focus, onEvent, 
         <UpNext refresh={eventsVersion} />
       </section>
 
-      <div className="home-conversation">
-        <Conversation mode="checkin" thread={day} context={context} onEvent={onEvent} onOrbState={setOrbState} leftButton={menuButton} />
-      </div>
+      {/* The portal fills the free space: the conversation is voice only. */}
+      <FitPortal colors={palette.orb} daylight={palette.daylight} clouds={palette.clouds} speed={palette.speed} seed={palette.seed} state={orbState} />
+
+      <VoiceConversation mode="checkin" thread={day} context={context} onEvent={onEvent} onOrbState={setOrbState} leftButton={menuButton} />
     </main>
   );
 }

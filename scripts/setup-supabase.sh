@@ -56,7 +56,7 @@ fi
 
 echo "4/5 Server-Funktionen"
 cd "$HERE"
-for fn in coach account calendar push; do
+for fn in coach account calendar push voice; do
   $SUPABASE_BIN functions deploy "$fn" --project-ref "$REF" --use-api --no-verify-jwt --yes >/dev/null
   echo "   ✓ $fn"
 done
