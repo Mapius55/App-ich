@@ -1,0 +1,381 @@
+// Voice in and out for the coach.
+//
+// OUT (Speaker): the coach's reply arrives as streamed text; complete sentences
+// are sent to the server (ElevenLabs) as they come, the audio is played in order
+// through one AudioContext. The output level drives the portal while it speaks.
+// Without a server voice it falls back to the phone's own speech synthesis.
+//
+// IN (listenOnce): tap once, speak; the app notices when you're done (a short
+// pause after speech) and returns the text. With a server voice it records and
+// transcribes (ElevenLabs Scribe); otherwise it uses the browser's recognition.
+
+import { backend } from "./backend";
+import { voice } from "./orbSignals";
+import { listen as browserListen, speechSupported } from "./speech";
+
+// ---------- audio context (iOS only plays sound after a tap has unlocked it)
+
+let ctx: AudioContext | null = null;
+let unlockResolve: (() => void) | null = null;
+const unlocked = new Promise<void>((r) => (unlockResolve = r));
+
+export function audioContext(): AudioContext {
+  if (!ctx) {
+    const AC = window.AudioContext ?? (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+    ctx = new AC();
+  }
+  return ctx;
+}
+
+/** Call from a tap. Plays a silent sound so iOS allows audio afterwards. */
+export async function unlockAudio(): Promise<void> {
+  const c = audioContext();
+  if (c.state === "suspended") await c.resume().catch(() => {});
+  const src = c.createBufferSource();
+  src.buffer = c.createBuffer(1, 1, 22050);
+  src.connect(c.destination);
+  src.start(0);
+  // speech synthesis needs its own unlock on iOS
+  if ("speechSynthesis" in window) {
+    const u = new SpeechSynthesisUtterance(" ");
+    u.volume = 0;
+    window.speechSynthesis.speak(u);
+  }
+  unlockResolve?.();
+}
+
+export function isAudioUnlocked(): boolean {
+  return ctx?.state === "running";
+}
+
+// ---------- is a real voice available?
+
+let readyCache: Promise<boolean> | null = null;
+export function serverVoiceReady(): Promise<boolean> {
+  readyCache ??= backend.voiceReady().catch(() => false);
+  return readyCache;
+}
+
+// ---------- sentence splitting for streamed text
+
+/** Splits off complete sentences; returns [sentences, rest]. */
+export function splitSentences(buffer: string, minLength = 1): [string[], string] {
+  const out: string[] = [];
+  const re = /[^.!?…]*[.!?…]+["“”»«')\]]*(\s+|$)/g;
+  let last = 0;
+  let pending = "";
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(buffer)) && m[0].length) {
+    if (m.index + m[0].length === buffer.length && !/\s$/.test(m[0])) break; // might continue ("z.B." / "3.5")
+    pending += m[0];
+    last = m.index + m[0].length;
+    if (pending.trim().length >= minLength) {
+      out.push(pending.trim());
+      pending = "";
+    }
+  }
+  return [out, pending + buffer.slice(last)];
+}
+
+// ---------- speaker
+
+type SpeakerState = "idle" | "speaking";
+
+export class Speaker {
+  private queue: Promise<AudioBuffer | string | null>[] = [];
+  private playing = false;
+  private current: AudioBufferSourceNode | null = null;
+  private generation = 0;
+  private analyser: AnalyserNode | null = null;
+  private raf = 0;
+  private listeners = new Set<(s: SpeakerState) => void>();
+  private useServer: boolean | null = null;
+  /** everything said in this reply, for "nochmal hören" */
+  spoken: string[] = [];
+
+  onState(l: (s: SpeakerState) => void) {
+    this.listeners.add(l);
+    return () => this.listeners.delete(l);
+  }
+  private emit(s: SpeakerState) {
+    this.listeners.forEach((l) => l(s));
+  }
+
+  get busy() {
+    return this.playing || this.queue.length > 0;
+  }
+
+  /** Adds a sentence; fetching starts right away, playing in order. */
+  say(text: string) {
+    const t = text.trim();
+    if (!t) return;
+    this.spoken.push(t);
+    const gen = this.generation;
+    this.queue.push(this.prepare(t, gen));
+    if (!this.playing) void this.playNext(gen);
+  }
+
+  private async prepare(text: string, gen: number): Promise<AudioBuffer | string | null> {
+    if (this.useServer === null) this.useServer = await serverVoiceReady();
+    if (gen !== this.generation) return null;
+    if (!this.useServer) return text; // phone voice
+    try {
+      const data = await backend.speak(text);
+      if (gen !== this.generation) return null;
+      return await audioContext().decodeAudioData(data);
+    } catch (e) {
+      console.warn("Stimme nicht verfügbar, nehme Handy-Stimme", e);
+      return text;
+    }
+  }
+
+  private async playNext(gen: number): Promise<void> {
+    const next = this.queue.shift();
+    if (!next) {
+      this.playing = false;
+      this.stopMeter();
+      this.emit("idle");
+      return;
+    }
+    this.playing = true;
+    this.emit("speaking");
+    await unlocked; // wait for the first tap on iOS
+    const item = await next;
+    if (gen !== this.generation) return;
+    if (item === null) return this.playNext(gen);
+    if (typeof item === "string") {
+      await this.speakWithPhone(item);
+      if (gen === this.generation) void this.playNext(gen);
+      return;
+    }
+    const c = audioContext();
+    if (!this.analyser) {
+      this.analyser = c.createAnalyser();
+      this.analyser.fftSize = 512;
+      this.analyser.connect(c.destination);
+    }
+    const src = c.createBufferSource();
+    src.buffer = item;
+    src.connect(this.analyser);
+    src.onended = () => {
+      if (this.current === src) this.current = null;
+      if (gen === this.generation) void this.playNext(gen);
+    };
+    this.current = src;
+    this.startMeter();
+    src.start();
+  }
+
+  private speakWithPhone(text: string): Promise<void> {
+    return new Promise((resolve) => {
+      if (!("speechSynthesis" in window)) return resolve();
+      const u = new SpeechSynthesisUtterance(text);
+      u.lang = "de-CH";
+      const voices = window.speechSynthesis.getVoices().filter((v) => v.lang.startsWith("de"));
+      u.voice = voices.find((v) => /Anna|Helena|Petra|Marlene|Vicki|female/i.test(v.name)) ?? voices[0] ?? null;
+      u.rate = 0.98;
+      let t = 0;
+      const pulse = () => {
+        voice.out = 0.35 + 0.25 * Math.abs(Math.sin(t++ / 3));
+        raf = requestAnimationFrame(pulse);
+      };
+      let raf = requestAnimationFrame(pulse);
+      let done = false;
+      const finish = () => {
+        if (done) return;
+        done = true;
+        cancelAnimationFrame(raf);
+        clearTimeout(guard);
+        voice.out = 0;
+        resolve();
+      };
+      // some phones never report the end of speech: don't hang
+      const guard = setTimeout(finish, 2500 + text.length * 85);
+      u.onend = u.onerror = finish;
+      window.speechSynthesis.speak(u);
+    });
+  }
+
+  private startMeter() {
+    if (this.raf || !this.analyser) return;
+    const buf = new Uint8Array(this.analyser.fftSize);
+    const tick = () => {
+      this.analyser!.getByteTimeDomainData(buf);
+      let sum = 0;
+      for (const v of buf) sum += ((v - 128) / 128) ** 2;
+      voice.out += (Math.min(1, Math.sqrt(sum / buf.length) * 5) - voice.out) * 0.35;
+      this.raf = requestAnimationFrame(tick);
+    };
+    this.raf = requestAnimationFrame(tick);
+  }
+  private stopMeter() {
+    cancelAnimationFrame(this.raf);
+    this.raf = 0;
+    voice.out = 0;
+  }
+
+  /** Stops speaking immediately and drops what's queued. */
+  stop() {
+    this.generation++;
+    this.queue = [];
+    try {
+      this.current?.stop();
+    } catch {
+      /* already stopped */
+    }
+    this.current = null;
+    if ("speechSynthesis" in window) window.speechSynthesis.cancel();
+    this.playing = false;
+    this.stopMeter();
+    this.emit("idle");
+  }
+
+  /** Starts a new reply (keeps nothing from the previous one). */
+  reset() {
+    this.stop();
+    this.spoken = [];
+  }
+}
+
+// ---------- listening
+
+export interface ListenHandle {
+  /** Resolves with what was said ("" if nothing). */
+  result: Promise<string>;
+  /** Finish now and send what was heard so far. */
+  finish(): void;
+  /** Throw away and stop. */
+  cancel(): void;
+}
+
+function pickMime(): string {
+  const options = ["audio/webm;codecs=opus", "audio/mp4", "audio/webm", "audio/aac"];
+  return options.find((m) => typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported?.(m)) ?? "";
+}
+
+/**
+ * Records one utterance and stops by itself after a short silence.
+ * onPhase reports "listening" → "transcribing".
+ */
+export function listenOnce(opts: {
+  onPhase?: (p: "listening" | "transcribing") => void;
+  onPartial?: (text: string) => void;
+  silenceMs?: number;
+  noSpeechMs?: number;
+  maxMs?: number;
+}): ListenHandle {
+  const silenceMs = opts.silenceMs ?? 1300;
+  const noSpeechMs = opts.noSpeechMs ?? 8000;
+  const maxMs = opts.maxMs ?? 90000;
+  let finishNow: () => void = () => {};
+  let cancelled = false;
+
+  const result = (async (): Promise<string> => {
+    const server = await serverVoiceReady();
+    if (!server && speechSupported()) return browserOnce(opts, (f) => (finishNow = f), () => cancelled);
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
+      throw new Error("Dieses Gerät kann hier keine Sprache aufnehmen. Tippe stattdessen auf die Tastatur.");
+    }
+
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+    });
+    const c = audioContext();
+    if (c.state === "suspended") await c.resume().catch(() => {});
+    const source = c.createMediaStreamSource(stream);
+    const analyser = c.createAnalyser();
+    analyser.fftSize = 1024;
+    source.connect(analyser);
+    const mime = pickMime();
+    const rec = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+    const chunks: Blob[] = [];
+    rec.ondataavailable = (e) => e.data.size && chunks.push(e.data);
+    opts.onPhase?.("listening");
+    rec.start(250);
+
+    const buf = new Uint8Array(analyser.fftSize);
+    const start = performance.now();
+    let floor = 0.01;
+    let spoke = false;
+    let lastVoice = start;
+
+    const done = await new Promise<boolean>((resolve) => {
+      finishNow = () => resolve(spoke);
+      const tick = () => {
+        if (cancelled) return resolve(false);
+        analyser.getByteTimeDomainData(buf);
+        let sum = 0;
+        for (const v of buf) sum += ((v - 128) / 128) ** 2;
+        const rms = Math.sqrt(sum / buf.length);
+        const now = performance.now();
+        if (now - start < 350) floor = Math.max(floor * 0.9 + rms * 0.1, 0.004); // learn the room noise
+        const threshold = Math.min(0.09, Math.max(0.018, floor * 3));
+        voice.level += (Math.min(1, rms * 6) - voice.level) * 0.35;
+        if (rms > threshold) {
+          spoke = true;
+          lastVoice = now;
+        }
+        if (spoke && now - lastVoice > silenceMs) return resolve(true);
+        if (!spoke && now - start > noSpeechMs) return resolve(false);
+        if (now - start > maxMs) return resolve(spoke);
+        setTimeout(tick, 40);
+      };
+      tick();
+    });
+
+    const blob = await new Promise<Blob>((resolve) => {
+      rec.onstop = () => resolve(new Blob(chunks, { type: rec.mimeType || mime || "audio/webm" }));
+      rec.stop();
+    });
+    stream.getTracks().forEach((t) => t.stop());
+    source.disconnect();
+    voice.level = 0;
+    if (!done || cancelled) return "";
+    opts.onPhase?.("transcribing");
+    return backend.transcribe(blob);
+  })();
+
+  return {
+    result,
+    finish: () => finishNow(),
+    cancel: () => {
+      cancelled = true;
+      finishNow();
+    },
+  };
+}
+
+/** Browser speech recognition: ends by itself after a pause. */
+function browserOnce(
+  opts: { onPhase?: (p: "listening" | "transcribing") => void; onPartial?: (t: string) => void },
+  setFinish: (f: () => void) => void,
+  isCancelled: () => boolean,
+): Promise<string> {
+  return new Promise((resolve, reject) => {
+    let text = "";
+    let finished = false;
+    const end = () => {
+      if (finished) return;
+      finished = true;
+      voice.level = 0;
+      resolve(isCancelled() ? "" : text.trim());
+    };
+    const handle = browserListen({
+      continuous: false,
+      onText: (t) => {
+        text = t;
+        voice.level = 0.5;
+        opts.onPartial?.(t);
+      },
+      onEnd: end,
+      onError: (msg) => {
+        finished = true;
+        voice.level = 0;
+        reject(new Error(msg));
+      },
+    });
+    if (!handle) return reject(new Error("Spracheingabe ist hier nicht verfügbar."));
+    opts.onPhase?.("listening");
+    setFinish(() => handle.stop());
+  });
+}

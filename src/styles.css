@@ -505,6 +505,58 @@ input[type="time"] { background: var(--glass); border: 1px solid var(--line); bo
 .switch:checked::after { transform: translateX(20px); }
 .retry { margin-top: 10px; }
 
+/* ---------- Voice mode: big portal, no text from the coach ---------- */
+.voice-screen { height: 100dvh; min-height: 0; }
+.topbar.center { justify-content: center; }
+.voice-hero { display: flex; flex-direction: column; align-items: center; text-align: center; flex: none; }
+.voice-hero .greeting { font-size: clamp(1.25rem, 5.4vw, 1.65rem); margin-top: 12px; animation: rise 0.9s var(--ease-out) 0.2s both; }
+.voice-hero .focus-quote { animation-delay: 0.3s; }
+.voice-hero .up-next { animation-delay: 0.4s; }
+.voice-portal {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: portal-in 1.3s var(--ease-out) both;
+}
+@keyframes portal-in { from { opacity: 0; transform: scale(0.6); filter: blur(24px); } }
+.voice { display: flex; flex-direction: column; gap: 10px; flex: none; }
+.voice-status { min-height: 70px; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 8px; text-align: center; }
+.voice-status-text {
+  font-size: 0.74rem;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-soft);
+  animation: fade 0.4s ease both;
+}
+.voice-status-text.listening { color: var(--text); animation: breathe 1.6s ease-in-out infinite; }
+.voice-status-text.thinking, .voice-status-text.transcribing { animation: breathe 2.2s ease-in-out infinite; }
+@keyframes breathe { 50% { opacity: 0.45; } }
+.voice-heard { font-family: var(--serif); font-style: italic; color: var(--text-soft); margin: 0; max-width: 32ch; font-size: 1.02rem; line-height: 1.4; animation: rise 0.5s var(--ease-out) both; }
+.voice-replay {
+  margin: 0;
+  padding: 6px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--glass);
+  color: var(--text-soft);
+  font-size: 0.8rem;
+  font-weight: 500;
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+.toasts { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.toasts .event-card { margin-top: 0; }
+.voice-dock { justify-content: center; gap: 22px; padding-top: 4px; }
+.dock-main.big { width: 78px; height: 78px; box-shadow: 0 10px 40px color-mix(in srgb, var(--sky-1) 35%, transparent); }
+.dock-main.small { width: 44px; height: 44px; }
+.dock-spacer { width: 58px; flex: none; }
+.dock-round.active-soft { background: var(--glass-strong); border-color: var(--line-strong); }
+.dock-pill.typed { min-height: 54px; padding: 5px 5px 5px 4px; animation: rise 0.4s var(--ease-out) both; }
+.inline-action.center { align-items: center; }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
 }

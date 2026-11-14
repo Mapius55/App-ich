@@ -7,8 +7,8 @@
 // seed varies the choice a little, so no two days look the same. The ground
 // stays almost black; all colour lives in the light.
 
-import { adjust, hexToRgb, lightness, mix, rgbToOklab, withLightness } from "./color";
-import { COLORS, type LibColor } from "./colors100";
+import { adjust, lightness, mixLch, withLightness } from "./color";
+import { ROLES, WORLDS, type Role, type World } from "./worlds";
 import { isAfterSolarNoon, solarElevation } from "./sun";
 import type { Weather } from "./weather";
 
@@ -34,9 +34,9 @@ export interface PaletteInput {
 }
 
 export interface Palette {
-  colors: string[]; // ~10 colours, ordered around the colour wheel (sky flow)
-  names: string[]; // their names, same order
-  orb: string[]; // 5 colours for the portal: [main, light, accent, deep, accent]
+  colors: string[]; // the world's 5 colours for the sky: main, accent, accent2, light, deep
+  names: string[]; // name(s) of the colour world(s) in use
+  orb: string[]; // 5 colours for the portal: [main, light, accent, deep, accent2]
   ground: string; // the almost-black ground
   glow: number; // how much light is in the sky: ~0.6 at night … 0.9 by day
   daylight: number; // 0 deep night … 1 full day (the portal gets deeper at night)
@@ -49,8 +49,6 @@ export interface Palette {
   seed: number;
   phase: string; // German label, e.g. "Sonnenuntergang"
 }
-
-const PICK = 10;
 
 // ---------- helpers ----------
 
@@ -164,76 +162,39 @@ export function localDayKey(d = new Date()): string {
   return `${y}-${m}-${day}`;
 }
 
-function letters(codes: string): string[] {
-  return codes.split("");
-}
-function pairs(codes: string): string[] {
-  const out: string[] = [];
-  for (let i = 0; i < codes.length; i += 2) out.push(codes.slice(i, i + 2));
-  return out;
-}
-
-function hue(hex: string): number {
-  const [, a, b] = rgbToOklab(hexToRgb(hex));
-  return Math.atan2(b, a);
-}
-function distance(a: string, b: string): number {
-  const A = rgbToOklab(hexToRgb(a));
-  const B = rgbToOklab(hexToRgb(b));
-  return Math.hypot(A[0] - B[0], A[1] - B[1], A[2] - B[2]);
-}
-
-function scoreColor(
-  col: LibColor,
+function scoreWorld(
+  w: World,
   phase: Record<string, number>,
   weather: Record<string, number> | null,
   season: Record<string, number>,
   elevation: number | null | undefined,
   jitter: number,
 ): number {
-  let score: number;
-  if (col.phases) {
-    const ms = letters(col.phases).map((p) => phase[p] ?? 0);
-    const max = Math.max(...ms);
-    score = max + 0.25 * (ms.reduce((a, b) => a + b, 0) - max);
-  } else {
-    score = 0.45; // weather colours: fit any time, but only in their weather
+  const ms = w.phases.split("").map((p) => phase[p] ?? 0);
+  const max = Math.max(...ms);
+  let score = max + 0.2 * (ms.reduce((a, b) => a + b, 0) - max);
+
+  const strongWeather = weather ? Math.max(weather.r ?? 0, weather.f ?? 0, weather.s ?? 0, weather.g ?? 0) : 0;
+  if (w.weather) {
+    const match = weather ? Math.min(1, w.weather.split("").reduce((a, k) => a + (weather[k] ?? 0), 0)) : 0;
+    score += match > 0 ? 1.2 * match : -2; // weather worlds only in their weather
+  } else if (strongWeather > 0.6) {
+    score -= 0.5 * strongWeather; // rain, fog, snow, storm: prefer their own worlds
   }
 
-  if (col.weather) {
-    if (!weather) score += col.phases ? -0.05 : -1;
-    else {
-      const match = Math.min(1, letters(col.weather).reduce((a, w) => a + (weather[w] ?? 0), 0));
-      score += match > 0 ? 0.8 * match : col.phases ? -0.35 : -1;
-    }
+  if (w.seasons) {
+    const match = Math.min(1, (w.seasons.match(/.{2}/g) ?? []).reduce((a, s) => a + (season[s] ?? 0), 0));
+    score += match > 0.35 ? 0.35 * match : -0.8;
   }
-
-  if (col.seasons) {
-    const match = Math.min(1, pairs(col.seasons).reduce((a, s) => a + (season[s] ?? 0), 0));
-    score += 0.3 * match - 0.12 * (1 - match);
-  }
-
-  if (col.alp) score += elevation != null && elevation > 900 ? 0.35 : -0.25;
-
+  if (w.alp) score += elevation != null && elevation > 900 ? 0.6 : -1.2;
   return score + jitter;
-}
-
-function weatherAdjust(c: string, w: Weather | null | undefined): string {
-  if (!w) return c;
-  const cloud = Math.min(1, w.cloudCover / 100);
-  let out = adjust(c, { chroma: 1 - 0.25 * cloud });
-  if (w.kind === "fog") out = adjust(out, { chroma: 0.75 });
-  if (w.kind === "clear") out = adjust(out, { chroma: 1.06 });
-  return out;
 }
 
 function moodAdjust(c: string, mood: Mood | null | undefined): string {
   if (!mood) return c;
   const v = Math.max(-1, Math.min(1, mood.valence));
-  let out = adjust(c, { chroma: 1 + 0.15 * v, dL: 0.02 * v });
-  // A heavy day gets softer, calmer, gently cooler colours, never harsh.
-  if (v < 0) out = mix(out, withLightness("#9aa6d6", lightness(out)), 0.18 * -v);
-  return out;
+  // a heavy day: softer and a bit calmer; a light day: a touch more colour
+  return adjust(c, { chroma: 1 + 0.12 * v, dL: 0.015 * v });
 }
 
 export function computePalette(input: PaletteInput): Palette {
@@ -245,58 +206,40 @@ export function computePalette(input: PaletteInput): Palette {
   const season = seasonWeights(date, lat);
   const day = localDayKey(date);
 
-  // Score all 100 colours for this moment and place.
-  const scored = COLORS.map((col) => {
-    const jitter = (seededRandom(day + col.hex)() - 0.5) * 0.3;
-    return { col, score: scoreColor(col, phase, wx, season, elevation, jitter) };
-  }).sort((a, b) => b.score - a.score);
+  // Score every world for this moment and place; a small daily jitter varies close calls.
+  const ranked = WORLDS.map((w) => ({ w, s: scoreWorld(w, phase, wx, season, elevation, (seededRandom(day + w.id)() - 0.5) * 0.24) })).sort(
+    (a, b) => b.s - a.s,
+  );
+  const [first, second] = ranked;
+  // Blend the two best worlds smoothly: as the sun moves, one world fades into the next.
+  const gap = first.s - second.s;
+  const t = gap >= 0.4 ? 0 : 0.5 * (1 - gap / 0.4);
+  const role = (r: Role) => {
+    let c = t > 0 ? mixLch(first.w[r], second.w[r], t) : first.w[r];
+    c = moodAdjust(c, mood);
+    if (weather?.kind === "clear") c = adjust(c, { chroma: 1.05 });
+    return c;
+  };
+  const w = Object.fromEntries(ROLES.map((r) => [r, role(r)])) as Record<Role, string>;
 
-  // Take the best ones, skipping near-duplicates so the sky stays rich.
-  const picked: { hex: string; name: string; score: number }[] = [];
-  for (const { col, score } of scored) {
-    if (picked.length >= PICK) break;
-    if (picked.every((p) => distance(p.hex, col.hex) > 0.07)) picked.push({ hex: col.hex, name: col.name, score });
-  }
-
-  // The person's favourite nature joins the sky, matched to the light.
+  // Your favourite nature lends its colour to the accent, matched to the light.
   if (nature?.colors?.length) {
-    const avgL = picked.reduce((a, p) => a + lightness(p.hex), 0) / picked.length;
-    const add = nature.colors.slice(0, 2).map((h, i) => ({
-      hex: withLightness(h, avgL * 0.7 + lightness(h) * 0.3),
-      name: `${nature.name} ${i + 1}`,
-      score: 0,
-    }));
-    picked.splice(picked.length - add.length, add.length, ...add);
+    const n = withLightness(nature.colors[0], lightness(w.accent2));
+    w.accent2 = mixLch(w.accent2, n, 0.6);
   }
 
-  const finish = (h: string) => adjust(moodAdjust(weatherAdjust(h, weather), mood), { chroma: 1.08 });
-
-  // Portal: the five strongest, arranged by role.
-  const five = [...picked]
-    .sort((a, b) => b.score - a.score)
-    .slice(0, 5)
-    .map((p) => finish(p.hex))
-    .sort((a, b) => lightness(b) - lightness(a));
-  const orb = [five[1], five[0], five[2], five[4], five[3]];
-
-  // Sky flow: ordered around the colour wheel for smooth transitions.
-  const flow = [...picked].sort((a, b) => hue(a.hex) - hue(b.hex));
-  const colors = flow.map((p) => finish(p.hex));
-
-  const darkest = colors.reduce((d, c) => (lightness(c) < lightness(d) ? c : d), colors[0]);
-  const glow = 0.6 + 0.3 * ramp(elev, -12, 18);
-  const ground = withLightness(adjust(darkest, { chroma: 0.45 }), 0.075 + 0.05 * ramp(elev, -12, 18));
-
+  const daylight = ramp(elev, -10, 14);
+  const ground = withLightness(adjust(w.deep, { chroma: 0.55 }), 0.075 + 0.045 * daylight);
   const rand = seededRandom(day);
   const energy = mood ? Math.max(0, Math.min(1, mood.energy)) : 0.5;
 
   return {
-    colors,
-    names: flow.map((p) => p.name),
-    orb,
+    colors: [w.main, w.accent, w.accent2, w.light, w.deep],
+    names: t > 0.15 ? [first.w.name, second.w.name] : [first.w.name],
+    orb: [w.main, w.light, w.accent, w.deep, w.accent2],
     ground,
-    glow,
-    daylight: ramp(elev, -10, 14),
+    glow: 0.6 + 0.3 * ramp(elev, -12, 18),
+    daylight,
     bgTop: ground,
     bgBottom: withLightness(ground, lightness(ground) + 0.04),
     text: "#fbf8f4",

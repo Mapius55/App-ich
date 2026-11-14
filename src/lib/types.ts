@@ -127,6 +127,11 @@ export interface Backend {
   deletePushSubscription(endpoint: string): Promise<void>;
   sendTestPush(): Promise<number>;
 
+  /** Voice (ElevenLabs on the server): is it set up, speak a text, transcribe a recording. */
+  voiceReady(): Promise<boolean>;
+  speak(text: string): Promise<ArrayBuffer>;
+  transcribe(audio: Blob): Promise<string>;
+
   /** Everything stored about you, as one JSON object. */
   exportData(): Promise<Record<string, unknown>>;
   /** Deletes the account and all data. */

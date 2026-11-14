@@ -27,6 +27,8 @@ export interface Listener {
 }
 
 export function listen(opts: {
+  /** false = stops by itself after a pause (default true) */
+  continuous?: boolean;
   onText: (text: string, final: boolean) => void;
   onEnd: () => void;
   onError: (msg: string) => void;
@@ -36,7 +38,7 @@ export function listen(opts: {
   const rec = new C();
   rec.lang = "de-CH";
   rec.interimResults = true;
-  rec.continuous = true;
+  rec.continuous = opts.continuous ?? true;
   let finalText = "";
   rec.onresult = (e) => {
     let interim = "";

@@ -223,6 +223,16 @@ export class DemoBackend implements Backend {
     return 0;
   }
 
+  async voiceReady() {
+    return false; // demo: the phone's own voice and speech recognition
+  }
+  async speak(): Promise<ArrayBuffer> {
+    throw new Error("no server voice in demo");
+  }
+  async transcribe(): Promise<string> {
+    throw new Error("no server voice in demo");
+  }
+
   async exportData() {
     const u = this.user();
     return { exported_at: new Date().toISOString(), profile: u.profile, memories: u.memories, events: u.events ?? [], days: u.days, messages: u.messages };

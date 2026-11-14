@@ -1,6 +1,7 @@
 import { useCallback, useState } from "react";
-import { Portal, type OrbState } from "../components/Portal";
-import { Conversation } from "../components/Conversation";
+import { type OrbState } from "../components/Portal";
+import { FitPortal } from "../components/FitPortal";
+import { VoiceConversation } from "../components/VoiceConversation";
 import { requestCoords, type Coords } from "../lib/location";
 import type { Palette } from "../lib/palette";
 import type { CoachContext, CoachEvent } from "../lib/types";
@@ -52,12 +53,12 @@ export function Onboarding({ palette, context, onEvent, onCoords, hasCoords, onD
     ) : null;
 
   return (
-    <main className="screen chat-screen onboarding">
-      <header className="chat-header">
-        <Portal colors={palette.orb} daylight={palette.daylight} size={170} speed={palette.speed} seed={palette.seed} state={orbState} />
+    <main className="screen onboarding voice-screen">
+      <header className="topbar center">
         <span className="pill">Kennenlernen</span>
       </header>
-      <Conversation
+      <FitPortal colors={palette.orb} daylight={palette.daylight} speed={palette.speed} seed={palette.seed} state={orbState} />
+      <VoiceConversation
         mode="onboarding"
         thread="onboarding"
         context={context}
@@ -65,7 +66,7 @@ export function Onboarding({ palette, context, onEvent, onCoords, hasCoords, onD
         onOrbState={setOrbState}
         extra={
           done ? (
-            <div className="inline-action">
+            <div className="inline-action center">
               <button className="btn primary" onClick={onDone}>
                 Los geht’s
               </button>
