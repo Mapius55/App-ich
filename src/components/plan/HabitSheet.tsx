@@ -6,7 +6,7 @@ import { ConfirmDelete, Sheet } from "./Sheet";
 
 interface Props {
   habit: Habit | null; // null = new habit
-  goals: Goal[]; // goals it can serve
+  goals: Goal[]; // all goals; the sheet offers those it can serve
   onClose: () => void;
   onChanged: () => void;
 }
@@ -18,6 +18,8 @@ export function HabitSheet({ habit, goals, onClose, onChanged }: Props) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const freqId = useId();
+  // dropped goals stay hidden, unless this habit belongs to one (so it can be seen and unlinked)
+  const goalOptions = goals.filter((g) => g.status !== "dropped" || g.id === habit?.goal_id);
 
   const save = async (close: () => void) => {
     const t = title.trim();
@@ -49,6 +51,7 @@ export function HabitSheet({ habit, goals, onClose, onChanged }: Props) {
             e.preventDefault();
             save(close);
           }}
+          onChange={() => error && setError(null)}
         >
           <label className="sheet-field">
             <span>Was möchtest du regelmässig tun?</span>
@@ -83,12 +86,12 @@ export function HabitSheet({ habit, goals, onClose, onChanged }: Props) {
             </div>
           </div>
 
-          {goals.length > 0 && (
+          {goalOptions.length > 0 && (
             <label className="sheet-field">
               <span>Gehört zu Ziel</span>
               <select value={goalId} onChange={(e) => setGoalId(e.target.value)}>
                 <option value="">Kein Ziel</option>
-                {goals.map((g) => (
+                {goalOptions.map((g) => (
                   <option key={g.id} value={g.id}>
                     {g.title}
                   </option>

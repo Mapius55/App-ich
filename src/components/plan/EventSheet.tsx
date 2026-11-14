@@ -1,7 +1,7 @@
 import { useId, useState } from "react";
 import { backend } from "../../lib/backend";
 import { addDays, dayOf, daysBetween } from "../../lib/plan";
-import { localMidnightIso, timeHM } from "../../lib/dates";
+import { localMidnightIso, shortDay, timeHM } from "../../lib/dates";
 import type { CalendarEvent, EventInput, Goal } from "../../lib/types";
 import { ConfirmDelete, Sheet } from "./Sheet";
 
@@ -55,8 +55,11 @@ interface Props {
 export function EventSheet({ event, day, goals, onClose, onChanged }: Props) {
   const startDay = event ? dayOf(new Date(event.starts_at)) : day;
   const initialStart = event && !event.all_day ? timeHM(event.starts_at) : defaultStart(day);
-  // a timed entry may end on a later day; that offset is kept when editing
-  const endOffset = event?.ends_at ? Math.max(0, daysBetween(startDay, dayOf(new Date(event.ends_at)))) : 0;
+  const endDays = event?.ends_at ? Math.max(0, daysBetween(startDay, dayOf(new Date(event.ends_at)))) : 0;
+  // a multi-day all-day entry keeps its length when it moves
+  const allDayLength = event?.all_day ? endDays : 0;
+  // a timed entry of 24 hours or more is a real multi-day one: its end day stays as it is
+  const multiDay = !!event && !event.all_day && !!event.ends_at && Date.parse(event.ends_at) - Date.parse(event.starts_at) >= 86400000;
 
   const [title, setTitle] = useState(event?.title ?? "");
   const [kind, setKind] = useState<CalendarEvent["kind"]>(event?.kind ?? "termin");
@@ -67,6 +70,8 @@ export function EventSheet({ event, day, goals, onClose, onChanged }: Props) {
     if (event) return event.ends_at && !event.all_day ? timeHM(event.ends_at) : "";
     return hm(Math.min(toMin(initialStart) + 60, 23 * 60 + 59));
   });
+  // days from the start day to the end day of a timed entry (1 = ends after midnight)
+  const [endOffset, setEndOffset] = useState(event && !event.all_day ? endDays : 0);
   const [location, setLocation] = useState(event?.location ?? "");
   const [notes, setNotes] = useState(event?.notes ?? "");
   const [reminder, setReminder] = useState<number | null>(event ? event.reminder_minutes : defaultReminder(false, "termin"));
@@ -74,17 +79,33 @@ export function EventSheet({ event, day, goals, onClose, onChanged }: Props) {
   const [goalId, setGoalId] = useState(event?.goal_id ?? "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const ids = { kind: useId(), allDay: useId() };
+  const ids = { kind: useId(), allDay: useId(), endHint: useId() };
 
   const options = [...(allDay ? ALL_DAY : TIMED)];
   if (!options.includes(reminder)) options.push(reminder);
 
-  const goalOptions = goals.filter((g) => g.status !== "dropped" || g.id === goalId);
+  // dropped goals stay hidden, unless this entry belongs to one (so it can be seen and unlinked)
+  const goalOptions = goals.filter((g) => g.status !== "dropped" || g.id === event?.goal_id);
+
+  // "Bis" at or before "Von" means after midnight, not an error
+  const offset = end && start && endOffset === 0 && toMin(end) <= toMin(start) ? 1 : endOffset;
+  const endHint = allDay || !end ? null : offset === 1 ? "endet am nächsten Tag" : offset > 1 ? `endet am ${shortDay(addDays(date, offset))}` : null;
 
   const changeStart = (v: string) => {
-    // keep the duration, like a paper calendar: moving the start moves the end
-    if (end && start && v) setEnd(hm(Math.min(toMin(v) + Math.max(toMin(end) - toMin(start), 0), 23 * 60 + 59)));
+    // keep the duration, like a paper calendar: moving the start moves the end (across midnight too)
+    if (end && start && v) {
+      const duration = Math.max(offset * 1440 + toMin(end) - toMin(start), 0);
+      const at = toMin(v) + duration;
+      setEnd(hm(at % 1440));
+      setEndOffset(Math.floor(at / 1440));
+    }
     setStart(v);
+  };
+
+  const changeEnd = (v: string) => {
+    setEnd(v);
+    if (!v || multiDay) return;
+    setEndOffset(start && toMin(v) <= toMin(start) ? 1 : 0);
   };
 
   const toggleAllDay = (v: boolean) => {
@@ -106,13 +127,12 @@ export function EventSheet({ event, day, goals, onClose, onChanged }: Props) {
     let ends_at: string | null = null;
     if (allDay) {
       starts_at = localMidnightIso(date);
-      // a multi-day all-day entry keeps its length
-      if (event?.all_day && event.ends_at && endOffset > 0) ends_at = localMidnightIso(addDays(date, endOffset));
+      if (allDayLength > 0) ends_at = localMidnightIso(addDays(date, allDayLength));
     } else {
       if (!start) return setError("Wann beginnt es?");
       starts_at = new Date(`${date}T${start}`).toISOString();
       if (end) {
-        ends_at = new Date(`${addDays(date, endOffset)}T${end}`).toISOString();
+        ends_at = new Date(`${addDays(date, offset)}T${end}`).toISOString();
         if (ends_at <= starts_at) return setError("Das Ende muss nach dem Anfang liegen.");
       }
     }
@@ -150,6 +170,7 @@ export function EventSheet({ event, day, goals, onClose, onChanged }: Props) {
             e.preventDefault();
             save(close);
           }}
+          onChange={() => error && setError(null)}
           noValidate
         >
           <label className="sheet-field">
@@ -195,8 +216,13 @@ export function EventSheet({ event, day, goals, onClose, onChanged }: Props) {
               </label>
               <label className="sheet-field">
                 <span>Bis</span>
-                <input type="time" value={end} onChange={(e) => setEnd(e.target.value)} />
+                <input type="time" value={end} onChange={(e) => changeEnd(e.target.value)} aria-describedby={endHint ? ids.endHint : undefined} />
               </label>
+              {endHint && (
+                <span id={ids.endHint} className="sheet-hint sheet-times-hint">
+                  {endHint}
+                </span>
+              )}
             </div>
           )}
 
