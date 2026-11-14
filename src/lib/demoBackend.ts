@@ -2,9 +2,26 @@
 // be tried before Supabase and the AI are set up. Everything stays on this
 // device. It's a preview, not a real coach.
 
-import type { Backend, CalendarEvent, ChatMessage, CoachEvent, CoachRequest, DayState, Memory, MemoryCategory, Profile } from "./types";
+import type {
+  Backend,
+  CalendarEvent,
+  ChatMessage,
+  CoachEvent,
+  CoachRequest,
+  DayState,
+  EventInput,
+  Goal,
+  GoalInput,
+  Habit,
+  HabitInput,
+  Memory,
+  MemoryCategory,
+  Milestone,
+  Profile,
+} from "./types";
 import { normaliseUsername, USERNAME_RE } from "./types";
 import type { NaturePalette } from "./palette";
+import { addDays, dayOf, weekStart } from "./plan";
 
 interface DemoUser {
   passwordHash: string;
@@ -12,7 +29,11 @@ interface DemoUser {
   memories: Memory[];
   messages: Record<string, ChatMessage[]>;
   days: Record<string, DayState>;
-  events?: CalendarEvent[];
+  events: CalendarEvent[];
+  /** with their milestones */
+  goals: Goal[];
+  /** done_days holds the whole history, like the habit_logs table */
+  habits: Habit[];
 }
 
 // The demo coach understands simple appointments, e.g. "Samstag um 9 habe ich ein Rennen"
@@ -27,29 +48,127 @@ const KINDS: [RegExp, string][] = [
   [/arzt|zahnarzt/i, "Arzttermin"],
   [/treffen|meeting|termin/i, "Termin"],
 ];
+const MONTHS = ["januar", "februar", "märz", "april", "mai", "juni", "juli", "august", "september", "oktober", "november", "dezember"];
+const MONTH = "(januar|jänner|februar|märz|maerz|april|mai|juni|juli|august|september|oktober|november|dezember)";
+const monthIndex = (name: string) => MONTHS.indexOf(name === "jänner" ? "januar" : name === "maerz" ? "märz" : name);
+
+export interface DemoDate {
+  date: Date; // local midnight
+  /** "day": a calendar date (3.12., 6. Dezember); "month": only a month (bis März); "relative": morgen, a weekday */
+  kind: "day" | "month" | "relative";
+  /** where the date words are in the text, so a title can do without them */
+  index: number;
+  length: number;
+}
+
+/** Finds the first date of one of the given kinds. A date without year that has passed means next year. */
+export function parseDemoDate(text: string, now = new Date(), kinds: DemoDate["kind"][] = ["day", "month", "relative"]): DemoDate | null {
+  const t = text.toLowerCase();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const make = (year: string | undefined, month: number, day: number): Date | null => {
+    const y = year ? (+year < 100 ? 2000 + +year : +year) : now.getFullYear();
+    const d = new Date(y, month, day);
+    if (month < 0 || month > 11 || d.getMonth() !== month) return null; // 31.2. or a time like 18.30
+    if (!year && d < today) d.setFullYear(y + 1, month, day);
+    return d;
+  };
+  if (kinds.includes("day")) {
+    for (const m of t.matchAll(/(\d{1,2})\.(\d{1,2})\.?(\d{2,4})?/g)) {
+      const d = make(m[3], +m[2] - 1, +m[1]);
+      if (d) return { date: d, kind: "day", index: m.index, length: m[0].length };
+    }
+    for (const m of t.matchAll(new RegExp(`(\\d{1,2})\\.?\\s*${MONTH}(?![a-zäöü])(?:\\s+(\\d{4}))?`, "g"))) {
+      const d = make(m[3], monthIndex(m[2]), +m[1]);
+      if (d) return { date: d, kind: "day", index: m.index, length: m[0].length };
+    }
+  }
+  if (kinds.includes("relative")) {
+    const rel = (offset: number, at: number, length: number): DemoDate => ({
+      date: new Date(now.getFullYear(), now.getMonth(), now.getDate() + offset),
+      kind: "relative",
+      index: at,
+      length,
+    });
+    if (t.includes("übermorgen")) return rel(2, t.indexOf("übermorgen"), 10);
+    if (t.includes("morgen")) return rel(1, t.indexOf("morgen"), 6);
+    const wd = WEEKDAYS.findIndex((w) => t.includes(w));
+    if (wd >= 0) return rel((wd - now.getDay() + 7) % 7 || 7, t.indexOf(WEEKDAYS[wd]), WEEKDAYS[wd].length);
+  }
+  if (kinds.includes("month")) {
+    // "bis März" means the whole month, so the goal date is its last day; "Anfang"/"Mitte" move it earlier.
+    const m = new RegExp(`(?:(anfang|mitte|ende)\\s+)?\\b${MONTH}(?![a-zäöü])(?:\\s+(\\d{4}))?`).exec(t);
+    if (m) {
+      const month = monthIndex(m[2]);
+      const y = m[3] ? +m[3] : now.getFullYear();
+      const dayIn = (year: number) => (m[1] === "anfang" ? 1 : m[1] === "mitte" ? 15 : new Date(year, month + 1, 0).getDate());
+      let d = new Date(y, month, dayIn(y));
+      if (!m[3] && d < today) d = new Date(y + 1, month, dayIn(y + 1));
+      return { date: d, kind: "month", index: m.index, length: m[0].length };
+    }
+  }
+  return null;
+}
+
 export function parseDemoEvent(text: string, now = new Date()): { title: string; start: Date; allDay: boolean } | null {
   const kind = KINDS.find(([re]) => re.test(text));
   if (!kind) return null;
-  const t = text.toLowerCase();
-  let date: Date | null = null;
-  const dm = t.match(/(\d{1,2})\.(\d{1,2})\.?(\d{2,4})?/);
-  if (dm) {
-    const y = dm[3] ? (+dm[3] < 100 ? 2000 + +dm[3] : +dm[3]) : now.getFullYear();
-    date = new Date(y, +dm[2] - 1, +dm[1]);
-    if (!dm[3] && date < new Date(now.getFullYear(), now.getMonth(), now.getDate())) date.setFullYear(y + 1);
-  } else if (/übermorgen/.test(t)) date = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 2);
-  else if (/morgen/.test(t)) date = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
-  else {
-    const wd = WEEKDAYS.findIndex((w) => t.includes(w));
-    if (wd >= 0) {
-      const diff = (wd - now.getDay() + 7) % 7 || 7;
-      date = new Date(now.getFullYear(), now.getMonth(), now.getDate() + diff);
-    }
-  }
-  if (!date) return null;
-  const tm = t.match(/um (\d{1,2})(?:[:.](\d{2}))?/);
+  const found = parseDemoDate(text, now, ["day", "relative"]);
+  if (!found) return null;
+  const date = new Date(found.date);
+  const tm = text.toLowerCase().match(/um (\d{1,2})(?:[:.](\d{2}))?/);
   if (tm) date.setHours(+tm[1], tm[2] ? +tm[2] : 0, 0, 0);
   return { title: kind[1], start: date, allDay: !tm };
+}
+
+// The demo coach also notices a goal ("Mein Ziel ist der Halbmarathon am 6. Dezember",
+// "Ich will bis März 10 kg abnehmen") and a habit done today ("Ich war heute laufen").
+const GOAL_START = /^\s*(?:(mein ziel)(?:\s+ist)?(?:\s+es)?\s*[:,]?|ich (?:will|möchte|moechte))\s+/i;
+const DATE_WORDS = /(?:\s*\b(?:bis|am|zum|zur|im|in|vor|spätestens|ende|anfang|mitte)\b)+\s*$/i;
+const ARTICLE = /^(?:der|die|das|den|dem|ein|eine|einen|einem)\s+/i;
+
+/** A goal in a message, or null. Title without the lead-in and the date words; target date as YYYY-MM-DD. */
+export function parseDemoGoal(text: string, now = new Date()): { title: string; target_date: string | null } | null {
+  const lead = GOAL_START.exec(text);
+  if (!lead || /\?\s*$/.test(text)) return null; // questions aren't goals
+  let rest = text.slice(lead[0].length);
+  if (/^(?:nicht|kein)/i.test(rest)) return null;
+  const found = parseDemoDate(rest, now, ["day", "month"]);
+  // "ich will …" is everyday speech ("ich will heute früh schlafen"); only with a date is it a goal
+  if (!lead[1] && !found) return null;
+  if (found) {
+    const before = rest.slice(0, found.index).replace(DATE_WORDS, "");
+    const after = rest.slice(found.index + found.length);
+    // "… am 6.12. Ich freue mich": the date's dot also ended the sentence
+    const ends = /\.$/.test(rest.slice(found.index, found.index + found.length)) && before.trim() && /^\s+[A-ZÄÖÜ]/.test(after);
+    rest = before + (ends ? ". " : " ") + after;
+  }
+  let title = rest.split(/[.!?;](?:\s|$)/)[0].replace(/\s+/g, " ").replace(/^[\s,:–-]+|[\s,:–-]+$/g, "");
+  title = title.replace(ARTICLE, "").slice(0, 120).trim();
+  if (title.length < 3 || /^(?:das|dies|es|so)$/i.test(title)) return null;
+  return { title: title[0].toUpperCase() + title.slice(1), target_date: found ? dayOf(found.date) : null };
+}
+
+const words = (s: string) =>
+  s
+    .toLowerCase()
+    .replace(/ß/g, "ss")
+    .split(/[^a-z0-9äöüàáâçéèêëíìîïñóòôúùû]+/)
+    .filter(Boolean);
+// past-tense words: "ich war laufen", "Yoga gemacht"
+const DONE = new Set(["war", "waren", "habe", "hab", "hatte", "gemacht", "erledigt", "geschafft", "fertig", "abgehakt", "gegangen", "gewesen"]);
+// a no, or something still to come
+const NOT_DONE = new Set(["nicht", "kein", "keine", "keinen", "nie", "ohne", "verpasst", "ausgelassen", "will", "möchte", "werde", "muss", "sollte", "morgen", "später", "nachher", "wenig"]);
+
+/** The active habits a message says were done, e.g. "Ich war heute laufen" for "Laufen" (whole words). */
+export function recogniseDemoHabits<H extends Pick<Habit, "title" | "active">>(text: string, habits: H[]): H[] {
+  const w = words(text);
+  if (!w.some((x) => DONE.has(x)) || w.some((x) => NOT_DONE.has(x))) return [];
+  return habits.filter((h) => {
+    const t = words(h.title);
+    if (!h.active || !t.length) return false;
+    for (let i = 0; i + t.length <= w.length; i++) if (t.every((x, j) => w[i + j] === x)) return true;
+    return false;
+  });
 }
 
 const KEY = "ich.demo.users";
@@ -63,6 +182,30 @@ async function sha256(s: string): Promise<string> {
 const uuid = () => (crypto.randomUUID ? crypto.randomUUID() : String(Math.random()).slice(2));
 const now = () => new Date().toISOString();
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/** Leaves out undefined values, as the JSON sent to Supabase does. */
+function defined<T extends object>(patch: T): Partial<T> {
+  return Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined)) as Partial<T>;
+}
+
+/** Start of the habit history the app shows: the current week and the 15 before it. */
+const habitsSince = () => addDays(weekStart(dayOf()), -15 * 7);
+
+const byGoalOrder = (a: Goal, b: Goal) =>
+  a.target_date === b.target_date
+    ? a.created_at.localeCompare(b.created_at)
+    : a.target_date === null
+      ? 1
+      : b.target_date === null
+        ? -1
+        : a.target_date.localeCompare(b.target_date);
+const withSortedMilestones = (g: Goal): Goal => ({ ...g, milestones: [...g.milestones].sort((a, b) => a.position - b.position) });
+const withRecentDays = (h: Habit, since = habitsSince()): Habit => ({ ...h, done_days: h.done_days.filter((d) => d >= since).sort() });
+
+// Like the owner-check triggers in the database: links only to one's own goals.
+function checkGoal(u: DemoUser, goalId: string | null | undefined) {
+  if (goalId && !u.goals.some((g) => g.id === goalId)) throw new Error("Dieses Ziel gibt es nicht mehr.");
+}
 
 const ONBOARDING: { q: (name: string) => string; category: MemoryCategory }[] = [
   { q: () => "Hoi, schön, dass du da bist. Ich möchte dich gern ein bisschen kennenlernen, damit ich dich gut begleiten kann. Wie darf ich dich nennen?", category: "person" },
@@ -98,11 +241,19 @@ export class DemoBackend implements Backend {
   private listeners = new Set<(id: string | null) => void>();
 
   private load(): Record<string, DemoUser> {
+    let users: Record<string, DemoUser>;
     try {
-      return JSON.parse(localStorage.getItem(KEY) || "{}");
+      users = JSON.parse(localStorage.getItem(KEY) || "{}") ?? {};
     } catch {
       return {};
     }
+    // Demo users stored before the calendar or the plan existed lack these fields.
+    for (const u of Object.values(users)) {
+      u.events = (u.events ?? []).map((e) => ({ ...e, kind: e.kind ?? "termin", goal_id: e.goal_id ?? null }));
+      u.goals ??= [];
+      u.habits ??= [];
+    }
+    return users;
   }
   private save(users: Record<string, DemoUser>) {
     localStorage.setItem(KEY, JSON.stringify(users));
@@ -155,6 +306,8 @@ export class DemoBackend implements Backend {
       messages: {},
       days: {},
       events: [],
+      goals: [],
+      habits: [],
     };
     this.save(users);
     localStorage.setItem(SESSION, u);
@@ -197,18 +350,163 @@ export class DemoBackend implements Backend {
   async deleteMemory(id: string) {
     this.mutate((u) => (u.memories = u.memories.filter((m) => m.id !== id)));
   }
-  async listEvents() {
-    const since = Date.now() - 24 * 3600 * 1000;
-    return (this.user().events ?? []).filter((e) => new Date(e.starts_at).getTime() >= since).sort((a, b) => a.starts_at.localeCompare(b.starts_at));
+  async listEvents(from?: string, to?: string) {
+    const since = from ? new Date(from).getTime() : Date.now() - 24 * 3600 * 1000;
+    const until = to ? new Date(to).getTime() : Infinity;
+    return this.user()
+      .events.filter((e) => {
+        const t = new Date(e.starts_at).getTime();
+        return t >= since && t < until;
+      })
+      .sort((a, b) => a.starts_at.localeCompare(b.starts_at));
   }
-  async addEvent(e: Omit<CalendarEvent, "id" | "source">, source: CalendarEvent["source"] = "person") {
-    const ev: CalendarEvent = { ...e, id: uuid(), source, sequence: 0, updated_at: now() };
-    this.mutate((u) => (u.events ??= []).push(ev));
+  async addEvent(e: EventInput, source: CalendarEvent["source"] = "person") {
+    const ev: CalendarEvent = { ...e, kind: e.kind ?? "termin", goal_id: e.goal_id ?? null, id: uuid(), source, sequence: 0, updated_at: now() };
+    this.mutate((u) => {
+      checkGoal(u, ev.goal_id);
+      u.events.push(ev);
+    });
     return ev;
   }
-  async deleteEvent(id: string) {
-    this.mutate((u) => (u.events = (u.events ?? []).filter((e) => e.id !== id)));
+  async updateEvent(id: string, patch: Partial<EventInput>) {
+    let out!: CalendarEvent;
+    this.mutate((u) => {
+      const ev = u.events.find((e) => e.id === id);
+      if (!ev) throw new Error("Diesen Eintrag gibt es nicht mehr.");
+      checkGoal(u, patch.goal_id);
+      // like the events_bump trigger, so a calendar file picks up the change
+      Object.assign(ev, defined(patch), { sequence: (ev.sequence ?? 0) + 1, updated_at: now() });
+      out = { ...ev };
+    });
+    return out;
   }
+  async deleteEvent(id: string) {
+    this.mutate((u) => (u.events = u.events.filter((e) => e.id !== id)));
+  }
+
+  async listGoals(all = false) {
+    return this.user()
+      .goals.filter((g) => all || g.status === "active" || g.status === "paused")
+      .sort(byGoalOrder)
+      .map(withSortedMilestones);
+  }
+  async addGoal(g: GoalInput, milestones: Pick<Milestone, "title" | "due_date">[] = [], source: Goal["source"] = "person") {
+    const id = uuid();
+    const t = now();
+    const goal: Goal = {
+      id,
+      title: g.title,
+      why: g.why ?? null,
+      target_date: g.target_date ?? null,
+      status: g.status ?? "active",
+      source,
+      created_at: t,
+      updated_at: t,
+      milestones: milestones.map((m, i) => ({ id: uuid(), goal_id: id, title: m.title, due_date: m.due_date ?? null, done_at: null, position: i })),
+    };
+    this.mutate((u) => u.goals.push(goal));
+    return goal;
+  }
+  async updateGoal(id: string, patch: Partial<GoalInput>) {
+    let out!: Goal;
+    this.mutate((u) => {
+      const g = u.goals.find((x) => x.id === id);
+      if (!g) throw new Error("Dieses Ziel gibt es nicht mehr.");
+      Object.assign(g, defined(patch), { updated_at: now() });
+      out = withSortedMilestones(g);
+    });
+    return out;
+  }
+  async deleteGoal(id: string) {
+    this.mutate((u) => {
+      u.goals = u.goals.filter((g) => g.id !== id);
+      // like "on delete set null": habits and calendar entries stay, without the link
+      for (const h of u.habits) if (h.goal_id === id) h.goal_id = null;
+      for (const e of u.events)
+        if (e.goal_id === id) Object.assign(e, { goal_id: null, sequence: (e.sequence ?? 0) + 1, updated_at: now() });
+    });
+  }
+  async addMilestone(goalId: string, m: Pick<Milestone, "title" | "due_date">) {
+    let out!: Milestone;
+    this.mutate((u) => {
+      const g = u.goals.find((x) => x.id === goalId);
+      if (!g) throw new Error("Dieses Ziel gibt es nicht mehr.");
+      const position = g.milestones.reduce((max, x) => Math.max(max, x.position), -1) + 1;
+      out = { id: uuid(), goal_id: goalId, title: m.title, due_date: m.due_date ?? null, done_at: null, position };
+      g.milestones.push(out);
+    });
+    return out;
+  }
+  async updateMilestone(id: string, patch: Partial<Pick<Milestone, "title" | "due_date" | "position">> & { done?: boolean }) {
+    const { done, ...rest } = patch;
+    let out!: Milestone;
+    this.mutate((u) => {
+      const m = u.goals.flatMap((g) => g.milestones).find((x) => x.id === id);
+      if (!m) throw new Error("Diese Etappe gibt es nicht mehr.");
+      Object.assign(m, defined(rest));
+      if (done !== undefined) m.done_at = done ? now() : null;
+      out = { ...m };
+    });
+    return out;
+  }
+  async deleteMilestone(id: string) {
+    this.mutate((u) => {
+      for (const g of u.goals) g.milestones = g.milestones.filter((m) => m.id !== id);
+    });
+  }
+
+  async listHabits() {
+    const since = habitsSince();
+    return this.user()
+      .habits.filter((h) => h.active)
+      .sort((a, b) => a.created_at.localeCompare(b.created_at))
+      .map((h) => withRecentDays(h, since));
+  }
+  async addHabit(h: HabitInput, source: Habit["source"] = "person") {
+    const habit: Habit = {
+      id: uuid(),
+      title: h.title,
+      per_week: h.per_week,
+      goal_id: h.goal_id ?? null,
+      active: h.active ?? true,
+      source,
+      created_at: now(),
+      done_days: [],
+    };
+    this.mutate((u) => {
+      checkGoal(u, habit.goal_id);
+      u.habits.push(habit);
+    });
+    return habit;
+  }
+  async updateHabit(id: string, patch: Partial<HabitInput>) {
+    let out!: Habit;
+    this.mutate((u) => {
+      const h = u.habits.find((x) => x.id === id);
+      if (!h) throw new Error("Diese Gewohnheit gibt es nicht mehr.");
+      checkGoal(u, patch.goal_id);
+      Object.assign(h, defined(patch));
+      out = withRecentDays(h);
+    });
+    return out;
+  }
+  async deleteHabit(id: string) {
+    this.mutate((u) => (u.habits = u.habits.filter((h) => h.id !== id)));
+  }
+  async setHabitDone(habitId: string, day: string, done: boolean) {
+    this.mutate((u) => {
+      const h = u.habits.find((x) => x.id === habitId);
+      if (!h) {
+        if (done) throw new Error("Diese Gewohnheit gibt es nicht mehr.");
+        return;
+      }
+      const days = new Set(h.done_days);
+      if (done) days.add(day);
+      else days.delete(day);
+      h.done_days = [...days].sort();
+    });
+  }
+
   async calendarLink() {
     return null; // a subscription needs the server; the demo offers a file download instead
   }
@@ -235,7 +533,19 @@ export class DemoBackend implements Backend {
 
   async exportData() {
     const u = this.user();
-    return { exported_at: new Date().toISOString(), profile: u.profile, memories: u.memories, events: u.events ?? [], days: u.days, messages: u.messages };
+    // the same tables as the real export
+    return {
+      exported_at: new Date().toISOString(),
+      profile: u.profile,
+      memories: u.memories,
+      events: u.events,
+      goals: u.goals.map(({ milestones: _, ...g }) => g),
+      milestones: u.goals.flatMap((g) => g.milestones),
+      habits: u.habits.map(({ done_days: _, ...h }) => h),
+      habit_logs: u.habits.flatMap((h) => h.done_days.map((day) => ({ habit_id: h.id, day }))),
+      days: u.days,
+      messages: u.messages,
+    };
   }
 
   async deleteAccount() {
@@ -280,7 +590,15 @@ export class DemoBackend implements Backend {
     else this.push(thread, "user", "(App geöffnet)", true);
 
     let reply = "";
+    let goalNote = "";
     let calendarNote = "";
+    let habitNote = "";
+    const goalFound = req.message ? parseDemoGoal(req.message) : null;
+    const goal = goalFound ? await this.addGoal(goalFound, [], "coach") : null;
+    if (goal) {
+      onEvent({ type: "goal_saved", goal });
+      goalNote = `Schön, „${goal.title}“ ist jetzt dein Ziel. Du findest es unter Plan. `;
+    }
     const parsed = req.message ? parseDemoEvent(req.message) : null;
     if (parsed) {
       const ev = await this.addEvent(
@@ -292,11 +610,22 @@ export class DemoBackend implements Backend {
           location: null,
           notes: null,
           reminder_minutes: parsed.allDay ? -480 : 30,
+          kind: "termin",
+          goal_id: goal?.id ?? null, // "Mein Ziel ist das Rennen am …": the day itself belongs to the goal
         },
         "coach",
       );
       onEvent({ type: "event_created", event: ev });
       calendarNote = `Ich habe „${ev.title}“ in deinen Kalender „I am“ eingetragen. `;
+    }
+    const habitsDone = req.message && !goal ? recogniseDemoHabits(req.message, this.user().habits) : [];
+    for (const h of habitsDone) {
+      await this.setHabitDone(h.id, req.context.day, true);
+      onEvent({ type: "habit_logged", habit_id: h.id, title: h.title, day: req.context.day, done: true });
+    }
+    if (habitsDone.length) {
+      const names = habitsDone.map((h) => `„${h.title}“`).join(" und ");
+      habitNote = `Stark, ${names} ${habitsDone.length > 1 ? "sind" : "ist"} für heute abgehakt. `;
     }
     if (req.mode === "onboarding") {
       const step = history.filter((m) => m.role === "user").length + (req.message ? 1 : 0);
@@ -332,6 +661,8 @@ export class DemoBackend implements Backend {
         const h = new Date().getHours();
         const greet = h < 11 ? "Guten Morgen" : h < 17 ? "Hoi" : "Guten Abend";
         reply = `${greet}, ${name}. Wie geht es dir heute?`;
+      } else if (goal) {
+        reply = "Was wäre ein erster kleiner Schritt dahin?";
       } else if (userTurns === 1) {
         const mood = moodFrom(req.message);
         this.mutate((u) => (u.days[req.context.day] = { day: req.context.day, mood, focus: u.days[req.context.day]?.focus ?? null }));
@@ -340,6 +671,8 @@ export class DemoBackend implements Backend {
           mood.valence < 0
             ? "Danke, dass du das teilst. Dann machen wir es heute ruhig. Was wäre eine kleine Sache, die dir heute guttun würde?"
             : "Schön zu hören. Was ist heute das Wichtigste für dich?";
+      } else if (habitsDone.length) {
+        reply = "Was steht heute sonst noch an?";
       } else {
         const focus = req.message.slice(0, 80);
         this.mutate((u) => (u.days[req.context.day] = { ...(u.days[req.context.day] ?? { day: req.context.day, mood: null }), focus }));
@@ -347,7 +680,7 @@ export class DemoBackend implements Backend {
         reply = "Gut, das ist dein Fokus für heute. (Im Demo-Modus antworte ich nur einfach – mit der echten KI wird das ein richtiges Gespräch.)";
       }
     }
-    reply = calendarNote + reply;
+    reply = goalNote + calendarNote + habitNote + reply;
     await this.say(reply, onEvent);
     this.push(thread, "assistant", reply);
     onEvent({ type: "done" });
