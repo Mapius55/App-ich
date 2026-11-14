@@ -178,3 +178,68 @@ export function streakLabel(s: HabitStreak): string | null {
 export function perWeekLabel(n: number): string {
   return n >= 7 ? "jeden Tag" : `${n}× pro Woche`;
 }
+
+// ---------- effort: how big a goal is and whether the time is enough ----------
+
+export interface GoalEffortInput {
+  effort_hours: number | null;
+  weekly_hours: number | null;
+  prior_hours: number;
+  target_date: string | null;
+  time: { logged_minutes: number; block_minutes: number };
+}
+
+export type Feasibility = "erreicht" | "machbar" | "knapp" | "kaum machbar";
+
+export interface GoalEffort {
+  /** estimated total hours, null = not estimated */
+  effort: number | null;
+  /** hours done: before the app + logged + past blocks */
+  done: number;
+  /** hours left, null without an estimate */
+  remaining: number | null;
+  /** weeks until the target date (at least a fraction of a week), null without a date or when it has passed */
+  weeksLeft: number | null;
+  /** hours per week needed to make it by the target date */
+  neededPerWeek: number | null;
+  /** hours per week she can invest */
+  available: number | null;
+  /** with her weekly time and no target date (or a passed one): weeks until done */
+  weeksToFinish: number | null;
+  /** needed vs available: up to 100 % "machbar", up to 130 % "knapp", beyond "kaum machbar" */
+  feasibility: Feasibility | null;
+}
+
+const round1 = (n: number) => Math.round(n * 10) / 10;
+
+export function goalEffort(g: GoalEffortInput, today: string = dayOf()): GoalEffort {
+  const done = round1((g.prior_hours || 0) + (g.time.logged_minutes + g.time.block_minutes) / 60);
+  const effort = g.effort_hours && g.effort_hours > 0 ? g.effort_hours : null;
+  const remaining = effort === null ? null : round1(Math.max(0, effort - done));
+  const days = g.target_date ? daysBetween(today, g.target_date) : null;
+  const weeksLeft = days !== null && days >= 0 ? Math.max(1 / 7, (days + 1) / 7) : null;
+  const neededPerWeek = remaining !== null && weeksLeft !== null ? round1(remaining / weeksLeft) : null;
+  const available = g.weekly_hours && g.weekly_hours > 0 ? g.weekly_hours : null;
+  const weeksToFinish = remaining !== null && available !== null && weeksLeft === null ? Math.ceil(remaining / available) : null;
+  let feasibility: Feasibility | null = null;
+  if (remaining === 0) feasibility = "erreicht";
+  else if (neededPerWeek !== null && available !== null) {
+    const ratio = neededPerWeek / available;
+    feasibility = ratio <= 1 ? "machbar" : ratio <= 1.3 ? "knapp" : "kaum machbar";
+  }
+  return { effort, done, remaining, weeksLeft: weeksLeft === null ? null : round1(weeksLeft), neededPerWeek, available, weeksToFinish, feasibility };
+}
+
+/** 1234.5 → "1'235", 12.3 → "12.3", 4 → "4" (Swiss thousands separator) */
+export function hoursLabel(h: number): string {
+  const v = h >= 100 ? Math.round(h) : round1(h);
+  return String(v).replace(/\B(?=(\d{3})+(?!\d))/g, "'");
+}
+
+/** weeks → "3 Wochen", "8 Monate", "12 Jahre" (rounded, for long goals) */
+export function durationLabel(weeks: number): string {
+  if (weeks < 9) return `${Math.max(1, Math.round(weeks))} ${Math.round(weeks) === 1 ? "Woche" : "Wochen"}`;
+  const months = weeks / 4.345;
+  if (months < 24) return `${Math.round(months)} Monate`;
+  return `${Math.round(months / 12)} Jahre`;
+}

@@ -104,3 +104,68 @@ end;
 $$;
 create trigger habit_logs_owner before insert or update on public.habit_logs
   for each row execute function public.check_habit_owner();
+
+-- ---------- review fixes ----------
+-- All-day entries remind "at 08:00 that day" (-480) or "18:00 the day before"; allow negative offsets.
+alter table public.events drop constraint if exists events_reminder_minutes_check;
+alter table public.events add constraint events_reminder_minutes_check
+  check (reminder_minutes is null or reminder_minutes between -1440 and 10080);
+create index habits_goal_idx on public.habits (goal_id);
+create index milestones_user_idx on public.milestones (user_id);
+
+-- ---------- effort: how big a goal is and how much time went into it ----------
+alter table public.goals
+  add column effort_hours numeric(8, 1) check (effort_hours is null or effort_hours between 0 and 100000), -- estimated total
+  add column weekly_hours numeric(5, 1) check (weekly_hours is null or weekly_hours between 0 and 168),    -- time she can invest per week
+  add column prior_hours numeric(8, 1) not null default 0 check (prior_hours between 0 and 100000);         -- already invested before the app
+
+-- Time that went into a goal. Past planned blocks count by themselves; a row here with
+-- the block's event_id replaces that (actual minutes, or 0 when it didn't happen).
+create table public.goal_time (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null default auth.uid() references auth.users (id) on delete cascade,
+  goal_id uuid not null references public.goals (id) on delete cascade,
+  day date not null,
+  minutes integer not null check (minutes between 0 and 1440),
+  source text not null default 'person' check (source in ('person', 'coach', 'block', 'nolio', 'whoop')),
+  event_id uuid references public.events (id) on delete set null, -- the planned block this confirms
+  external_id text,                                               -- e.g. the Nolio workout id (no double counting)
+  note text check (note is null or length(note) <= 300),
+  created_at timestamptz not null default now()
+);
+create unique index goal_time_event_idx on public.goal_time (event_id) where event_id is not null;
+create unique index goal_time_external_idx on public.goal_time (user_id, source, external_id) where external_id is not null;
+create index goal_time_goal_idx on public.goal_time (goal_id, day);
+create index goal_time_user_idx on public.goal_time (user_id);
+alter table public.goal_time enable row level security;
+create policy "own goal time" on public.goal_time for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+create trigger goal_time_goal_owner before insert or update of goal_id on public.goal_time
+  for each row execute function public.check_goal_owner();
+
+-- Minutes per goal: logged time, plus past blocks for the goal that nobody confirmed or corrected yet.
+-- security_invoker: the view runs with the caller's rights, so RLS applies as on the tables.
+create view public.goal_minutes with (security_invoker = true) as
+select g.id as goal_id,
+  coalesce((select sum(t.minutes) from public.goal_time t where t.goal_id = g.id), 0)::integer as logged_minutes,
+  coalesce((
+    select sum(extract(epoch from (e.ends_at - e.starts_at)) / 60)
+    from public.events e
+    where e.goal_id = g.id and e.kind = 'block' and not e.all_day
+      and e.ends_at is not null and e.ends_at <= now()
+      and not exists (select 1 from public.goal_time t where t.event_id = e.id)
+  ), 0)::integer as block_minutes
+from public.goals g;
+
+-- A time entry may only confirm one's own calendar entry.
+create function public.check_event_owner() returns trigger language plpgsql as $$
+begin
+  if new.event_id is not null and not exists (
+    select 1 from public.events e where e.id = new.event_id and e.user_id = new.user_id
+  ) then
+    raise exception 'event not found' using errcode = 'foreign_key_violation';
+  end if;
+  return new;
+end;
+$$;
+create trigger goal_time_event_owner before insert or update of event_id on public.goal_time
+  for each row execute function public.check_event_owner();

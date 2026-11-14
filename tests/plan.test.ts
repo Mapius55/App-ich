@@ -101,3 +101,36 @@ describe("habits", () => {
     expect(perWeekLabel(3)).toBe("3× pro Woche");
   });
 });
+
+import { durationLabel, goalEffort, hoursLabel } from "../src/lib/plan";
+
+describe("goal effort", () => {
+  const base = { effort_hours: 120, weekly_hours: 6, prior_hours: 4, target_date: "2026-12-06", time: { logged_minutes: 600, block_minutes: 120 } };
+  it("adds prior hours, logged time and past blocks", () => {
+    const e = goalEffort(base, "2026-11-14");
+    expect(e.done).toBe(16);
+    expect(e.remaining).toBe(104);
+    expect(e.weeksLeft).toBeCloseTo(23 / 7, 1);
+    expect(e.neededPerWeek).toBeCloseTo(104 / (23 / 7), 0);
+    expect(e.feasibility).toBe("kaum machbar"); // ~32 h/week needed, 6 available
+  });
+  it("machbar, knapp, erreicht", () => {
+    expect(goalEffort({ ...base, effort_hours: 30 }, "2026-11-14").feasibility).toBe("machbar"); // 14 left over 3.3 weeks ≈ 4.3/week
+    expect(goalEffort({ ...base, effort_hours: 40 }, "2026-11-14").feasibility).toBe("knapp"); // ≈ 7.3/week vs 6
+    expect(goalEffort({ ...base, effort_hours: 10 }, "2026-11-14")).toMatchObject({ remaining: 0, feasibility: "erreicht" });
+  });
+  it("long goals without a date: how long it takes with her weekly time", () => {
+    const olympia = goalEffort({ effort_hours: 10000, weekly_hours: 20, prior_hours: 2500, target_date: null, time: { logged_minutes: 0, block_minutes: 0 } }, "2026-11-14");
+    expect(olympia.weeksToFinish).toBe(375);
+    expect(durationLabel(olympia.weeksToFinish!)).toBe("7 Jahre");
+    expect(olympia.feasibility).toBeNull();
+    expect(goalEffort({ ...base, effort_hours: null }, "2026-11-14")).toMatchObject({ effort: null, remaining: null, feasibility: null });
+  });
+  it("labels", () => {
+    expect(hoursLabel(10000)).toBe("10'000");
+    expect(hoursLabel(12.34)).toBe("12.3");
+    expect(hoursLabel(4)).toBe("4");
+    expect(durationLabel(3)).toBe("3 Wochen");
+    expect(durationLabel(20)).toBe("5 Monate");
+  });
+});
