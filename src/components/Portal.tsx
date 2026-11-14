@@ -12,26 +12,24 @@ interface Props {
   colors: string[]; // 5 colours: [main, light, accent, deep, accent]
   size: number;
   daylight?: number; // 0 night … 1 day: at night the sky in the hole is deeper
-  clouds?: Clouds; // cloud cover and types, after the real weather
+  clouds?: Clouds; // the real weather shapes how the colours move
   speed?: number;
   seed?: number;
   state?: OrbState;
   interactive?: boolean;
-  /** 0 clear clouds … 1 soft focus */
-  soft?: number;
-  /** 0 clouds … 1 soft colour flow without clouds */
-  dream?: number;
 }
 
 // A circle cut out of a sheet of paper, laid over a larger flat sky.
-// Through the hole you see a living sky in today's colours with different
-// kinds of clouds, as the real weather has them:
-//   - cumulus: puffy, lit on top, shaded below; they billow and change shape
-//   - cirrus: fine high veils, moving faster and in another direction
-//   - stratus: wide soft layers (overcast, rain, fog)
-// The wind slowly turns, now and then a gentle swirl comes and goes, and the
-// clouds billow more while the coach speaks. No sphere, no lens: the only
-// hint of depth is the faint shadow the paper's cut edge casts onto the sky.
+// Through the hole you see soft colours flowing into each other like
+// out-of-focus clouds, with a fine grain (in the spirit of the ElevenLabs
+// orbs, in today's colour world). The flow moves in several ways:
+//   - it drifts with a wind that slowly turns,
+//   - it folds and billows, more while you speak or the coach talks,
+//   - now and then a gentle eddy comes and goes,
+//   - fine high veils cross it faster and in another direction (clear skies),
+//   - overcast, rain and fog stretch the colours into wide, calm bands.
+// No sphere, no lens: the only hint of depth is the faint shadow the paper's
+// cut edge casts onto the sky.
 const FRAG = `
 precision highp float;
 varying vec2 v_uv;
@@ -48,8 +46,6 @@ uniform float u_day;
 uniform float u_cover;
 uniform float u_cirrus;
 uniform float u_stratus;
-uniform float u_soft;
-uniform float u_dream;
 uniform vec3 u_c0;
 uniform vec3 u_c1;
 uniform vec3 u_c2;
@@ -79,43 +75,7 @@ vec3 fromOk(vec3 o) {
                     -1.2684380046 * lms.x + 2.6097574011 * lms.y - 0.3413193965 * lms.z,
                     -0.0041960863 * lms.x - 0.7034186147 * lms.y + 1.7076147010 * lms.z));
 }
-
-float fbm(vec3 p) {
-  float a = 0.5, s = 0.0;
-  for (int i = 0; i < 4; i++) { s += a * snoise(p); p = p * 2.03 + vec3(1.7, 9.2, 3.1); a *= 0.5; }
-  return s;
-}
-float fbm3(vec3 p) {
-  float a = 0.5, s = 0.0;
-  for (int i = 0; i < 3; i++) { s += a * snoise(p); p = p * 2.03 + vec3(1.7, 9.2, 3.1); a *= 0.5; }
-  return s;
-}
-// rounded "puffs" (like billow noise, but soft instead of creased)
-float puffs(vec3 p) {
-  float a = 0.5, s = 0.0;
-  for (int i = 0; i < 3; i++) { float n = snoise(p); s += a * (1.0 - sqrt(n * n + 0.05)); p = p * 2.1 + vec3(3.1, 1.7, 5.3); a *= 0.5; }
-  return s;
-}
-// cumulus density: a big soft shape with puffy, cauliflower-like detail
-float cumulus(vec2 q, float ev) {
-  return fbm3(vec3(q, ev)) + 0.5 * (puffs(vec3(q * 2.3 + 13.0, ev * 1.5)) - 0.42);
-}
 mat2 rot(float a) { float c = cos(a), s = sin(a); return mat2(c, -s, s, c); }
-
-// soft colour clouds that flow into each other (no edges at all)
-vec3 dreamSky(vec2 uv, vec2 windDir, float t, float e, vec2 seed, vec3 o0, vec3 o1, vec3 o2, vec3 o3, vec3 o4) {
-  vec2 q = uv * 0.6 + seed;
-  vec2 w1 = vec2(snoise(vec3(q * 0.9, e * 0.05)), snoise(vec3(q * 0.9 + 4.7, e * 0.05)));
-  vec2 q2 = q + 0.45 * w1 + windDir * t * 0.02;
-  float a = snoise(vec3(q2 + 1.3, e * 0.04));
-  float b = snoise(vec3(q2 * 1.2 + 8.1, e * 0.045));
-  float c = snoise(vec3(q2 * 0.9 + 3.3, e * 0.035));
-  vec3 col = mix(o0, o2, smoothstep(-0.7, 0.7, a));
-  col = mix(col, o4, smoothstep(-0.3, 0.8, b) * 0.8);
-  col = mix(col, o1, smoothstep(0.0, 0.9, c) * 0.65);
-  col = mix(col, o3, smoothstep(0.3, 0.9, -a) * 0.3);
-  return col;
-}
 
 void main() {
   vec2 p = v_uv * 2.0 - 1.0;
@@ -133,95 +93,60 @@ void main() {
   float windA = 0.35 * sin(e * 0.013 + u_seed) + 0.25 * sin(e * 0.031 + 1.7);
   vec2 windDir = vec2(cos(windA), sin(windA));
   // now and then a gentle eddy comes and goes (a little stronger while speaking)
-  float swirl = smoothstep(0.3, 1.0, sin(e * 0.045 + u_seed * 2.0)) * 0.35 + 0.18 * u_energy + 0.12 * u_kick;
-  vec2 suv = rot(swirl * exp(-dot(uv, uv) * 1.1)) * uv;
+  float swirl = smoothstep(0.3, 1.0, sin(e * 0.045 + u_seed * 2.0)) * 0.55 + 0.25 * u_energy + 0.15 * u_kick;
+  vec2 suv = rot(swirl * exp(-dot(uv, uv) * 0.7)) * uv;
+  // overcast, rain and fog: the colours lie in wide, calm bands
+  suv.y *= 1.0 + 0.7 * u_stratus;
 
-  // ---- the sky behind the clouds (fixed to the hole: light up-left)
-  float diag = dot(sp, normalize(vec2(0.72, -0.69)));
   vec3 o0 = toOk(u_c0), o1 = toOk(u_c1), o2 = toOk(u_c2), o3 = toOk(u_c3), o4 = toOk(u_c4), oW = toOk(vec3(1.0));
-  vec3 corner = mix(mix(o0, o1, 0.35 + 0.65 * u_day), oW, 0.15 * u_day);
-  vec3 ok = mix(corner, o0, smoothstep(-0.9, 1.0, diag));
-  ok = mix(ok, o2, smoothstep(0.1, 0.9, snoise(vec3(uv * 0.45 + seed, e * 0.015))) * 0.35);
-  ok = mix(ok, o4, smoothstep(0.3, 1.0, diag + 0.3 * snoise(vec3(uv * 0.6 - seed, e * 0.02))) * 0.35);
 
-  // gentle organic warp shared by the cloud layers
-  vec2 w = vec2(snoise(vec3(suv * 0.7 + seed, e * 0.03)), snoise(vec3(suv * 0.7 + seed + 5.1, e * 0.03)));
+  // ---- soft colour clouds that fold, drift and flow into each other
+  vec2 q = suv * 0.6 + seed;
+  // (kept small enough that the flow never folds over itself: no creases)
+  float stir = 0.32 + 0.1 * u_cover + 0.12 * u_energy + 0.16 * u_level + 0.1 * u_kick;
+  vec2 w1 = vec2(snoise(vec3(q * 0.6, e * 0.05)), snoise(vec3(q * 0.6 + 4.7, e * 0.05)));
+  vec2 q2 = q + stir * w1 + windDir * t * 0.035;
+  float a = snoise(vec3(q2 + 1.3, e * 0.04));
+  float b = snoise(vec3(q2 * 1.2 + 8.1, e * 0.045));
+  float c = snoise(vec3(q2 * 0.9 + 3.3, e * 0.035));
+  vec3 ok = mix(o0, o2, smoothstep(-0.7, 0.7, a));
+  ok = mix(ok, o4, smoothstep(-0.3, 0.8, b) * 0.8);
+  ok = mix(ok, o1, smoothstep(0.0, 0.9, c) * 0.65);
+  ok = mix(ok, o3, smoothstep(0.3, 0.9, -a) * 0.3);
 
-  // cloud colours: lit tops toward white (by day) or a soft glow (by night),
-  // undersides take the sky's deep tone, thin edges get a silver lining
-  vec3 cLight = mix(mix(o1, o0, 0.4), oW, mix(0.0, 0.75, u_day));
-  vec3 cShade = mix(mix(o0, o3, 0.55), cLight, 0.42 - 0.12 * u_day); // softer shadows at night
-  vec3 cSilver = mix(cLight, oW, mix(0.25, 0.7, u_day));
-  // soft focus: clouds take on the sky's colours instead of white
-  cLight = mix(cLight, mix(o1, o2, 0.3), u_soft * 0.25);
-  cShade = mix(cShade, mix(o0, o4, 0.5), u_soft * 0.4);
-  cSilver = mix(cSilver, cLight, u_soft * 0.6);
-  float sw = 1.0 + 2.0 * u_soft; // edge width
-  float sb = 0.12 * (sw - 1.0);   // blur reaches out on both sides of the edge
+  // ---- fine high veils, faster and across the flow (mostly on clear days)
+  vec2 cu = (rot(-0.45) * suv) * vec2(0.55, 2.0) + rot(0.7) * windDir * t * 0.09 + 0.25 * w1;
+  float veil = snoise(vec3(cu * 1.1 + seed + 11.0, e * 0.02)) * 0.7 + snoise(vec3(cu * 2.3 + seed + 17.0, e * 0.03)) * 0.3;
+  veil = smoothstep(0.1, 0.75, veil) * u_cirrus;
+  ok = mix(ok, mix(o1, oW, 0.3 * u_day), veil * 0.3);
 
-  // ---- stratus: wide soft layers, barely moving
-  vec2 su = suv * vec2(0.4, 1.4) + windDir * t * 0.02 + 0.1 * w;
-  float strat = snoise(vec3(su + seed, e * 0.008)) * 0.65 + snoise(vec3(su * 2.3 + seed + 2.0, e * 0.012)) * 0.35;
-  strat = smoothstep(-0.4, 0.65, strat) * u_stratus;
-  ok = mix(ok, mix(cShade, cLight, 0.5 + 0.25 * u_day), strat * 0.7);
-
-  // ---- cirrus: fine high veils, faster and in another direction
-  vec2 cdir = rot(0.7) * windDir;
-  vec2 cu = (rot(-0.45) * suv) * vec2(0.55, 2.2) + cdir * t * 0.1 + 0.18 * w;
-  cu.x += 0.25 * snoise(vec3(cu * vec2(0.6, 0.3) + 21.0, e * 0.02)); // hooks and curls
-  float cir = fbm3(vec3(cu * 1.1 + seed + 11.0, e * 0.02));
-  cir = smoothstep(0.05, 0.55, cir) * u_cirrus;
-  ok = mix(ok, mix(cLight, cSilver, 0.5), cir * 0.42);
-
-  // ---- cumulus: far (small, slow, hazy) and near (big, faster, billowing)
-  // they swell a little while you speak or the coach talks
-  float cov = mix(0.42, -0.22, u_cover) - 0.1 * u_level - 0.04 * u_energy; // lower = more cloud
-  vec2 fu = suv * 2.0 + windDir * t * 0.032 + 0.08 * w;
-  float farD = cumulus(fu + seed + 3.0, e * 0.02);
-  float farC = smoothstep(cov + 0.06 - sb, cov + 0.42 + sb, farD);
-  ok = mix(ok, mix(cLight, ok, 0.35), farC * 0.42); // hazy, they sit far away
-
-  float evolve = e * (0.025 + 0.045 * u_energy + 0.04 * u_level);
-  vec2 nu = suv * 1.1 + windDir * t * 0.07 + vec2(0.0, -t * 0.006) + 0.1 * w;
-  float nearD = cumulus(nu + seed + 7.0, evolve);
-  float nearC = smoothstep(cov - 0.02 - sb, cov + 0.26 + sb, nearD);
-  // light from the upper left: denser toward the light means we are on the shaded side
-  float nearL = cumulus(nu + vec2(-0.07, 0.09) + seed + 7.0, evolve);
-  float lit = clamp(0.62 + (nearD - nearL) * 3.2 / sw, 0.0, 1.0);
-  lit = lit * lit * (3.0 - 2.0 * lit);
-  vec3 nearCol = mix(cShade, cLight, lit);
-  float rim = nearC * (1.0 - smoothstep(cov + 0.04, cov + 0.22, nearD));
-  nearCol = mix(nearCol, cSilver, rim * (0.3 + 0.5 * lit));
-  ok = mix(ok, nearCol, nearC * mix(0.95, 0.8, u_soft));
-
-  // dreamy colour flow (like a soft-focus photo of coloured clouds)
-  if (u_dream > 0.001) ok = mix(ok, dreamSky(uv, windDir, t, e, seed, o0, o1, o2, o3, o4), u_dream);
+  // ---- soft light from the upper left, stronger by day
+  float diag = dot(sp, normalize(vec2(0.72, -0.69)));
+  ok = mix(ok, mix(o1, oW, 0.25 * u_day), smoothstep(0.2, -1.0, diag) * (0.12 + 0.18 * u_day));
 
   vec3 sky = fromOk(ok);
-  sky *= mix(0.82, 1.0, u_day); // night: a little deeper
+  sky *= mix(0.84, 1.0, u_day); // night: a little deeper
   sky *= 1.0 + 0.16 * u_level + 0.1 * u_kick + 0.05 * u_energy;
 
   // the paper's cut edge casts a faint shadow onto the sky (light from the upper left)
   float shadowDist = length(sp - vec2(0.03, -0.03));
   sky *= 1.0 - smoothstep(0.94, 1.03, shadowDist) * 0.22;
 
-  // film grain
-  float g = fract(sin(dot(gl_FragCoord.xy + fract(u_time) * 97.0, vec2(12.9898, 78.233))) * 43758.5453);
-  sky += (g - 0.5) * mix(0.02, 0.075, max(u_soft, u_dream));
+  // fine grain, fixed like the grain of paper (it doesn't flicker)
+  float g = fract(sin(dot(floor(gl_FragCoord.xy), vec2(12.9898, 78.233))) * 43758.5453);
+  sky += (g - 0.5) * 0.07;
   sky = clamp(sky, 0.0, 1.0);
 
   float inside = 1.0 - smoothstep(1.0 - px * 1.2, 1.0, r);
   gl_FragColor = vec4(sky * inside, inside);
 }`;
 
-
-
 /**
  * The portal. Press it and the sky comes closer; drag and the sky slides
  * along under the paper; it brightens with your voice and stirs at every
  * word the coach says.
  */
-export function Portal({ colors, size, daylight = 1, clouds = DEFAULT_CLOUDS, speed = 1, seed = 1, state = "idle", interactive = true, soft = 0, dream = 0 }: Props) {
+export function Portal({ colors, size, daylight = 1, clouds = DEFAULT_CLOUDS, speed = 1, seed = 1, state = "idle", interactive = true }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const target = useRef(colors);
   const stateRef = useRef(state);
@@ -230,8 +155,6 @@ export function Portal({ colors, size, daylight = 1, clouds = DEFAULT_CLOUDS, sp
   dayRef.current = daylight;
   const cloudsRef = useRef(clouds);
   cloudsRef.current = clouds;
-  const lookRef = useRef({ soft, dream });
-  lookRef.current = { soft, dream };
   const input = useRef({ down: false, lastX: 0, lastY: 0, velX: 0, velY: 0, kick: 0 });
   const [fallback, setFallback] = useState(false);
 
@@ -257,11 +180,11 @@ export function Portal({ colors, size, daylight = 1, clouds = DEFAULT_CLOUDS, sp
     const U = {
       res: u("u_res"), time: u("u_time"), flow: u("u_flow"), energy: u("u_energy"), seed: u("u_seed"),
       press: u("u_press"), pan: u("u_pan"), kick: u("u_kick"), level: u("u_level"), day: u("u_day"),
-      cover: u("u_cover"), cirrus: u("u_cirrus"), stratus: u("u_stratus"), soft: u("u_soft"), dream: u("u_dream"),
+      cover: u("u_cover"), cirrus: u("u_cirrus"), stratus: u("u_stratus"),
       cols: [u("u_c0"), u("u_c1"), u("u_c2"), u("u_c3"), u("u_c4")],
     };
-    // soft clouds don't need full retina resolution; keeps phones cool
-    const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+    // the flow is cheap to draw; 2x keeps the grain fine and the paper edge crisp
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
     canvas.width = Math.round(size * dpr);
     canvas.height = Math.round(size * dpr);
     gl.viewport(0, 0, canvas.width, canvas.height);
@@ -294,7 +217,6 @@ export function Portal({ colors, size, daylight = 1, clouds = DEFAULT_CLOUDS, sp
 
       const m = reduce ? 0.2 : 1;
       t += dt * m;
-      // falling inward: faster while speaking, pressed or listening
       // clouds drift; faster while speaking, pressed, listening or nudged by a word
       flow += dt * m * speedRef.current * (0.9 + 1.4 * energy + 2.2 * press + 1.2 * level + 1.5 * inp.kick);
       panX += dt * inp.velX;
@@ -309,15 +231,13 @@ export function Portal({ colors, size, daylight = 1, clouds = DEFAULT_CLOUDS, sp
       gl.uniform2f(U.pan, panX, panY);
       day += (dayRef.current - day) * 0.03;
       gl.uniform1f(U.day, day);
-      // weather changes: clouds gather or clear slowly
+      // weather changes: the flow changes its character slowly
       cl.cover += (cloudsRef.current.cover - cl.cover) * 0.01;
       cl.cirrus += (cloudsRef.current.cirrus - cl.cirrus) * 0.01;
       cl.stratus += (cloudsRef.current.stratus - cl.stratus) * 0.01;
       gl.uniform1f(U.cover, cl.cover);
       gl.uniform1f(U.cirrus, cl.cirrus);
       gl.uniform1f(U.stratus, cl.stratus);
-      gl.uniform1f(U.soft, lookRef.current.soft);
-      gl.uniform1f(U.dream, lookRef.current.dream);
       gl.uniform1f(U.kick, inp.kick);
       gl.uniform1f(U.level, level);
       gl.clearColor(0, 0, 0, 0);

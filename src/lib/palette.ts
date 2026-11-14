@@ -48,14 +48,14 @@ export interface Palette {
   speed: number; // animation speed multiplier
   seed: number;
   phase: string; // German label, e.g. "Sonnenuntergang"
-  clouds: Clouds; // what the sky in the portal shows
+  clouds: Clouds; // how the colours in the portal move
 }
 
-/** How the clouds in the portal look: coverage and the mix of cloud types (0..1 each). */
+/** The weather's character for the colour flow in the portal (0..1 each). */
 export interface Clouds {
-  cover: number; // how much of the sky is cloud
-  cirrus: number; // fine, high veils
-  stratus: number; // flat, wide layers (overcast, rain)
+  cover: number; // how much of the sky is cloud: the colours fold and stir more
+  cirrus: number; // fine, high veils crossing the flow
+  stratus: number; // overcast, rain, fog: the colours lie in wide, calm bands
 }
 
 /** Clouds after the real weather; a pleasant mix when the weather is unknown. */
