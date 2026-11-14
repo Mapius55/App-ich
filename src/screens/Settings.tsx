@@ -229,7 +229,7 @@ export function Settings({ profile, hasCoords, onBack, onProfile, onCoords, onOp
       <Section label="Kalender „I am“">
         <p className="hint">Termine, die der Coach einträgt, und die Verbindung zum iPhone-Kalender.</p>
         <button className="btn ghost" onClick={onOpenCalendar}>
-          Zum Kalender
+          Zum Kalender im Plan
         </button>
       </Section>
 

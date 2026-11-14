@@ -131,6 +131,7 @@ export default function App() {
         break;
       case "goal_saved":
       case "goal_deleted":
+      case "time_logged":
       case "habit_saved":
       case "habit_logged":
         setPlanVersion((v) => v + 1);

@@ -4,7 +4,7 @@ import type { CoachContext, CoachEvent, Goal } from "../lib/types";
 import type { OrbState } from "./Portal";
 import { pulseOrb } from "../lib/orbSignals";
 import { eventWhen, shortDay } from "../lib/dates";
-import { perWeekLabel } from "../lib/plan";
+import { hoursLabel, perWeekLabel } from "../lib/plan";
 import { isAudioUnlocked, listenOnce, Speaker, splitSentences, unlockAudio, type ListenHandle } from "../lib/voice";
 
 // The conversation as pure voice: the coach speaks (no text on screen), you
@@ -21,16 +21,27 @@ interface Toast {
   icon?: "calendar" | "goal" | "check";
 }
 
-// goal_saved covers both new and changed goals; a recent creation or a step
-// ticked a moment ago tells them apart well enough for a short toast.
+// goal_saved covers new goals (created: true) and changed ones; a step ticked a
+// moment ago tells a tick apart from other changes. A goal gets its "Ziel" toast
+// once, a step its "Etappe erledigt" once, and further saves of the same goal
+// right after (e.g. its steps being added) stay quiet.
 const RECENT = 2 * 60 * 1000;
-function goalToast(goal: Goal): Omit<Toast, "id"> {
+const QUIET = 15 * 1000;
+function goalToast(e: { goal: Goal; created?: boolean }, seen: Map<string, number>): Omit<Toast, "id"> | null {
+  const { goal } = e;
   const now = Date.now();
-  const ticked = goal.milestones.find((m) => m.done_at && now - new Date(m.done_at).getTime() < RECENT);
-  if (ticked) return { label: "Etappe erledigt", title: ticked.title, icon: "check" };
-  const created = new Date(goal.created_at).getTime();
-  const isNew = now - created < RECENT && Math.abs(new Date(goal.updated_at).getTime() - created) < 5000;
-  if (isNew) return { label: "Ziel", title: goal.title, when: goal.target_date ? shortDay(goal.target_date) : undefined, icon: "goal" };
+  if (e.created && !seen.has(goal.id)) {
+    seen.set(goal.id, now);
+    return { label: "Ziel", title: goal.title, when: goal.target_date ? shortDay(goal.target_date) : undefined, icon: "goal" };
+  }
+  const ticked = goal.milestones.find((m) => m.done_at && now - new Date(m.done_at).getTime() < RECENT && !seen.has(m.id));
+  if (ticked) {
+    seen.set(ticked.id, now);
+    seen.set(goal.id, now);
+    return { label: "Etappe erledigt", title: ticked.title, icon: "check" };
+  }
+  if (now - (seen.get(goal.id) ?? 0) < QUIET) return null;
+  seen.set(goal.id, now);
   return { label: "Plan aktualisiert", title: goal.title, icon: "goal" };
 }
 
@@ -65,6 +76,7 @@ export function VoiceConversation({ mode, thread, context, onEvent, onOrbState, 
   const [note, setNote] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [toasts, setToasts] = useState<Toast[]>([]);
+  const toasted = useRef(new Map<string, number>()); // goal and step ids → when they last had a toast
   const [typing, setTyping] = useState(false);
   const [input, setInput] = useState("");
   const [locked, setLocked] = useState(!isAudioUnlocked());
@@ -147,8 +159,15 @@ export function VoiceConversation({ mode, thread, context, onEvent, onOrbState, 
             toast({ label: "Aus dem Kalender entfernt", title: e.title });
             onEventRef.current(e);
           } else if (e.type === "goal_saved") {
-            toast(goalToast(e.goal));
+            const t = goalToast(e, toasted.current);
+            if (t) toast(t);
             pulseOrb(0.4);
+            onEventRef.current(e);
+          } else if (e.type === "time_logged") {
+            if (e.minutes > 0) {
+              toast({ label: `+${hoursLabel(e.minutes / 60)} Std`, title: e.title, icon: "check" });
+              pulseOrb(0.4);
+            }
             onEventRef.current(e);
           } else if (e.type === "goal_deleted") {
             toast({ label: "Ziel entfernt", title: e.title, icon: "goal" });
