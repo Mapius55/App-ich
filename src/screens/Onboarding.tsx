@@ -57,7 +57,7 @@ export function Onboarding({ palette, context, onEvent, onCoords, hasCoords, onD
       <header className="topbar center">
         <span className="pill">Kennenlernen</span>
       </header>
-      <FitPortal colors={palette.orb} daylight={palette.daylight} speed={palette.speed} seed={palette.seed} state={orbState} />
+      <FitPortal colors={palette.orb} daylight={palette.daylight} clouds={palette.clouds} speed={palette.speed} seed={palette.seed} state={orbState} />
       <VoiceConversation
         mode="onboarding"
         thread="onboarding"

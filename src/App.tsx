@@ -143,7 +143,7 @@ export default function App() {
   if (userId === undefined || (userId && !profile && !loadError)) {
     return (
       <main className="screen center">
-        <Portal colors={palette.orb} daylight={palette.daylight} size={220} speed={palette.speed} seed={palette.seed} state="thinking" interactive={false} />
+        <Portal colors={palette.orb} daylight={palette.daylight} clouds={palette.clouds} size={220} speed={palette.speed} seed={palette.seed} state="thinking" interactive={false} />
       </main>
     );
   }

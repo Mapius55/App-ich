@@ -48,6 +48,36 @@ export interface Palette {
   speed: number; // animation speed multiplier
   seed: number;
   phase: string; // German label, e.g. "Sonnenuntergang"
+  clouds: Clouds; // what the sky in the portal shows
+}
+
+/** How the clouds in the portal look: coverage and the mix of cloud types (0..1 each). */
+export interface Clouds {
+  cover: number; // how much of the sky is cloud
+  cirrus: number; // fine, high veils
+  stratus: number; // flat, wide layers (overcast, rain)
+}
+
+/** Clouds after the real weather; a pleasant mix when the weather is unknown. */
+export function cloudsFor(w: Weather | null | undefined): Clouds {
+  if (!w) return { cover: 0.5, cirrus: 0.5, stratus: 0.1 };
+  const c = Math.min(1, Math.max(0, w.cloudCover / 100));
+  switch (w.kind) {
+    case "clear":
+      return { cover: 0.22 + 0.2 * c, cirrus: 0.75, stratus: 0 };
+    case "partly":
+      return { cover: 0.45 + 0.25 * c, cirrus: 0.45, stratus: 0.1 };
+    case "cloudy":
+      return { cover: 0.75, cirrus: 0.1, stratus: 0.6 };
+    case "fog":
+      return { cover: 0.55, cirrus: 0, stratus: 0.95 };
+    case "rain":
+      return { cover: 0.85, cirrus: 0, stratus: 0.8 };
+    case "snow":
+      return { cover: 0.7, cirrus: 0.15, stratus: 0.55 };
+    case "storm":
+      return { cover: 0.92, cirrus: 0, stratus: 0.7 };
+  }
 }
 
 // ---------- helpers ----------
@@ -248,5 +278,6 @@ export function computePalette(input: PaletteInput): Palette {
     speed: 0.55 + energy * 0.8,
     seed: Math.floor(rand() * 1e9),
     phase: phaseLabel(phase, evening, elev),
+    clouds: cloudsFor(weather),
   };
 }

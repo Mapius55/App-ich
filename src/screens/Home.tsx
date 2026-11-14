@@ -137,7 +137,7 @@ export function Home({ profile, palette, weather, context, day, focus, onEvent, 
       </section>
 
       {/* The portal fills the free space: the conversation is voice only. */}
-      <FitPortal colors={palette.orb} daylight={palette.daylight} speed={palette.speed} seed={palette.seed} state={orbState} />
+      <FitPortal colors={palette.orb} daylight={palette.daylight} clouds={palette.clouds} speed={palette.speed} seed={palette.seed} state={orbState} />
 
       <VoiceConversation mode="checkin" thread={day} context={context} onEvent={onEvent} onOrbState={setOrbState} leftButton={menuButton} />
     </main>
