@@ -9,6 +9,7 @@
 import Anthropic from "npm:@anthropic-ai/sdk@1.8.0";
 import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2.119.0";
 import { contextBlock, MODE_CHECKIN, MODE_ONBOARDING, MODE_TIDY, PERSONA } from "./prompt.ts";
+import { zonedToUtc } from "../_shared/ics.ts";
 
 const MODEL = "claude-opus-5-5";
 // Conversation, not heavy reasoning: low effort keeps replies quick on the phone.
@@ -145,6 +146,53 @@ const TOOLS: Anthropic.Beta.BetaTool[] = [
     eager_input_streaming: true,
   },
   {
+    name: "create_event",
+    description:
+      "Trägt einen Termin direkt in den Kalender „I am“ auf dem iPhone der Person ein (Rennen, Training, Treffen, Prüfung …). Zeiten in der lokalen Zeit der Person.",
+    input_schema: {
+      type: "object",
+      properties: {
+        title: { type: "string", description: "Kurz, z.B. „Halbmarathon Zürich“." },
+        start: { type: "string", description: "YYYY-MM-DDTHH:MM (lokal) oder YYYY-MM-DD für ganztägig." },
+        end: { type: "string", description: "Optional, gleiches Format wie start." },
+        location: { type: "string" },
+        notes: { type: "string" },
+        reminder_minutes: {
+          type: "integer",
+          description: "Erinnerung so viele Minuten vorher (Standard 30). Bei ganztägigen Terminen weglassen (dann 8 Uhr am Tag).",
+        },
+      },
+      required: ["title", "start"],
+      additionalProperties: false,
+    },
+    eager_input_streaming: true,
+  },
+  {
+    name: "update_event",
+    description: "Ändert einen Termin im Kalender „I am“ (id aus dem Kontext).",
+    input_schema: {
+      type: "object",
+      properties: {
+        id: { type: "string" },
+        title: { type: "string" },
+        start: { type: "string" },
+        end: { type: "string" },
+        location: { type: "string" },
+        notes: { type: "string" },
+        reminder_minutes: { type: "integer" },
+      },
+      required: ["id"],
+      additionalProperties: false,
+    },
+    eager_input_streaming: true,
+  },
+  {
+    name: "delete_event",
+    description: "Löscht einen Termin aus dem Kalender „I am“, z.B. wenn er abgesagt wurde.",
+    input_schema: { type: "object", properties: { id: { type: "string" } }, required: ["id"], additionalProperties: false },
+    eager_input_streaming: true,
+  },
+  {
     name: "request_location",
     description: "Zeigt in der App einen Knopf, um den Standort freizugeben (für Wetter und Sonnenuntergang in den Farben).",
     input_schema: { type: "object", properties: {}, additionalProperties: false },
@@ -184,7 +232,7 @@ const optDate = (v: unknown): string | null | undefined => {
 async function runTool(
   name: string,
   input: Record<string, unknown>,
-  ctx: { sb: SupabaseClient; userId: string; day: string; mode: ReqBody["mode"]; send: (e: Ev) => void },
+  ctx: { sb: SupabaseClient; userId: string; day: string; tz: string; mode: ReqBody["mode"]; send: (e: Ev) => void },
 ): Promise<string> {
   const { sb, userId, day, send } = ctx;
   switch (name) {
@@ -258,6 +306,52 @@ async function runTool(
       const { error } = await sb.from("profiles").update(patch).eq("id", userId);
       if (error) throw error;
       send({ type: "profile", profile: patch });
+      return JSON.stringify({ ok: true });
+    }
+    case "create_event":
+    case "update_event": {
+      const row: Record<string, unknown> = {};
+      const when = (v: unknown, field: string) => {
+        const txt = str(v, 20, field);
+        try {
+          return { iso: zonedToUtc(txt, ctx.tz), allDay: !txt.includes("T") };
+        } catch {
+          throw new ToolInputError(`${field}: YYYY-MM-DDTHH:MM oder YYYY-MM-DD`);
+        }
+      };
+      if (input.title !== undefined) row.title = str(input.title, 200, "title");
+      if (input.start !== undefined) {
+        const s0 = when(input.start, "start");
+        row.starts_at = s0.iso;
+        row.all_day = s0.allDay;
+        if (s0.allDay && input.reminder_minutes === undefined && name === "create_event") row.reminder_minutes = -480; // 08:00 that day
+      }
+      if (input.end !== undefined) row.ends_at = when(input.end, "end").iso;
+      if (input.location !== undefined) row.location = str(input.location, 200, "location");
+      if (input.notes !== undefined) row.notes = str(input.notes, 2000, "notes");
+      if (input.reminder_minutes !== undefined) row.reminder_minutes = Math.round(num(input.reminder_minutes, 0, 10080, "reminder_minutes"));
+      if (name === "create_event") {
+        if (!row.title || !row.starts_at) throw new ToolInputError("title und start sind nötig");
+        if (row.reminder_minutes === undefined) row.reminder_minutes = 30;
+        const { data, error } = await sb.from("events").insert({ ...row, user_id: userId, source: "coach" }).select().single();
+        if (error) throw error;
+        send({ type: "event_created", event: data });
+        return JSON.stringify({ ok: true, id: data.id });
+      }
+      const id = str(input.id, 64, "id");
+      if (!Object.keys(row).length) throw new ToolInputError("nichts zu ändern");
+      const { data, error } = await sb.from("events").update(row).eq("id", id).select().maybeSingle();
+      if (error) throw error;
+      if (!data) throw new ToolInputError("Termin nicht gefunden");
+      send({ type: "event_updated", event: data });
+      return JSON.stringify({ ok: true });
+    }
+    case "delete_event": {
+      const id = str(input.id, 64, "id");
+      const { data, error } = await sb.from("events").delete().eq("id", id).select("id, title");
+      if (error) throw error;
+      if (!data?.length) throw new ToolInputError("Termin nicht gefunden");
+      send({ type: "event_deleted", id, title: data[0].title });
       return JSON.stringify({ ok: true });
     }
     case "request_location": {
@@ -335,7 +429,7 @@ function friendlyError(err: unknown): string {
 async function converse({ sb, userId, body, send }: { sb: SupabaseClient; userId: string; body: ReqBody; send: (e: Ev) => void }) {
   const { mode, thread, message, context } = body;
 
-  const [profileRes, memoriesRes, historyRes, daysRes] = await Promise.all([
+  const [profileRes, memoriesRes, historyRes, daysRes, eventsRes] = await Promise.all([
     sb.from("profiles").select("display_name, location_name, summary, nature_palette").eq("id", userId).single(),
     sb.from("memories").select("id, category, event_date, content, source").order("created_at", { ascending: true }).limit(400),
     mode === "tidy"
@@ -343,6 +437,12 @@ async function converse({ sb, userId, body, send }: { sb: SupabaseClient; userId
       : sb.from("messages").select("role, content").eq("thread", thread).order("id", { ascending: false }).limit(80),
     // Two weeks of mood and energy, so the coach can notice patterns.
     sb.from("days").select("day, mood, focus").lt("day", context.day).order("day", { ascending: false }).limit(14),
+    sb
+      .from("events")
+      .select("id, title, starts_at, all_day, location")
+      .gte("starts_at", new Date(Date.now() - 2 * 24 * 3600 * 1000).toISOString())
+      .order("starts_at")
+      .limit(60),
   ]);
   if (profileRes.error) throw profileRes.error;
 
@@ -371,6 +471,18 @@ async function converse({ sb, userId, body, send }: { sb: SupabaseClient; userId
         profile: profileRes.data,
         memories: memoriesRes.data ?? [],
         recentDays: daysRes.data ?? [],
+        events: (eventsRes.data ?? []).map((e) => ({
+          id: e.id,
+          title: e.title,
+          when: new Intl.DateTimeFormat("de-CH", {
+            timeZone: context.timezone || "Europe/Zurich",
+            weekday: "short",
+            day: "numeric",
+            month: "short",
+            ...(e.all_day ? {} : { hour: "2-digit", minute: "2-digit" }),
+          }).format(new Date(e.starts_at)),
+          location: e.location,
+        })),
       }),
     },
   ];
@@ -426,7 +538,7 @@ async function converse({ sb, userId, body, send }: { sb: SupabaseClient; userId
       toolUses.map(async (tu) => {
         try {
           const input = tu.input && typeof tu.input === "object" ? (tu.input as Record<string, unknown>) : {};
-          const out = await runTool(tu.name, input, { sb, userId, day: context.day, mode, send });
+          const out = await runTool(tu.name, input, { sb, userId, day: context.day, tz: context.timezone || "Europe/Zurich", mode, send });
           return { type: "tool_result" as const, tool_use_id: tu.id, content: out };
         } catch (e) {
           const msgText = e instanceof ToolInputError ? e.message : "Speichern fehlgeschlagen";

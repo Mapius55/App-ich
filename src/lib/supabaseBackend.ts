@@ -1,5 +1,5 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-import type { Backend, ChatMessage, CoachContext, CoachEvent, CoachRequest, DayState, Memory, Profile } from "./types";
+import type { Backend, CalendarEvent, ChatMessage, CoachContext, CoachEvent, CoachRequest, DayState, Memory, Profile } from "./types";
 import { normaliseUsername, USERNAME_RE } from "./types";
 
 // Supabase Auth works with e-mail addresses. People here log in with a plain
@@ -108,6 +108,38 @@ export class SupabaseBackend implements Backend {
 
   async deleteMemory(id: string) {
     const { error } = await this.sb.from("memories").delete().eq("id", id);
+    if (error) throw error;
+  }
+
+  async listEvents(): Promise<CalendarEvent[]> {
+    const since = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
+    const { data, error } = await this.sb.from("events").select("*").gte("starts_at", since).order("starts_at").limit(500);
+    if (error) throw error;
+    return data as CalendarEvent[];
+  }
+
+  async addEvent(e: Omit<CalendarEvent, "id" | "source">): Promise<CalendarEvent> {
+    const { data, error } = await this.sb.from("events").insert({ ...e, source: "person" }).select().single();
+    if (error) throw error;
+    return data as CalendarEvent;
+  }
+
+  async deleteEvent(id: string) {
+    const { error } = await this.sb.from("events").delete().eq("id", id);
+    if (error) throw error;
+  }
+
+  async calendarLink(): Promise<string | null> {
+    const id = await this.uid();
+    const { data, error } = await this.sb.from("profiles").select("calendar_token").eq("id", id).single();
+    if (error) throw error;
+    const tz = encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone);
+    return `${this.url.replace(/^https?:/, "webcal:")}/functions/v1/calendar?token=${data.calendar_token}&tz=${tz}`;
+  }
+
+  async renewCalendarLink() {
+    const id = await this.uid();
+    const { error } = await this.sb.from("profiles").update({ calendar_token: crypto.randomUUID() }).eq("id", id);
     if (error) throw error;
   }
 

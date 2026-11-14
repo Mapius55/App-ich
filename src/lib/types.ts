@@ -10,6 +10,22 @@ export interface Profile {
   location_name: string | null;
   lat: number | null;
   lon: number | null;
+  calendar_token?: string;
+}
+
+/** An entry in the calendar "I am". */
+export interface CalendarEvent {
+  id: string;
+  title: string;
+  starts_at: string; // ISO (UTC)
+  ends_at: string | null;
+  all_day: boolean;
+  location: string | null;
+  notes: string | null;
+  reminder_minutes: number | null;
+  source: "coach" | "person";
+  sequence?: number;
+  updated_at?: string;
 }
 
 export type MemoryCategory = "person" | "arbeit" | "werte" | "rhythmus" | "ziel" | "termin" | "ort" | "natur" | "anderes";
@@ -64,6 +80,9 @@ export type CoachEvent =
   | { type: "focus"; focus: string }
   | { type: "palette"; nature: NaturePalette }
   | { type: "profile"; profile: Partial<Profile> }
+  | { type: "event_created"; event: CalendarEvent }
+  | { type: "event_updated"; event: CalendarEvent }
+  | { type: "event_deleted"; id: string; title: string }
   | { type: "request_location" }
   | { type: "onboarding_done" }
   | { type: "error"; message: string }
@@ -84,6 +103,13 @@ export interface Backend {
   addMemory(m: Pick<Memory, "content" | "category" | "event_date">): Promise<Memory>;
   updateMemory(id: string, patch: Partial<Pick<Memory, "content" | "category" | "event_date" | "source">>): Promise<void>;
   deleteMemory(id: string): Promise<void>;
+
+  listEvents(): Promise<CalendarEvent[]>;
+  addEvent(e: Omit<CalendarEvent, "id" | "source">): Promise<CalendarEvent>;
+  deleteEvent(id: string): Promise<void>;
+  /** Subscription link for the iPhone calendar (null in demo mode). */
+  calendarLink(): Promise<string | null>;
+  renewCalendarLink(): Promise<void>;
 
   getMessages(thread: string): Promise<ChatMessage[]>;
   getDay(day: string): Promise<DayState | null>;

@@ -81,7 +81,7 @@ function phaseLabel(m: Record<string, number>, evening: boolean, elev: number): 
     case "D":
       return "Sonnenaufgang";
     case "M":
-      return "Morgen";
+      return "Vormittag";
     case "A":
       return elev < 10 ? "Goldene Stunde" : "Nachmittag";
     case "S":

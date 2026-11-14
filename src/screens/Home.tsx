@@ -15,6 +15,7 @@ interface Props {
   focus: string | null;
   onEvent: (e: CoachEvent) => void;
   onOpenMemories: () => void;
+  onOpenCalendar: () => void;
   onSignOut: () => void;
 }
 
@@ -28,7 +29,7 @@ function greeting(isDark: boolean, d = new Date()): string {
   return "Guten Abend";
 }
 
-export function Home({ profile, palette, weather, context, day, focus, onEvent, onOpenMemories, onSignOut }: Props) {
+export function Home({ profile, palette, weather, context, day, focus, onEvent, onOpenMemories, onOpenCalendar, onSignOut }: Props) {
   const [orbState, setOrbState] = useState<OrbState>("idle");
   const [settled, setSettled] = useState(false);
   const [menu, setMenu] = useState(false);
@@ -99,6 +100,7 @@ export function Home({ profile, palette, weather, context, day, focus, onEvent, 
               </button>
             </div>
             <nav>
+              <button onClick={() => (setMenu(false), onOpenCalendar())}>Kalender</button>
               <button onClick={() => (setMenu(false), onOpenMemories())}>Was ich über dich weiss</button>
               <button onClick={() => (setMenu(false), onSignOut())}>Abmelden</button>
             </nav>

@@ -25,6 +25,7 @@ Rufe Werkzeuge still auf und kündige sie nicht an. Ein „Ich speichere das“ 
 - set_day_focus: Wenn ihr euch auf einen Fokus für heute geeinigt habt. Höchstens acht Wörter.
 - set_nature_palette: Fünf Farben, die die Lieblingsnatur der Person einfangen. Es sollen echte, schöne Naturfarben sein, nicht grell. Dazu ein kurzer Name wie „Bergsee im Engadin“. Diese Farben fliessen in den Kreis ein.
 - update_profile: Name, mit dem du die Person ansprichst, und Wohnort.
+- create_event, update_event, delete_event: Der Kalender „I am“ auf dem iPhone der Person. Nennt sie einen Termin mit Datum, z.B. ein Rennen, Training, Treffen, eine Prüfung oder Reise, trägst du ihn direkt ein, ohne zu fragen. Danach sagst du in einem kurzen Halbsatz, dass er im Kalender steht. Fehlt die Uhrzeit, wird er ganztägig. Rechne relative Angaben wie „nächsten Samstag um 9“ vom heutigen Datum aus um. Prüfe die Liste „Kalender“ im Kontext, damit nichts doppelt eingetragen wird. Ändert sich etwas oder fällt etwas aus, passt du den Termin an oder löschst ihn. Ein Wecker ist nicht möglich. Wünscht sich die Person einen, trägst du einen Termin mit Erinnerung (reminder_minutes: 0) zur gewünschten Zeit ein und sagst ihr das.
 - request_location: Die App zeigt dann einen Knopf, mit dem die Person ihren Standort freigeben kann, damit Wetter und Sonnenuntergang in die Farben einfliessen.
 - finish_onboarding: Nur am Ende des Kennenlernens.
 
@@ -89,6 +90,7 @@ export interface ContextInput {
   };
   memories: { id: string; category: string; event_date: string | null; content: string; source?: string }[];
   recentDays: { day: string; mood: { word?: string; valence?: number; energy?: number } | null; focus: string | null }[];
+  events?: { id: string; title: string; when: string; location: string | null }[];
 }
 
 export function contextBlock(c: ContextInput): string {
@@ -119,5 +121,8 @@ Lieblingsnatur-Farben: ${c.profile.nature_palette ? c.profile.nature_palette.nam
 ${mem}
 
 ## Die letzten Tage
-${days}`;
+${days}
+
+## Kalender „I am“ (kommende Termine: [id] Zeit: Titel)
+${c.events?.length ? c.events.map((e) => `- [${e.id}] ${e.when}: ${e.title}${e.location ? ` (${e.location})` : ""}`).join("\n") : "(keine)"}`;
 }

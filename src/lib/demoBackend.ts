@@ -2,7 +2,7 @@
 // be tried before Supabase and the AI are set up. Everything stays on this
 // device. It's a preview, not a real coach.
 
-import type { Backend, ChatMessage, CoachEvent, CoachRequest, DayState, Memory, MemoryCategory, Profile } from "./types";
+import type { Backend, CalendarEvent, ChatMessage, CoachEvent, CoachRequest, DayState, Memory, MemoryCategory, Profile } from "./types";
 import { normaliseUsername, USERNAME_RE } from "./types";
 import type { NaturePalette } from "./palette";
 
@@ -12,6 +12,44 @@ interface DemoUser {
   memories: Memory[];
   messages: Record<string, ChatMessage[]>;
   days: Record<string, DayState>;
+  events?: CalendarEvent[];
+}
+
+// The demo coach understands simple appointments, e.g. "Samstag um 9 habe ich ein Rennen"
+// or "Training am 3.12. um 18:30". The real coach (Claude) understands anything.
+const WEEKDAYS = ["sonntag", "montag", "dienstag", "mittwoch", "donnerstag", "freitag", "samstag"];
+const KINDS: [RegExp, string][] = [
+  [/halbmarathon/i, "Halbmarathon"],
+  [/marathon/i, "Marathon"],
+  [/rennen|wettkampf|lauf\b/i, "Rennen"],
+  [/training/i, "Training"],
+  [/prüfung/i, "Prüfung"],
+  [/arzt|zahnarzt/i, "Arzttermin"],
+  [/treffen|meeting|termin/i, "Termin"],
+];
+function parseDemoEvent(text: string, now = new Date()): { title: string; start: Date; allDay: boolean } | null {
+  const kind = KINDS.find(([re]) => re.test(text));
+  if (!kind) return null;
+  const t = text.toLowerCase();
+  let date: Date | null = null;
+  const dm = t.match(/(\d{1,2})\.(\d{1,2})\.?(\d{2,4})?/);
+  if (dm) {
+    const y = dm[3] ? (+dm[3] < 100 ? 2000 + +dm[3] : +dm[3]) : now.getFullYear();
+    date = new Date(y, +dm[2] - 1, +dm[1]);
+    if (!dm[3] && date < new Date(now.getFullYear(), now.getMonth(), now.getDate())) date.setFullYear(y + 1);
+  } else if (/übermorgen/.test(t)) date = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 2);
+  else if (/morgen/.test(t)) date = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+  else {
+    const wd = WEEKDAYS.findIndex((w) => t.includes(w));
+    if (wd >= 0) {
+      const diff = (wd - now.getDay() + 7) % 7 || 7;
+      date = new Date(now.getFullYear(), now.getMonth(), now.getDate() + diff);
+    }
+  }
+  if (!date) return null;
+  const tm = t.match(/um (\d{1,2})(?:[:.](\d{2}))?/);
+  if (tm) date.setHours(+tm[1], tm[2] ? +tm[2] : 0, 0, 0);
+  return { title: kind[1], start: date, allDay: !tm };
 }
 
 const KEY = "ich.demo.users";
@@ -116,6 +154,7 @@ export class DemoBackend implements Backend {
       memories: [],
       messages: {},
       days: {},
+      events: [],
     };
     this.save(users);
     localStorage.setItem(SESSION, u);
@@ -158,6 +197,23 @@ export class DemoBackend implements Backend {
   async deleteMemory(id: string) {
     this.mutate((u) => (u.memories = u.memories.filter((m) => m.id !== id)));
   }
+  async listEvents() {
+    const since = Date.now() - 24 * 3600 * 1000;
+    return (this.user().events ?? []).filter((e) => new Date(e.starts_at).getTime() >= since).sort((a, b) => a.starts_at.localeCompare(b.starts_at));
+  }
+  async addEvent(e: Omit<CalendarEvent, "id" | "source">, source: CalendarEvent["source"] = "person") {
+    const ev: CalendarEvent = { ...e, id: uuid(), source, sequence: 0, updated_at: now() };
+    this.mutate((u) => (u.events ??= []).push(ev));
+    return ev;
+  }
+  async deleteEvent(id: string) {
+    this.mutate((u) => (u.events = (u.events ?? []).filter((e) => e.id !== id)));
+  }
+  async calendarLink() {
+    return null; // a subscription needs the server; the demo offers a file download instead
+  }
+  async renewCalendarLink() {}
+
   async getMessages(thread: string) {
     return this.user().messages[thread] ?? [];
   }
@@ -191,6 +247,24 @@ export class DemoBackend implements Backend {
     else this.push(thread, "user", "(App geöffnet)", true);
 
     let reply = "";
+    let calendarNote = "";
+    const parsed = req.message ? parseDemoEvent(req.message) : null;
+    if (parsed) {
+      const ev = await this.addEvent(
+        {
+          title: parsed.title,
+          starts_at: parsed.start.toISOString(),
+          ends_at: null,
+          all_day: parsed.allDay,
+          location: null,
+          notes: null,
+          reminder_minutes: parsed.allDay ? -480 : 30,
+        },
+        "coach",
+      );
+      onEvent({ type: "event_created", event: ev });
+      calendarNote = `Ich habe „${ev.title}“ in deinen Kalender „I am“ eingetragen. `;
+    }
     if (req.mode === "onboarding") {
       const step = history.filter((m) => m.role === "user").length + (req.message ? 1 : 0);
       if (req.message && step >= 1) {
@@ -240,6 +314,7 @@ export class DemoBackend implements Backend {
         reply = "Gut, das ist dein Fokus für heute. (Im Demo-Modus antworte ich nur einfach – mit der echten KI wird das ein richtiges Gespräch.)";
       }
     }
+    reply = calendarNote + reply;
     await this.say(reply, onEvent);
     this.push(thread, "assistant", reply);
     onEvent({ type: "done" });

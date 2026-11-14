@@ -5,6 +5,13 @@ import { listen, speechSupported, type Listener } from "../lib/speech";
 import type { OrbState } from "./Portal";
 import { AnimatedText } from "./AnimatedText";
 import { pulseOrb, startVoiceLevel } from "../lib/orbSignals";
+import { eventWhen } from "../lib/dates";
+
+interface Card {
+  kind: "added" | "changed" | "removed";
+  title: string;
+  when?: string;
+}
 
 interface Props {
   mode: "onboarding" | "checkin";
@@ -30,6 +37,7 @@ export function Conversation({ mode, thread, context, onEvent, onOrbState, extra
   const listener = useRef<Listener | null>(null);
   const stopLevel = useRef<(() => void) | null>(null);
   const [stagger, setStagger] = useState<string | null>(null); // history message whose words roll in
+  const [cards, setCards] = useState<Record<string, Card[]>>({}); // calendar notes under a reply
   const scrollRef = useRef<HTMLDivElement>(null);
   const started = useRef<string | null>(null);
   const onEventRef = useRef(onEvent);
@@ -62,6 +70,14 @@ export function Conversation({ mode, thread, context, onEvent, onOrbState, extra
             scrollDown();
           } else if (e.type === "error") {
             setError(e.message);
+          } else if (e.type === "event_created" || e.type === "event_updated" || e.type === "event_deleted") {
+            const card: Card =
+              e.type === "event_deleted"
+                ? { kind: "removed", title: e.title }
+                : { kind: e.type === "event_created" ? "added" : "changed", title: e.event.title, when: eventWhen(e.event) };
+            setCards((c) => ({ ...c, [replyId]: [...(c[replyId] ?? []), card] }));
+            pulseOrb(0.5);
+            onEventRef.current(e);
           } else if (e.type !== "done") {
             onEventRef.current(e);
           }
@@ -152,6 +168,23 @@ export function Conversation({ mode, thread, context, onEvent, onOrbState, extra
         {messages.map((m) => (
           <div key={m.id} className={`msg msg-${m.role}`}>
             {m.role === "assistant" ? <AnimatedText text={m.content} stagger={m.id === stagger} /> : m.content}
+            {cards[m.id]?.map((c, i) => (
+              <div key={i} className={`event-card ${c.kind}`}>
+                <span className="event-card-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+                    <rect x="4" y="5" width="16" height="15" rx="3" />
+                    <path d="M4 10h16M9 3v4M15 3v4" />
+                  </svg>
+                </span>
+                <span className="event-card-body">
+                  <span className="event-card-label">
+                    {c.kind === "added" ? "Im Kalender „I am“" : c.kind === "changed" ? "Termin geändert" : "Aus dem Kalender entfernt"}
+                  </span>
+                  <span className="event-card-title">{c.title}</span>
+                  {c.when && <span className="event-card-when">{c.when}</span>}
+                </span>
+              </div>
+            ))}
             {m.id === lastAssistant?.id && !busy && extra}
           </div>
         ))}

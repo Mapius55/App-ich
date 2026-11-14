@@ -11,6 +11,7 @@ import { Login } from "./screens/Login";
 import { Onboarding } from "./screens/Onboarding";
 import { Home } from "./screens/Home";
 import { Memories } from "./screens/Memories";
+import { Calendar } from "./screens/Calendar";
 
 // Screen changes zoom through the portal (View Transitions API, where the
 // browser has it; elsewhere screens simply fade in via CSS).
@@ -37,7 +38,7 @@ export default function App() {
   const [coords, setCoords] = useState<Coords | null>(() => storedCoords());
   const [mood, setMood] = useState<Mood | null>(null);
   const [focus, setFocus] = useState<string | null>(null);
-  const [view, setView] = useState<"home" | "memories">("home");
+  const [view, setView] = useState<"home" | "memories" | "calendar">("home");
   const [loadError, setLoadError] = useState<string | null>(null);
   const [day, setDay] = useState(() => localDayKey());
 
@@ -164,6 +165,7 @@ export default function App() {
   }
 
   if (view === "memories") return <Memories onBack={() => withTransition(() => setView("home"))} />;
+  if (view === "calendar") return <Calendar onBack={() => withTransition(() => setView("home"))} />;
 
   return (
     <Home
@@ -175,6 +177,7 @@ export default function App() {
       focus={focus}
       onEvent={onEvent}
       onOpenMemories={() => withTransition(() => setView("memories"))}
+      onOpenCalendar={() => withTransition(() => setView("calendar"))}
       onSignOut={() => backend.signOut()}
     />
   );

@@ -30,6 +30,7 @@ Ein persönlicher Coach für deine Zeit. Beim ersten Öffnen lernt er dich im Ge
   - **Rennen und Termine** mit Datum. Danach fragt er, wie es lief.
 
   Smalltalk und zu Persönliches speichert er nicht. Einmal am Tag räumt er still auf und löscht, was unwichtig, zu persönlich, doppelt oder lange vorbei ist. Was du selbst einträgst oder bearbeitest, lässt er stehen. Alles ist unter Menü → „Was ich über dich weiss“ sichtbar und lässt sich ändern oder löschen.
+- **Kalender „I am“**: Erzählst du dem Coach von einem Termin (z.B. „Samstag um 9 habe ich ein Rennen“), trägt er ihn direkt ein, mit Erinnerung 30 Minuten vorher. Ganztägige Termine erinnern um 8 Uhr. Dein iPhone abonniert den Kalender einmal, danach erscheint alles von selbst. Menü → Kalender zeigt die Termine, dort kannst du auch selbst welche eintragen oder löschen. Wecker in der Uhr-App kann eine Web-App nicht stellen. Stattdessen gibt es Termine mit Erinnerungston.
 - **Sprechen statt Tippen** über den Mikrofon-Knopf, sofern der Browser das kann (Chrome, Safari, Edge).
 - **Installierbar als App** auf dem Handy (PWA).
 - **Demo-Modus**: Solange Supabase nicht eingerichtet ist, läuft die App mit einem einfachen, vorgeschriebenen Coach ohne KI. So kannst du Kreis und Ablauf sofort ausprobieren.
@@ -55,7 +56,9 @@ Ein persönlicher Coach für deine Zeit. Beim ersten Öffnen lernt er dich im Ge
    supabase link --project-ref <deine-projekt-id>
    supabase secrets set ANTHROPIC_API_KEY=<dein-schlüssel>
    supabase functions deploy coach
+   supabase functions deploy calendar --no-verify-jwt
    ```
+   Die Funktion `calendar` liefert den Kalender „I am“ fürs iPhone-Abo. Sie braucht kein Login, weil jede Person einen privaten Link hat, der sich in der App erneuern lässt.
    Der Schlüssel liegt nur auf dem Server und nie in der App oder auf dem Handy.
 
 ### 4. App mit Supabase verbinden
@@ -65,7 +68,10 @@ Auf GitHub unter **Settings → Secrets and variables → Actions → Variables*
 
 Danach unter **Actions → Deploy to GitHub Pages → Run workflow** neu bauen.
 
-### 5. Aufs Handy
+### 5. Kalender mit dem iPhone verbinden
+In der App: Menü → **Kalender** → **Kalender abonnieren** → **Abonnieren**. Dabei **„Hinweise entfernen“ ausschalten**, sonst klingeln die Erinnerungen nicht. Neue Termine kommen schneller, wenn du unter *Einstellungen → Kalender → Accounts → Abrufen* „Alle 15 Minuten“ wählst.
+
+### 6. Aufs Handy
 - **iPhone**: Seite in Safari öffnen → Teilen → **„Zum Home-Bildschirm“**.
 - **Android**: Seite in Chrome öffnen → Menü → **„App installieren“**.
 

@@ -3,3 +3,7 @@ project_id = "app-ich"
 
 [functions.coach]
 verify_jwt = true
+
+# The iPhone calendar subscribes without logging in (private token in the link).
+[functions.calendar]
+verify_jwt = false
