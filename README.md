@@ -5,9 +5,11 @@ Ein persönlicher Coach für deine Zeit. Beim ersten Öffnen lernt er dich im Ge
 ## Marke
 - **Name:** I am
 - **Logo:** „I am“ in Bodoni Moda mit feiner Schwung-Linie, auf dem blauen Pinsel-Hintergrund. Dateien liegen in `brand/` (`wordmark.svg`, `icon.svg`, `banner.png`), die App-Icons in `public/`. Neu erzeugen lassen sie sich mit `scripts/brand/` (siehe Kommentar in `make.cjs`).
-- **Schriften:** Bodoni Moda (Titel, Coach-Text) und Jost (Bedienelemente), beide frei (SIL Open Font License).
-- **Hintergrund:** Pinselstriche, deren Farben dem Himmel folgen: nachts tiefes Blau, beim Sonnenuntergang warm, am Tag hell.
-- **Kreis:** eine Gradient Sphere (WebGL), deren Farben aus Tageszeit, Wetter, Stimmung und Lieblingsnatur entstehen.
+- **Schriften:** Inter Tight (fette Titel in Grossbuchstaben, Labels, Knöpfe) und Bodoni Moda (Logo, Text des Coaches). Beide sind frei (SIL Open Font License).
+- **Farben:** Das Blau gehört nur zum Logo. Die App nimmt ihre Farben aus einer Bibliothek von 100 benannten Farben (`src/lib/colors100.ts`). Sie wählt laufend die passendsten nach Sonnenstand am Ort, Wetter, Jahreszeit, Höhe über Meer, Stimmung und Lieblingsnatur. Nachts sind es dunkle Grün- und Blautöne. Im Menü steht unter „Farben heute“, welche gerade aktiv sind.
+- **Hintergrund:** Fast schwarzer Grund, darauf fliessendes Licht in Pinselstreifen, das ständig durch die Tagesfarben wandert (WebGL, in niedriger Auflösung, schont den Akku).
+- **Kreis:** Ein flacher Kreis, wie aus Papier ausgeschnitten, durch den man auf einen ziehenden Wolkenhimmel sieht. Drückt man darauf, kommt der Himmel näher. Zieht man den Finger, verschiebt sich der Himmel. Er reagiert auch auf die Stimme und auf jedes Wort des Coaches.
+- **Animationen:** Die Wörter des Coaches erscheinen weich, Seiten zoomen ineinander, Elemente gleiten herein.
 
 ## Was schon funktioniert
 
