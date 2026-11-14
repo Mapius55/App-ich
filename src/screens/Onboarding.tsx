@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react";
-import { Sphere, type OrbState } from "../components/Sphere";
+import { Portal, type OrbState } from "../components/Portal";
 import { Conversation } from "../components/Conversation";
 import { requestCoords, type Coords } from "../lib/location";
 import type { Palette } from "../lib/palette";
@@ -54,8 +54,8 @@ export function Onboarding({ palette, context, onEvent, onCoords, hasCoords, onD
   return (
     <main className="screen chat-screen onboarding">
       <header className="chat-header">
-        <Sphere colors={palette.orb} size={124} speed={palette.speed} seed={palette.seed} state={orbState} />
-        <span className="eyebrow">Kennenlernen</span>
+        <Portal colors={palette.orb} daylight={palette.daylight} size={170} speed={palette.speed} seed={palette.seed} state={orbState} />
+        <span className="pill">Kennenlernen</span>
       </header>
       <Conversation
         mode="onboarding"

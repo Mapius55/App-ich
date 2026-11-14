@@ -1,15 +1,35 @@
 import { useCallback, useEffect, useState } from "react";
+import { flushSync } from "react-dom";
 import { backend } from "./lib/backend";
 import { storeCoords, storedCoords, type Coords } from "./lib/location";
 import { localDayKey, type Mood } from "./lib/palette";
 import { useSky } from "./lib/useSky";
 import type { CoachEvent, Profile } from "./lib/types";
-import { Sphere } from "./components/Sphere";
-import { BrushBackground } from "./components/BrushBackground";
+import { Portal } from "./components/Portal";
+import { SkyBackground } from "./components/SkyBackground";
 import { Login } from "./screens/Login";
 import { Onboarding } from "./screens/Onboarding";
 import { Home } from "./screens/Home";
 import { Memories } from "./screens/Memories";
+
+// Screen changes zoom through the portal (View Transitions API, where the
+// browser has it; elsewhere screens simply fade in via CSS).
+type VT = { finished: Promise<void>; ready: Promise<void>; updateCallbackDone: Promise<void> };
+let transitionRunning = false;
+function withTransition(fn: () => void) {
+  const d = document as Document & { startViewTransition?: (cb: () => void) => VT };
+  // While one transition plays, further changes just happen inside it.
+  if (!d.startViewTransition || transitionRunning || window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    fn();
+    return;
+  }
+  transitionRunning = true;
+  const vt = d.startViewTransition(() => flushSync(fn));
+  const quiet = () => {};
+  vt.ready.catch(quiet);
+  vt.updateCallbackDone.catch(quiet);
+  vt.finished.catch(quiet).finally(() => (transitionRunning = false));
+}
 
 export default function App() {
   const [userId, setUserId] = useState<string | null | undefined>(undefined);
@@ -26,7 +46,7 @@ export default function App() {
   // Session: restored automatically, so a returning person skips the login.
   useEffect(() => {
     backend.currentUserId().then(setUserId);
-    return backend.onAuthChange((id) => setUserId(id));
+    return backend.onAuthChange((id) => withTransition(() => setUserId(id)));
   }, []);
 
   useEffect(() => {
@@ -38,7 +58,7 @@ export default function App() {
     backend
       .getProfile()
       .then((p) => {
-        setProfile(p);
+        withTransition(() => setProfile(p));
         if (!storedCoords() && p.lat != null && p.lon != null) {
           const c = { lat: p.lat, lon: p.lon };
           storeCoords(c);
@@ -71,9 +91,8 @@ export default function App() {
     const r = document.documentElement.style;
     r.setProperty("--bg-top", palette.bgTop);
     r.setProperty("--bg-bottom", palette.bgBottom);
-    r.setProperty("--brush-light", palette.brush[0]);
-    r.setProperty("--brush-mid", palette.brush[1]);
-    r.setProperty("--brush-shade", palette.brush[2]);
+    r.setProperty("--sky-1", palette.colors[0]);
+    r.setProperty("--sky-2", palette.colors[Math.floor(palette.colors.length / 2)]);
     r.setProperty("--text", palette.text);
     r.setProperty("--text-soft", palette.textSoft);
     r.setProperty("--accent", palette.orb[1]);
@@ -104,9 +123,7 @@ export default function App() {
 
   return (
     <>
-      <BrushBackground
-        colors={{ bgTop: palette.bgTop, bgBottom: palette.bgBottom, light: palette.brush[0], mid: palette.brush[1], shade: palette.brush[2] }}
-      />
+      <SkyBackground colors={palette.colors} ground={palette.ground} glow={palette.glow} />
       {screen()}
     </>
   );
@@ -115,7 +132,7 @@ export default function App() {
   if (userId === undefined || (userId && !profile && !loadError)) {
     return (
       <main className="screen center">
-        <Sphere colors={palette.orb} size={170} speed={palette.speed} seed={palette.seed} state="thinking" />
+        <Portal colors={palette.orb} daylight={palette.daylight} size={220} speed={palette.speed} seed={palette.seed} state="thinking" interactive={false} />
       </main>
     );
   }
@@ -141,12 +158,12 @@ export default function App() {
         onEvent={onEvent}
         onCoords={onCoords}
         hasCoords={!!coords}
-        onDone={() => setProfile((p) => (p ? { ...p, onboarded: true } : p))}
+        onDone={() => withTransition(() => setProfile((p) => (p ? { ...p, onboarded: true } : p)))}
       />
     );
   }
 
-  if (view === "memories") return <Memories onBack={() => setView("home")} />;
+  if (view === "memories") return <Memories onBack={() => withTransition(() => setView("home"))} />;
 
   return (
     <Home
@@ -157,7 +174,7 @@ export default function App() {
       day={day}
       focus={focus}
       onEvent={onEvent}
-      onOpenMemories={() => setView("memories")}
+      onOpenMemories={() => withTransition(() => setView("memories"))}
       onSignOut={() => backend.signOut()}
     />
   );

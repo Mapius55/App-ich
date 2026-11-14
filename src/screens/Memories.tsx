@@ -92,15 +92,14 @@ export function Memories({ onBack }: { onBack: () => void }) {
   return (
     <main className="screen memories">
       <header className="topbar">
-        <button className="icon-btn" onClick={onBack} aria-label="Zurück">
-          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M15 5l-7 7 7 7" />
+        <button className="dock-round" onClick={onBack} aria-label="Zurück">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M19 12H5M11 6l-6 6 6 6" />
           </svg>
         </button>
+        <span className="pill">Gedächtnis</span>
       </header>
-      <h1 className="display">
-        Was ich über dich <em>weiss</em>
-      </h1>
+      <h1 className="title">Was ich über dich weiss</h1>
       <p className="lede">
         Das merkt sich dein Coach. Unwichtiges und zu Persönliches räumt er selbst wieder weg. Was du hier änderst oder hinzufügst, bleibt.
       </p>
@@ -115,7 +114,7 @@ export function Memories({ onBack }: { onBack: () => void }) {
           if (key === "termin" || key === "ort") list.sort((a, b) => (a.event_date ?? "9").localeCompare(b.event_date ?? "9"));
           return (
             <section key={key} className="memory-group">
-              <h2 className="eyebrow">{label}</h2>
+              <h2 className="pill">{label}</h2>
               <ul>
                 {list.map((m) => (
                   <MemoryRow

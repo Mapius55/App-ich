@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { backend } from "../lib/backend";
-import { Sphere } from "../components/Sphere";
+import { Portal } from "../components/Portal";
 import type { Palette } from "../lib/palette";
 
 export function Login({ palette }: { palette: Palette }) {
@@ -29,22 +29,18 @@ export function Login({ palette }: { palette: Palette }) {
     }
   };
 
+  const toggle = () => {
+    setMode(mode === "login" ? "signup" : "login");
+    setError(null);
+  };
+
   return (
     <main className="screen login">
-      <div className="login-sphere">
-        <Sphere colors={palette.orb} size={176} speed={palette.speed} seed={palette.seed} state={busy ? "thinking" : "idle"} />
+      <div className="login-portal">
+        <Portal colors={palette.orb} daylight={palette.daylight} size={230} speed={palette.speed} seed={palette.seed} state={busy ? "thinking" : "idle"} />
       </div>
-      <h1 className="display">
-        {mode === "login" ? (
-          <>
-            Willkommen <em>zurück</em>
-          </>
-        ) : (
-          <>
-            Schön, dass du <em>da</em> bist
-          </>
-        )}
-      </h1>
+      <span className="pill">{mode === "login" ? "Willkommen" : "Neu hier"}</span>
+      <h1 className="title">{mode === "login" ? "Schön, dass du zurück bist" : "Lass uns anfangen"}</h1>
       <p className="lede">{mode === "login" ? "Melde dich an, um weiterzumachen." : "Erstelle dein Konto. Danach lernen wir uns kennen."}</p>
 
       <form className="form" onSubmit={submit}>
@@ -82,28 +78,19 @@ export function Login({ palette }: { palette: Palette }) {
             {error}
           </p>
         )}
-        <button className="btn primary" disabled={busy}>
-          {busy ? "Einen Moment …" : mode === "login" ? "Anmelden" : "Konto erstellen"}
-        </button>
-      </form>
 
-      <button
-        className="link"
-        onClick={() => {
-          setMode(mode === "login" ? "signup" : "login");
-          setError(null);
-        }}
-      >
-        {mode === "login" ? (
-          <>
-            Neu hier? <em>Konto erstellen</em>
-          </>
-        ) : (
-          <>
-            Ich habe schon ein <em>Konto</em>
-          </>
-        )}
-      </button>
+        <div className="dock login-dock">
+          <button type="submit" className="dock-main" disabled={busy} aria-label={mode === "login" ? "Anmelden" : "Konto erstellen"}>
+            <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M5 12h14M13 6l6 6-6 6" />
+            </svg>
+          </button>
+          <button type="button" className="dock-pill as-button" onClick={toggle}>
+            <span>{mode === "login" ? "Neu hier? Konto erstellen" : "Ich habe schon ein Konto"}</span>
+            <span className="dock-chevrons" aria-hidden="true">›››</span>
+          </button>
+        </div>
+      </form>
 
       {backend.kind === "demo" && <p className="demo-note">Demo-Modus: noch ohne echte KI, alles bleibt auf diesem Gerät.</p>}
     </main>

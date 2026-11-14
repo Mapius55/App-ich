@@ -28,7 +28,16 @@ export function useSky(coords: Coords | null, mood: Mood | null, nature: NatureP
   }, [coords?.lat, coords?.lon]);
 
   const palette: Palette = useMemo(
-    () => computePalette({ date: now, lat: c.lat, lon: c.lon, weather: coords ? weather : null, mood, nature }),
+    () =>
+      computePalette({
+        date: now,
+        lat: c.lat,
+        lon: c.lon,
+        elevation: coords ? weather?.elevation : null,
+        weather: coords ? weather : null,
+        mood,
+        nature,
+      }),
     // minute resolution is enough
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [Math.floor(now.getTime() / 60000), c.lat, c.lon, weather, mood, nature],
