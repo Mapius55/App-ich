@@ -30,9 +30,10 @@ export interface PaletteInput {
 }
 
 export interface Palette {
-  orb: string[]; // 5 colours
+  orb: string[]; // 5 colours for the gradient sphere
   bgTop: string;
   bgBottom: string;
+  brush: [string, string, string]; // brush strokes: light, mid, shade
   text: string;
   textSoft: string;
   surface: string; // translucent panels
@@ -47,45 +48,58 @@ interface Key {
   phase: string;
   orb: string[];
   bg: [string, string];
+  brush: [string, string, string];
 }
 
+// Night is the deep blue brush look of the brand; every other light phase
+// keeps the same brush texture but takes the colours of its sky.
 const NIGHT: Key = {
   elev: -18,
   phase: "Nacht",
-  orb: ["#3b3a8f", "#6c4fb3", "#2a3f7a", "#a07fd6", "#d79ac9"],
-  bg: ["#0f1230", "#1d1b45"],
+  orb: ["#5b4fd1", "#a98bf2", "#2f6fd8", "#ef9bd2", "#8fd0ff"],
+  bg: ["#01040f", "#04215c"],
+  brush: ["#4aa6f5", "#1758c6", "#010616"],
 };
 const DAY: Key = {
   elev: 32,
   phase: "Tag",
-  orb: ["#a9d6f2", "#ffe0b8", "#ffbfa3", "#bfe3d2", "#cdbff0"],
-  bg: ["#f7f4ef", "#e9eef6"],
+  orb: ["#8fc8f2", "#ffd9a8", "#ffae96", "#a8e0c8", "#bfaef2"],
+  bg: ["#f3f6fa", "#e2ebf6"],
+  brush: ["#bcdaf6", "#d6e4f7", "#a7bbd8"],
 };
 
 // Morning: night → blue dawn → dawn → early morning → morning → day
 const MORNING: Key[] = [
   NIGHT,
-  { elev: -8, phase: "Morgendämmerung", orb: ["#3f5aa8", "#7b74c9", "#c793c9", "#2b3a7a", "#9fb6e8"], bg: ["#151c46", "#36386e"] },
-  { elev: -1, phase: "Sonnenaufgang", orb: ["#ffc7a8", "#f4a6b8", "#c9b6e4", "#ffe3a3", "#9fc0ea"], bg: ["#4a4a85", "#e8a9b0"] },
-  { elev: 5, phase: "Früher Morgen", orb: ["#ffd8bd", "#f8c0cc", "#d7c9ef", "#fff0c2", "#bcdcf3"], bg: ["#f4e6ec", "#fbe2d2"] },
-  { elev: 15, phase: "Morgen", orb: ["#d6ebf7", "#ffeccf", "#fbd3cf", "#d3eee2", "#e2d9f6"], bg: ["#f8f5f0", "#ecf1f7"] },
+  { elev: -8, phase: "Morgendämmerung", orb: ["#4b5fd0", "#8d7fe0", "#e39acb", "#2a4fa8", "#9fc4f2"], bg: ["#020822", "#13306e"], brush: ["#7a93ec", "#3a5cc2", "#030a24"] },
+  { elev: -1, phase: "Sonnenaufgang", orb: ["#ffb08a", "#f58fb0", "#b49cf0", "#ffd98a", "#8fbcf0"], bg: ["#141a4a", "#5b4a8c"], brush: ["#ffb38f", "#ef8aa8", "#121842"] },
+  { elev: 5, phase: "Früher Morgen", orb: ["#ffc6a0", "#f5a6c0", "#c3b2f2", "#ffe6a6", "#a8d2f5"], bg: ["#efe6f1", "#f7dccd"], brush: ["#ffd0b5", "#cdc4f2", "#bdb2d8"] },
+  { elev: 15, phase: "Morgen", orb: ["#b8dcf6", "#ffe1bd", "#f8c3bb", "#bfe6d4", "#d6c9f5"], bg: ["#f4f5f8", "#e8eef7"], brush: ["#cfe2f6", "#f5dcc8", "#b5c6de"] },
   DAY,
 ];
 
 // Evening: day → late afternoon → golden hour → sunset → blue hour → night
 const EVENING: Key[] = [
   NIGHT,
-  { elev: -8, phase: "Blaue Stunde", orb: ["#4c5bb8", "#8a6cc9", "#d784b4", "#2f3c86", "#f0a59a"], bg: ["#1c2150", "#3b2f68"] },
-  { elev: -2, phase: "Sonnenuntergang", orb: ["#ff8a5b", "#ff6f91", "#c86dd7", "#7d5bc4", "#ffc070"], bg: ["#3a2a5e", "#c4607a"] },
-  { elev: 5, phase: "Goldene Stunde", orb: ["#ffb37a", "#ffd27f", "#ff9a8b", "#f7a1c4", "#b9a3e3"], bg: ["#fbe3cc", "#f5bfa9"] },
-  { elev: 14, phase: "Später Nachmittag", orb: ["#ffc9a3", "#ffe0b0", "#f5b2c0", "#c9b8ea", "#a9d3f0"], bg: ["#fdf1e6", "#f7dcd2"] },
+  { elev: -8, phase: "Blaue Stunde", orb: ["#4f63d8", "#9a7fe6", "#ec8fc0", "#2b46a8", "#ffb39e"], bg: ["#030a2a", "#1a2c78"], brush: ["#7f94f2", "#e48ab8", "#030820"] },
+  { elev: -2, phase: "Sonnenuntergang", orb: ["#ff7a4d", "#ff5c8e", "#b45be0", "#6f4fd0", "#ffbe5c"], bg: ["#160c38", "#4a1a5a"], brush: ["#ff8a5b", "#ff5f8f", "#0f0828"] },
+  { elev: 5, phase: "Goldene Stunde", orb: ["#ffa865", "#ffcf6a", "#ff8a7e", "#f592c0", "#a895ea"], bg: ["#f2d6bd", "#e7ae98"], brush: ["#ffc387", "#ff9f8e", "#c18a86"] },
+  { elev: 14, phase: "Später Nachmittag", orb: ["#ffbd92", "#ffd9a0", "#f3a2b5", "#b9a6ee", "#93c8f0"], bg: ["#f7efe8", "#f0dcd2"], brush: ["#ffd2b0", "#f2b9c4", "#cbb6c6"] },
   DAY,
 ];
 
-function interpolate(track: Key[], elev: number): { orb: string[]; bg: [string, string]; phase: string } {
-  if (elev <= track[0].elev) return { orb: track[0].orb, bg: track[0].bg, phase: track[0].phase };
+interface Mixed {
+  orb: string[];
+  bg: [string, string];
+  brush: [string, string, string];
+  phase: string;
+}
+
+function interpolate(track: Key[], elev: number): Mixed {
+  const pick = (k: Key): Mixed => ({ orb: k.orb, bg: k.bg, brush: k.brush, phase: k.phase });
+  if (elev <= track[0].elev) return pick(track[0]);
   const last = track[track.length - 1];
-  if (elev >= last.elev) return { orb: last.orb, bg: last.bg, phase: last.phase };
+  if (elev >= last.elev) return pick(last);
   for (let i = 0; i < track.length - 1; i++) {
     const a = track[i];
     const b = track[i + 1];
@@ -96,11 +110,12 @@ function interpolate(track: Key[], elev: number): { orb: string[]; bg: [string, 
       return {
         orb: a.orb.map((c, k) => mix(c, b.orb[k], e)),
         bg: [mix(a.bg[0], b.bg[0], e), mix(a.bg[1], b.bg[1], e)],
+        brush: a.brush.map((c, k) => mix(c, b.brush[k], e)) as [string, string, string],
         phase: e < 0.5 ? a.phase : b.phase,
       };
     }
   }
-  return { orb: last.orb, bg: last.bg, phase: last.phase };
+  return pick(last);
 }
 
 // Season accents, blended by distance to the season's centre day.
@@ -206,13 +221,13 @@ export function computePalette(input: PaletteInput): Palette {
   const rand = seededRandom(localDayKey(date));
   const dailyHue = (rand() - 0.5) * 12; // ±6° — today is a little different from yesterday
 
-  let orb = base.orb.map((c) => {
+  const orb = base.orb.map((c) => {
     let x = mix(c, withLightness(season.accent, lightness(c)), 0.12);
     x = adjust(x, { chroma: season.chroma, hue: dailyHue });
     x = weatherAdjust(x, weather, night);
     x = moodAdjust(x, mood);
-    // The orb is the light source of the screen: keep it a touch more vivid than the sky.
-    return adjust(x, { chroma: 1.18 });
+    // The sphere is the light source of the screen: keep it a touch more vivid than the sky.
+    return adjust(x, { chroma: 1.12 });
   });
 
   // Weave in the person's own nature colours, matched to the current light.
@@ -230,12 +245,14 @@ export function computePalette(input: PaletteInput): Palette {
     });
   }
 
-  let [bgTop, bgBottom] = base.bg.map((c) => {
+  const sky = (c: string) => {
     let x = mix(c, withLightness(season.accent, lightness(c)), 0.08);
     x = weatherAdjust(x, weather, night);
     if (mood) x = adjust(x, { chroma: 1 + 0.08 * mood.valence });
     return x;
-  }) as [string, string];
+  };
+  const [bgTop, bgBottom] = base.bg.map(sky) as [string, string];
+  const brush = base.brush.map(sky) as [string, string, string];
 
   const isDark = (lightness(bgTop) + lightness(bgBottom)) / 2 < 0.62;
   const energy = mood ? Math.max(0, Math.min(1, mood.energy)) : 0.5;
@@ -244,6 +261,7 @@ export function computePalette(input: PaletteInput): Palette {
     orb,
     bgTop,
     bgBottom,
+    brush,
     isDark,
     text: isDark ? "#fbf6f1" : "#2a2440",
     textSoft: isDark ? "rgba(251,246,241,0.68)" : "rgba(42,36,64,0.62)",

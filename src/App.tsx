@@ -4,7 +4,8 @@ import { storeCoords, storedCoords, type Coords } from "./lib/location";
 import { localDayKey, type Mood } from "./lib/palette";
 import { useSky } from "./lib/useSky";
 import type { CoachEvent, Profile } from "./lib/types";
-import { Orb } from "./components/Orb";
+import { Sphere } from "./components/Sphere";
+import { BrushBackground } from "./components/BrushBackground";
 import { Login } from "./screens/Login";
 import { Onboarding } from "./screens/Onboarding";
 import { Home } from "./screens/Home";
@@ -70,11 +71,12 @@ export default function App() {
     const r = document.documentElement.style;
     r.setProperty("--bg-top", palette.bgTop);
     r.setProperty("--bg-bottom", palette.bgBottom);
+    r.setProperty("--brush-light", palette.brush[0]);
+    r.setProperty("--brush-mid", palette.brush[1]);
+    r.setProperty("--brush-shade", palette.brush[2]);
     r.setProperty("--text", palette.text);
     r.setProperty("--text-soft", palette.textSoft);
-    r.setProperty("--surface", palette.surface);
     r.setProperty("--accent", palette.orb[1]);
-    r.setProperty("--accent-2", palette.orb[3]);
     document.documentElement.dataset.sky = palette.isDark ? "dark" : "light";
   }, [palette]);
 
@@ -100,10 +102,20 @@ export default function App() {
     backend.updateProfile({ lat: c.lat, lon: c.lon }).catch(() => {});
   }, []);
 
+  return (
+    <>
+      <BrushBackground
+        colors={{ bgTop: palette.bgTop, bgBottom: palette.bgBottom, light: palette.brush[0], mid: palette.brush[1], shade: palette.brush[2] }}
+      />
+      {screen()}
+    </>
+  );
+
+  function screen() {
   if (userId === undefined || (userId && !profile && !loadError)) {
     return (
       <main className="screen center">
-        <Orb colors={palette.orb} size={160} speed={palette.speed} seed={palette.seed} state="thinking" />
+        <Sphere colors={palette.orb} size={170} speed={palette.speed} seed={palette.seed} state="thinking" />
       </main>
     );
   }
@@ -114,7 +126,7 @@ export default function App() {
     return (
       <main className="screen center">
         <p className="form-error">{loadError}</p>
-        <button className="btn soft" onClick={() => backend.signOut()}>
+        <button className="btn ghost" onClick={() => backend.signOut()}>
           Abmelden
         </button>
       </main>
@@ -149,4 +161,5 @@ export default function App() {
       onSignOut={() => backend.signOut()}
     />
   );
+  }
 }

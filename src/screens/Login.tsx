@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { backend } from "../lib/backend";
-import { Orb } from "../components/Orb";
+import { Sphere } from "../components/Sphere";
 import type { Palette } from "../lib/palette";
 
 export function Login({ palette }: { palette: Palette }) {
@@ -31,14 +31,24 @@ export function Login({ palette }: { palette: Palette }) {
 
   return (
     <main className="screen login">
-      <div className="login-orb">
-        <Orb colors={palette.orb} size={168} speed={palette.speed} seed={palette.seed} state={busy ? "thinking" : "idle"} />
+      <div className="login-sphere">
+        <Sphere colors={palette.orb} size={176} speed={palette.speed} seed={palette.seed} state={busy ? "thinking" : "idle"} />
       </div>
-      <h1 className="title">{mode === "login" ? "Willkommen zurück" : "Schön, dass du da bist"}</h1>
-      <p className="subtitle">{mode === "login" ? "Melde dich an, um weiterzumachen." : "Erstelle dein Konto. Danach lernen wir uns kennen."}</p>
+      <h1 className="display">
+        {mode === "login" ? (
+          <>
+            Willkommen <em>zurück</em>
+          </>
+        ) : (
+          <>
+            Schön, dass du <em>da</em> bist
+          </>
+        )}
+      </h1>
+      <p className="lede">{mode === "login" ? "Melde dich an, um weiterzumachen." : "Erstelle dein Konto. Danach lernen wir uns kennen."}</p>
 
-      <form className="card form" onSubmit={submit}>
-        <label>
+      <form className="form" onSubmit={submit}>
+        <label className="field">
           <span>Benutzername</span>
           <input
             value={username}
@@ -50,7 +60,7 @@ export function Login({ palette }: { palette: Palette }) {
             required
           />
         </label>
-        <label>
+        <label className="field">
           <span>Passwort</span>
           <input
             type="password"
@@ -62,7 +72,7 @@ export function Login({ palette }: { palette: Palette }) {
           />
         </label>
         {mode === "signup" && (
-          <label>
+          <label className="field">
             <span>Passwort wiederholen</span>
             <input type="password" value={password2} onChange={(e) => setPassword2(e.target.value)} autoComplete="new-password" required />
           </label>
@@ -84,12 +94,18 @@ export function Login({ palette }: { palette: Palette }) {
           setError(null);
         }}
       >
-        {mode === "login" ? "Neu hier? Konto erstellen" : "Ich habe schon ein Konto"}
+        {mode === "login" ? (
+          <>
+            Neu hier? <em>Konto erstellen</em>
+          </>
+        ) : (
+          <>
+            Ich habe schon ein <em>Konto</em>
+          </>
+        )}
       </button>
 
-      {backend.kind === "demo" && (
-        <p className="demo-note">Demo-Modus: noch ohne echte KI, alles bleibt auf diesem Gerät.</p>
-      )}
+      {backend.kind === "demo" && <p className="demo-note">Demo-Modus: noch ohne echte KI, alles bleibt auf diesem Gerät.</p>}
     </main>
   );
 }

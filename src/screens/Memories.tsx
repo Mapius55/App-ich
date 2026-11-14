@@ -50,11 +50,11 @@ function MemoryRow({ m, onChange, onDelete }: { m: Memory; onChange: (m: Memory)
         <input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
       </label>
       <div className="row">
-        <button className="btn soft danger" onClick={onDelete}>
+        <button className="btn quiet danger" onClick={onDelete}>
           Löschen
         </button>
         <span className="spacer" />
-        <button className="btn soft" onClick={() => (setEditing(false), setText(m.content), setDate(m.event_date ?? ""))}>
+        <button className="btn quiet" onClick={() => (setEditing(false), setText(m.content), setDate(m.event_date ?? ""))}>
           Abbrechen
         </button>
         <button className="btn primary" onClick={save}>
@@ -92,19 +92,21 @@ export function Memories({ onBack }: { onBack: () => void }) {
   return (
     <main className="screen memories">
       <header className="topbar">
-        <button className="icon-btn ghost" onClick={onBack} aria-label="Zurück">
-          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <button className="icon-btn" onClick={onBack} aria-label="Zurück">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M15 5l-7 7 7 7" />
           </svg>
         </button>
       </header>
-      <h1 className="title">Was ich über dich weiss</h1>
-      <p className="subtitle">
+      <h1 className="display">
+        Was ich über dich <em>weiss</em>
+      </h1>
+      <p className="lede">
         Das merkt sich dein Coach. Unwichtiges und zu Persönliches räumt er selbst wieder weg. Was du hier änderst oder hinzufügst, bleibt.
       </p>
 
       {error && <p className="form-error">{error}</p>}
-      {items && items.length === 0 && <p className="subtitle">Noch nichts. Erzähl mir etwas über dich.</p>}
+      {items && items.length === 0 && <p className="lede">Noch nichts. Erzähl mir etwas über dich.</p>}
 
       {items &&
         CATEGORIES.map(({ key, label }) => {
@@ -113,7 +115,7 @@ export function Memories({ onBack }: { onBack: () => void }) {
           if (key === "termin" || key === "ort") list.sort((a, b) => (a.event_date ?? "9").localeCompare(b.event_date ?? "9"));
           return (
             <section key={key} className="memory-group">
-              <h2>{label}</h2>
+              <h2 className="eyebrow">{label}</h2>
               <ul>
                 {list.map((m) => (
                   <MemoryRow
@@ -132,7 +134,7 @@ export function Memories({ onBack }: { onBack: () => void }) {
         })}
 
       {adding ? (
-        <div className="card form add-memory">
+        <div className="add-memory">
           <textarea value={newText} onChange={(e) => setNewText(e.target.value)} rows={3} placeholder="Was soll ich mir merken?" autoFocus />
           <div className="row">
             <select value={newCat} onChange={(e) => setNewCat(e.target.value as MemoryCategory)} aria-label="Kategorie">
@@ -146,7 +148,7 @@ export function Memories({ onBack }: { onBack: () => void }) {
           </div>
           <div className="row">
             <span className="spacer" />
-            <button className="btn soft" onClick={() => setAdding(false)}>
+            <button className="btn quiet" onClick={() => setAdding(false)}>
               Abbrechen
             </button>
             <button className="btn primary" onClick={add}>
@@ -155,8 +157,8 @@ export function Memories({ onBack }: { onBack: () => void }) {
           </div>
         </div>
       ) : (
-        <button className="btn soft wide" onClick={() => setAdding(true)}>
-          + Etwas hinzufügen
+        <button className="btn ghost wide add-btn" onClick={() => setAdding(true)}>
+          Etwas hinzufügen
         </button>
       )}
     </main>

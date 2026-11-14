@@ -1,6 +1,13 @@
-# App-ich (Arbeitstitel)
+# I am
 
 Ein persönlicher Coach für deine Zeit. Beim ersten Öffnen lernt er dich im Gespräch kennen: wer du bist, was du machst, was dir wichtig ist und welche Natur du liebst. Danach begrüsst dich jedes Mal ein leuchtender Kreis. Er fragt, wie es dir geht, sagt dir das Wichtigste zuerst (z.B. ein Rennen am Wochenende) und hilft dir, einen Fokus für den Tag zu finden.
+
+## Marke
+- **Name:** I am
+- **Logo:** „I am“ in Bodoni Moda mit feiner Schwung-Linie, auf dem blauen Pinsel-Hintergrund. Dateien liegen in `brand/` (`wordmark.svg`, `icon.svg`, `banner.png`), die App-Icons in `public/`. Neu erzeugen lassen sie sich mit `scripts/brand/` (siehe Kommentar in `make.cjs`).
+- **Schriften:** Bodoni Moda (Titel, Coach-Text) und Jost (Bedienelemente), beide frei (SIL Open Font License).
+- **Hintergrund:** Pinselstriche, deren Farben dem Himmel folgen: nachts tiefes Blau, beim Sonnenuntergang warm, am Tag hell.
+- **Kreis:** eine Gradient Sphere (WebGL), deren Farben aus Tageszeit, Wetter, Stimmung und Lieblingsnatur entstehen.
 
 ## Was schon funktioniert
 
