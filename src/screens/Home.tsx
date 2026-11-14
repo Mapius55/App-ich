@@ -17,8 +17,11 @@ interface Props {
   focus: string | null;
   onEvent: (e: CoachEvent) => void;
   onOpenMemories: () => void;
-  onOpenCalendar: () => void;
+  onOpenPlan: () => void;
   onOpenSettings: () => void;
+  /** a message the conversation sends by itself once it's ready (e.g. from "Tag mit dem Coach planen") */
+  kickoff?: string | null;
+  onKickoffSent?: () => void;
   eventsVersion: number;
   onSignOut: () => void;
 }
@@ -33,7 +36,22 @@ function greeting(isDark: boolean, d = new Date()): string {
   return "Guten Abend";
 }
 
-export function Home({ profile, palette, weather, context, day, focus, onEvent, onOpenMemories, onOpenCalendar, onOpenSettings, eventsVersion, onSignOut }: Props) {
+export function Home({
+  profile,
+  palette,
+  weather,
+  context,
+  day,
+  focus,
+  onEvent,
+  onOpenMemories,
+  onOpenPlan,
+  onOpenSettings,
+  kickoff,
+  onKickoffSent,
+  eventsVersion,
+  onSignOut,
+}: Props) {
   const [orbState, setOrbState] = useState<OrbState>("idle");
   const [menu, setMenu] = useState(false);
   const [online, setOnline] = useState(navigator.onLine);
@@ -109,7 +127,7 @@ export function Home({ profile, palette, weather, context, day, focus, onEvent, 
               </button>
             </div>
             <nav>
-              <button onClick={() => (setMenu(false), onOpenCalendar())}>Kalender</button>
+              <button onClick={() => (setMenu(false), onOpenPlan())}>Plan</button>
               <button onClick={() => (setMenu(false), onOpenMemories())}>Was ich über dich weiss</button>
               <button onClick={() => (setMenu(false), onOpenSettings())}>Einstellungen</button>
               <button onClick={() => (setMenu(false), onSignOut())}>Abmelden</button>
@@ -139,7 +157,16 @@ export function Home({ profile, palette, weather, context, day, focus, onEvent, 
       {/* The portal fills the free space: the conversation is voice only. */}
       <FitPortal colors={palette.orb} daylight={palette.daylight} clouds={palette.clouds} speed={palette.speed} seed={palette.seed} state={orbState} />
 
-      <VoiceConversation mode="checkin" thread={day} context={context} onEvent={onEvent} onOrbState={setOrbState} leftButton={menuButton} />
+      <VoiceConversation
+        mode="checkin"
+        thread={day}
+        context={context}
+        onEvent={onEvent}
+        onOrbState={setOrbState}
+        leftButton={menuButton}
+        kickoff={kickoff}
+        onKickoffSent={onKickoffSent}
+      />
     </main>
   );
 }

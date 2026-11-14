@@ -34,9 +34,80 @@ export interface CalendarEvent {
   notes: string | null;
   reminder_minutes: number | null;
   source: "coach" | "person";
+  /** "termin": an appointment; "block": time planned with the coach (focus, a training for a goal) */
+  kind: "termin" | "block";
+  /** the goal this entry serves, if any */
+  goal_id: string | null;
   sequence?: number;
   updated_at?: string;
 }
+
+/** Fields that can be set when creating or changing a calendar entry. */
+export type EventInput = Pick<CalendarEvent, "title" | "starts_at" | "ends_at" | "all_day" | "location" | "notes" | "reminder_minutes"> &
+  Partial<Pick<CalendarEvent, "kind" | "goal_id">>;
+
+/** A step (Etappe) of a goal. */
+export interface Milestone {
+  id: string;
+  goal_id: string;
+  title: string;
+  due_date: string | null; // YYYY-MM-DD
+  done_at: string | null; // ISO, null = open
+  position: number;
+}
+
+export type GoalStatus = "active" | "done" | "paused" | "dropped";
+
+/** Something to work toward, often with a date (a race, an exam, a project). */
+export interface Goal {
+  id: string;
+  title: string;
+  why: string | null;
+  target_date: string | null; // YYYY-MM-DD
+  status: GoalStatus;
+  source: "coach" | "person";
+  created_at: string;
+  updated_at: string;
+  /** estimated total effort in hours (e.g. a half marathon ≈ 60, the Olympics ≈ 10'000), null = not estimated */
+  effort_hours: number | null;
+  /** hours per week she can invest in it, null = unknown */
+  weekly_hours: number | null;
+  /** hours already invested before the app */
+  prior_hours: number;
+  /** sorted by position */
+  milestones: Milestone[];
+  /** time that went into the goal: logged minutes, and past planned blocks not yet confirmed (they count too) */
+  time: { logged_minutes: number; block_minutes: number };
+}
+
+export type GoalInput = Pick<Goal, "title"> & Partial<Pick<Goal, "why" | "target_date" | "status" | "effort_hours" | "weekly_hours" | "prior_hours">>;
+
+/** A piece of time that went into a goal. */
+export interface GoalTime {
+  id: string;
+  goal_id: string;
+  day: string; // YYYY-MM-DD
+  minutes: number; // 0 = a planned block that didn't happen
+  source: "person" | "coach" | "block" | "nolio" | "whoop";
+  event_id: string | null;
+  external_id: string | null;
+  note: string | null;
+}
+
+/** A small recurring goal, e.g. "3x per week running". */
+export interface Habit {
+  id: string;
+  title: string;
+  per_week: number; // 1..7, 7 = every day
+  goal_id: string | null;
+  active: boolean;
+  source: "coach" | "person";
+  created_at: string;
+  /** days it was done (YYYY-MM-DD, local), the last ~16 weeks, ascending */
+  done_days: string[];
+}
+
+export type HabitInput = Pick<Habit, "title" | "per_week"> & Partial<Pick<Habit, "goal_id" | "active">>;
 
 export type MemoryCategory = "person" | "arbeit" | "werte" | "rhythmus" | "ziel" | "termin" | "ort" | "natur" | "anderes";
 
@@ -93,6 +164,11 @@ export type CoachEvent =
   | { type: "event_created"; event: CalendarEvent }
   | { type: "event_updated"; event: CalendarEvent }
   | { type: "event_deleted"; id: string; title: string }
+  | { type: "goal_saved"; goal: Goal; created?: boolean } // created (created: true) or changed; milestones and time included
+  | { type: "time_logged"; goal_id: string; title: string; minutes: number }
+  | { type: "goal_deleted"; id: string; title: string }
+  | { type: "habit_saved"; habit: Habit }
+  | { type: "habit_logged"; habit_id: string; title: string; day: string; done: boolean }
   | { type: "request_location" }
   | { type: "onboarding_done" }
   | { type: "error"; message: string }
@@ -114,9 +190,37 @@ export interface Backend {
   updateMemory(id: string, patch: Partial<Pick<Memory, "content" | "category" | "event_date" | "source">>): Promise<void>;
   deleteMemory(id: string): Promise<void>;
 
-  listEvents(): Promise<CalendarEvent[]>;
-  addEvent(e: Omit<CalendarEvent, "id" | "source">): Promise<CalendarEvent>;
+  /** Calendar entries starting in [from, to) (ISO). Without arguments: from yesterday on. */
+  listEvents(from?: string, to?: string): Promise<CalendarEvent[]>;
+  addEvent(e: EventInput): Promise<CalendarEvent>;
+  updateEvent(id: string, patch: Partial<EventInput>): Promise<CalendarEvent>;
   deleteEvent(id: string): Promise<void>;
+
+  /** Goals with their milestones; without done/dropped ones unless `all`. */
+  listGoals(all?: boolean): Promise<Goal[]>;
+  addGoal(g: GoalInput, milestones?: Pick<Milestone, "title" | "due_date">[]): Promise<Goal>;
+  updateGoal(id: string, patch: Partial<GoalInput>): Promise<Goal>;
+  deleteGoal(id: string): Promise<void>;
+  addMilestone(goalId: string, m: Pick<Milestone, "title" | "due_date">): Promise<Milestone>;
+  updateMilestone(id: string, patch: Partial<Pick<Milestone, "title" | "due_date" | "position">> & { done?: boolean }): Promise<Milestone>;
+  deleteMilestone(id: string): Promise<void>;
+  /**
+   * A past planned block (kind 'block' with a goal): did it happen? done=false records 0 minutes,
+   * done=true records its planned length (or `minutes`), null removes the answer so it counts by itself again.
+   */
+  setBlockDone(eventId: string, done: boolean | null, minutes?: number): Promise<void>;
+  /** Answers given for blocks: event_id → minutes (0 = didn't happen). */
+  blockAnswers(eventIds: string[]): Promise<Record<string, number>>;
+  /** Time entries for goals on days in [from, to] (YYYY-MM-DD, inclusive), for the year view. */
+  listGoalTime(from: string, to: string): Promise<GoalTime[]>;
+
+  /** Active habits with the days they were done (last ~16 weeks). */
+  listHabits(): Promise<Habit[]>;
+  addHabit(h: HabitInput): Promise<Habit>;
+  updateHabit(id: string, patch: Partial<HabitInput>): Promise<Habit>;
+  deleteHabit(id: string): Promise<void>;
+  /** Mark a habit as done (or not) on a day (YYYY-MM-DD, local). */
+  setHabitDone(habitId: string, day: string, done: boolean): Promise<void>;
   /** Subscription link for the iPhone calendar (null in demo mode). */
   calendarLink(): Promise<string | null>;
   renewCalendarLink(): Promise<void>;

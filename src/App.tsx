@@ -11,7 +11,7 @@ import { Login } from "./screens/Login";
 import { Onboarding } from "./screens/Onboarding";
 import { Home } from "./screens/Home";
 import { Memories } from "./screens/Memories";
-import { Calendar } from "./screens/Calendar";
+import { Plan } from "./screens/Plan";
 import { Settings } from "./screens/Settings";
 
 // Screen changes zoom through the portal (View Transitions API, where the
@@ -39,8 +39,13 @@ export default function App() {
   const [coords, setCoords] = useState<Coords | null>(() => storedCoords());
   const [mood, setMood] = useState<Mood | null>(null);
   const [focus, setFocus] = useState<string | null>(null);
-  const [view, setView] = useState<"home" | "memories" | "calendar" | "settings">("home");
+  const [view, setView] = useState<"home" | "memories" | "plan" | "settings">("home");
   const [eventsVersion, setEventsVersion] = useState(0);
+  const [planVersion, setPlanVersion] = useState(0);
+  // A message the coach conversation sends by itself once Home is open
+  // ("Tag mit dem Coach planen"); cleared as soon as it went out.
+  const [kickoff, setKickoff] = useState<string | null>(null);
+  const [planFromSettings, setPlanFromSettings] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [day, setDay] = useState(() => localDayKey());
 
@@ -124,6 +129,13 @@ export default function App() {
       case "event_deleted":
         setEventsVersion((v) => v + 1);
         break;
+      case "goal_saved":
+      case "goal_deleted":
+      case "time_logged":
+      case "habit_saved":
+      case "habit_logged":
+        setPlanVersion((v) => v + 1);
+        break;
     }
   }, []);
 
@@ -175,7 +187,16 @@ export default function App() {
   }
 
   if (view === "memories") return <Memories onBack={() => withTransition(() => setView("home"))} />;
-  if (view === "calendar") return <Calendar onBack={() => withTransition(() => (setView("home"), setEventsVersion((v) => v + 1)))} />;
+  if (view === "plan")
+    return (
+      <Plan
+        eventsVersion={eventsVersion}
+        planVersion={planVersion}
+        showConnect={planFromSettings}
+        onBack={() => withTransition(() => (setView(planFromSettings ? "settings" : "home"), setEventsVersion((v) => v + 1)))}
+        onPlanDay={() => withTransition(() => (setKickoff("Lass uns meinen Tag planen."), setView("home"), setEventsVersion((v) => v + 1)))}
+      />
+    );
   if (view === "settings")
     return (
       <Settings
@@ -184,7 +205,7 @@ export default function App() {
         onBack={() => withTransition(() => setView("home"))}
         onProfile={(patch) => setProfile((p) => (p ? { ...p, ...patch } : p))}
         onCoords={(c) => (c ? onCoords(c) : setCoords(null))}
-        onOpenCalendar={() => withTransition(() => setView("calendar"))}
+        onOpenCalendar={() => withTransition(() => (setPlanFromSettings(true), setView("plan")))}
       />
     );
 
@@ -197,9 +218,11 @@ export default function App() {
       day={day}
       focus={focus}
       onEvent={onEvent}
-      onOpenMemories={() => withTransition(() => setView("memories"))}
-      onOpenCalendar={() => withTransition(() => setView("calendar"))}
-      onOpenSettings={() => withTransition(() => setView("settings"))}
+      onOpenMemories={() => withTransition(() => (setKickoff(null), setView("memories")))}
+      onOpenPlan={() => withTransition(() => (setKickoff(null), setPlanFromSettings(false), setView("plan")))}
+      onOpenSettings={() => withTransition(() => (setKickoff(null), setView("settings")))}
+      kickoff={kickoff}
+      onKickoffSent={() => setKickoff(null)}
       eventsVersion={eventsVersion}
       onSignOut={() => backend.signOut()}
     />

@@ -1,6 +1,26 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-import type { Backend, CalendarEvent, ChatMessage, CoachContext, CoachEvent, CoachRequest, DayState, Memory, Profile, PushSubscriptionRow } from "./types";
+import type {
+  Backend,
+  CalendarEvent,
+  ChatMessage,
+  CoachContext,
+  CoachEvent,
+  CoachRequest,
+  DayState,
+  EventInput,
+  Goal,
+  GoalInput,
+  GoalTime,
+  Habit,
+  HabitInput,
+  Memory,
+  Milestone,
+  Profile,
+  PushSubscriptionRow,
+} from "./types";
 import { normaliseUsername, USERNAME_RE } from "./types";
+import { addDays, dayOf, weekStart } from "./plan";
+import { blockTimeEntry } from "./demoBackend";
 
 // Supabase Auth works with e-mail addresses. People here log in with a plain
 // username, so each username maps to an internal address on a reserved,
@@ -8,6 +28,59 @@ import { normaliseUsername, USERNAME_RE } from "./types";
 const USERNAME_DOMAIN = import.meta.env.VITE_USERNAME_EMAIL_DOMAIN || "nutzer.app-ich.example";
 
 const toEmail = (username: string) => `${normaliseUsername(username)}@${USERNAME_DOMAIN}`;
+
+// A goal row as PostgREST returns it, with its embedded milestones. Postgres numeric
+// can come back as a string, so the hours are converted.
+type Numeric = number | string | null;
+type GoalRow = Omit<Goal, "milestones" | "time" | "effort_hours" | "weekly_hours" | "prior_hours"> & {
+  milestones?: Milestone[] | null;
+  effort_hours: Numeric;
+  weekly_hours: Numeric;
+  prior_hours: Numeric;
+};
+type GoalMinutes = Goal["time"];
+const NO_TIME: GoalMinutes = { logged_minutes: 0, block_minutes: 0 };
+const toNumber = (v: Numeric | undefined): number | null => (v === null || v === undefined || v === "" ? null : Number(v));
+const toGoal = (row: GoalRow, time: GoalMinutes = NO_TIME): Goal => ({
+  ...row,
+  effort_hours: toNumber(row.effort_hours),
+  weekly_hours: toNumber(row.weekly_hours),
+  prior_hours: toNumber(row.prior_hours) ?? 0,
+  milestones: [...(row.milestones ?? [])].sort((a, b) => a.position - b.position),
+  time: { ...time },
+});
+/** prior_hours is "not null default 0": an emptied field means 0. */
+const goalRow = <T extends Partial<GoalInput>>(g: T): T => ((g.prior_hours as number | null | undefined) === null ? { ...g, prior_hours: 0 } : g);
+
+/** Splits ids for .in() filters, so the request URL stays short. */
+function chunks<T>(items: T[], size = 100): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
+  return out;
+}
+
+/** PostgREST returns at most max_rows (1000 on Supabase) per request; the export pages through. */
+const EXPORT_PAGE = 1000;
+// every table of the export with a stable order for paging (its primary key)
+const EXPORT_TABLES: [string, string[]][] = [
+  ["memories", ["id"]],
+  ["events", ["id"]],
+  ["goals", ["id"]],
+  ["milestones", ["id"]],
+  ["goal_time", ["id"]],
+  ["habits", ["id"]],
+  ["habit_logs", ["habit_id", "day"]],
+  ["days", ["user_id", "day"]],
+  ["messages", ["id"]],
+  ["push_subscriptions", ["id"]],
+];
+
+// A habit row with its embedded logs (only the days).
+type HabitRow = Omit<Habit, "done_days"> & { habit_logs: { day: string }[] | null };
+const toHabit = ({ habit_logs, ...row }: HabitRow): Habit => ({ ...row, done_days: (habit_logs ?? []).map((l) => l.day).sort() });
+
+/** First day of the habit history the app shows: the current week and the 15 before it. */
+const habitsSince = () => addDays(weekStart(dayOf()), -15 * 7);
 
 function friendlyAuthError(message: string): string {
   const m = message.toLowerCase();
@@ -111,21 +184,210 @@ export class SupabaseBackend implements Backend {
     if (error) throw error;
   }
 
-  async listEvents(): Promise<CalendarEvent[]> {
-    const since = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
-    const { data, error } = await this.sb.from("events").select("*").gte("starts_at", since).order("starts_at").limit(500);
+  async listEvents(from?: string, to?: string): Promise<CalendarEvent[]> {
+    const since = from ?? new Date(Date.now() - 24 * 3600 * 1000).toISOString();
+    let q = this.sb.from("events").select("*").gte("starts_at", since);
+    if (to) q = q.lt("starts_at", to);
+    const { data, error } = await q.order("starts_at").limit(1000);
     if (error) throw error;
     return data as CalendarEvent[];
   }
 
-  async addEvent(e: Omit<CalendarEvent, "id" | "source">): Promise<CalendarEvent> {
-    const { data, error } = await this.sb.from("events").insert({ ...e, source: "person" }).select().single();
+  async addEvent(e: EventInput): Promise<CalendarEvent> {
+    const row = { ...e, kind: e.kind ?? "termin", goal_id: e.goal_id ?? null, source: "person" };
+    const { data, error } = await this.sb.from("events").insert(row).select().single();
+    if (error) throw error;
+    return data as CalendarEvent;
+  }
+
+  async updateEvent(id: string, patch: Partial<EventInput>): Promise<CalendarEvent> {
+    // The events_bump trigger raises sequence and updated_at, so subscribed calendars pick it up.
+    const { data, error } = await this.sb.from("events").update(patch).eq("id", id).select().single();
     if (error) throw error;
     return data as CalendarEvent;
   }
 
   async deleteEvent(id: string) {
     const { error } = await this.sb.from("events").delete().eq("id", id);
+    if (error) throw error;
+  }
+
+  /** Minutes per goal from the view goal_minutes (logged time and past blocks not yet answered). */
+  private async goalMinutes(ids: string[]): Promise<Map<string, GoalMinutes>> {
+    const out = new Map<string, GoalMinutes>();
+    for (const part of chunks(ids)) {
+      const { data, error } = await this.sb.from("goal_minutes").select("*").in("goal_id", part);
+      if (error) throw error;
+      for (const r of data as { goal_id: string; logged_minutes: Numeric; block_minutes: Numeric }[])
+        out.set(r.goal_id, { logged_minutes: toNumber(r.logged_minutes) ?? 0, block_minutes: toNumber(r.block_minutes) ?? 0 });
+    }
+    return out;
+  }
+
+  private async withTime(rows: GoalRow[]): Promise<Goal[]> {
+    const time = rows.length ? await this.goalMinutes(rows.map((r) => r.id)) : new Map<string, GoalMinutes>();
+    return rows.map((r) => toGoal(r, time.get(r.id)));
+  }
+
+  async listGoals(all = false): Promise<Goal[]> {
+    let q = this.sb.from("goals").select("*, milestones(*)");
+    if (!all) q = q.in("status", ["active", "paused"]);
+    const { data, error } = await q.order("target_date", { ascending: true, nullsFirst: false }).order("created_at", { ascending: true });
+    if (error) throw error;
+    return this.withTime(data as GoalRow[]);
+  }
+
+  async addGoal(g: GoalInput, milestones: Pick<Milestone, "title" | "due_date">[] = []): Promise<Goal> {
+    const { data, error } = await this.sb.from("goals").insert({ ...goalRow(g), source: "person" }).select().single();
+    if (error) throw error;
+    // a new goal has no time and no blocks yet
+    const goal = data as GoalRow;
+    if (!milestones.length) return toGoal(goal);
+    const rows = milestones.map((m, i) => ({ goal_id: goal.id, title: m.title, due_date: m.due_date, position: i }));
+    const res = await this.sb.from("milestones").insert(rows).select();
+    if (res.error) {
+      // No transactions over PostgREST: undo the goal so it isn't left half-saved.
+      await this.sb.from("goals").delete().eq("id", goal.id);
+      throw res.error;
+    }
+    return toGoal({ ...goal, milestones: res.data as Milestone[] });
+  }
+
+  async updateGoal(id: string, patch: Partial<GoalInput>): Promise<Goal> {
+    const { data, error } = await this.sb.from("goals").update(goalRow(patch)).eq("id", id).select("*, milestones(*)").single();
+    if (error) throw error;
+    const [goal] = await this.withTime([data as GoalRow]);
+    return goal;
+  }
+
+  async deleteGoal(id: string) {
+    // milestones go with it (cascade); habits and calendar entries keep existing without the link
+    const { error } = await this.sb.from("goals").delete().eq("id", id);
+    if (error) throw error;
+  }
+
+  async addMilestone(goalId: string, m: Pick<Milestone, "title" | "due_date">): Promise<Milestone> {
+    const last = await this.sb.from("milestones").select("position").eq("goal_id", goalId).order("position", { ascending: false }).limit(1).maybeSingle();
+    if (last.error) throw last.error;
+    const position = last.data ? (last.data.position as number) + 1 : 0;
+    const { data, error } = await this.sb.from("milestones").insert({ goal_id: goalId, title: m.title, due_date: m.due_date, position }).select().single();
+    if (error) throw error;
+    return data as Milestone;
+  }
+
+  async updateMilestone(id: string, patch: Partial<Pick<Milestone, "title" | "due_date" | "position">> & { done?: boolean }): Promise<Milestone> {
+    const { done, ...rest } = patch;
+    const row: Record<string, unknown> = Object.fromEntries(Object.entries(rest).filter(([, v]) => v !== undefined));
+    if (done === false) row.done_at = null;
+    let out: Milestone | null = null;
+    if (done !== true || Object.keys(row).length) {
+      const { data, error } = await this.sb.from("milestones").update(row).eq("id", id).select().single();
+      if (error) throw error;
+      out = data as Milestone;
+    }
+    if (done !== true) return out!;
+    // Done keeps the moment it was first done (a second tap, another device).
+    const set = await this.sb.from("milestones").update({ done_at: new Date().toISOString() }).eq("id", id).is("done_at", null).select();
+    if (set.error) throw set.error;
+    if (set.data.length) return set.data[0] as Milestone;
+    if (out) return out;
+    const { data, error } = await this.sb.from("milestones").select().eq("id", id).single();
+    if (error) throw error;
+    return data as Milestone;
+  }
+
+  async deleteMilestone(id: string) {
+    const { error } = await this.sb.from("milestones").delete().eq("id", id);
+    if (error) throw error;
+  }
+
+  async setBlockDone(eventId: string, done: boolean | null, minutes?: number) {
+    if (done === null) {
+      // no answer any more: the block counts by itself again
+      const { error } = await this.sb.from("goal_time").delete().eq("event_id", eventId);
+      if (error) throw error;
+      return;
+    }
+    const ev = await this.sb.from("events").select("kind, goal_id, starts_at, ends_at, all_day").eq("id", eventId).maybeSingle();
+    if (ev.error) throw ev.error;
+    const fields = { ...blockTimeEntry(ev.data as Pick<CalendarEvent, "kind" | "goal_id" | "starts_at" | "ends_at" | "all_day"> | null, done, minutes), source: "block" as GoalTime["source"] };
+    // Update, else insert: the unique index on event_id is partial, which PostgREST's upsert can't target.
+    const update = () => this.sb.from("goal_time").update(fields).eq("event_id", eventId).select("id");
+    const upd = await update();
+    if (upd.error) throw upd.error;
+    if (upd.data.length) return;
+    const ins = await this.sb.from("goal_time").insert({ ...fields, event_id: eventId });
+    if (!ins.error) return;
+    if (ins.error.code !== "23505") throw ins.error;
+    // answered on another device at the same moment: this answer wins
+    const again = await update();
+    if (again.error) throw again.error;
+  }
+
+  async blockAnswers(eventIds: string[]): Promise<Record<string, number>> {
+    const out: Record<string, number> = {};
+    for (const part of chunks([...new Set(eventIds)])) {
+      const { data, error } = await this.sb.from("goal_time").select("event_id, minutes").in("event_id", part);
+      if (error) throw error;
+      for (const r of data as Pick<GoalTime, "event_id" | "minutes">[]) if (r.event_id) out[r.event_id] = r.minutes;
+    }
+    return out;
+  }
+
+  async listGoalTime(from: string, to: string): Promise<GoalTime[]> {
+    const out: GoalTime[] = [];
+    for (let start = 0; ; start += 1000) {
+      const { data, error } = await this.sb
+        .from("goal_time")
+        .select("id, goal_id, day, minutes, source, event_id, external_id, note")
+        .gte("day", from)
+        .lte("day", to)
+        .order("day")
+        .order("id")
+        .range(start, start + 999);
+      if (error) throw error;
+      out.push(...(data as GoalTime[]));
+      if (data.length < 1000) return out;
+    }
+  }
+
+  async listHabits(): Promise<Habit[]> {
+    // The filter on habit_logs.day limits the embedded logs, not the habits.
+    const { data, error } = await this.sb
+      .from("habits")
+      .select("*, habit_logs(day)")
+      .eq("active", true)
+      .gte("habit_logs.day", habitsSince())
+      .order("created_at", { ascending: true });
+    if (error) throw error;
+    return (data as HabitRow[]).map(toHabit);
+  }
+
+  async addHabit(h: HabitInput): Promise<Habit> {
+    const { data, error } = await this.sb.from("habits").insert({ ...h, source: "person" }).select().single();
+    if (error) throw error;
+    return { ...(data as Omit<Habit, "done_days">), done_days: [] };
+  }
+
+  async updateHabit(id: string, patch: Partial<HabitInput>): Promise<Habit> {
+    const { data, error } = await this.sb.from("habits").update(patch).eq("id", id).select().single();
+    if (error) throw error;
+    // read the logs on their own: filters on embedded rows are only sure to work on plain reads
+    const logs = await this.sb.from("habit_logs").select("day").eq("habit_id", id).gte("day", habitsSince());
+    if (logs.error) throw logs.error;
+    return toHabit({ ...(data as Omit<Habit, "done_days">), habit_logs: logs.data as { day: string }[] });
+  }
+
+  async deleteHabit(id: string) {
+    const { error } = await this.sb.from("habits").delete().eq("id", id);
+    if (error) throw error;
+  }
+
+  async setHabitDone(habitId: string, day: string, done: boolean) {
+    const { error } = done
+      ? // ticking twice (two devices, a double tap) must not fail
+        await this.sb.from("habit_logs").upsert({ habit_id: habitId, day }, { onConflict: "habit_id,day", ignoreDuplicates: true })
+      : await this.sb.from("habit_logs").delete().eq("habit_id", habitId).eq("day", day);
     if (error) throw error;
   }
 
@@ -199,14 +461,26 @@ export class SupabaseBackend implements Backend {
     return ((await res.json()).text as string) ?? "";
   }
 
-  async exportData() {
-    const tables = ["memories", "events", "days", "messages", "push_subscriptions"] as const;
-    const out: Record<string, unknown> = { exported_at: new Date().toISOString(), profile: await this.getProfile() };
-    for (const t of tables) {
-      const { data, error } = await this.sb.from(t).select("*");
+  /** All rows of a table, page by page in a stable order. */
+  private async readAll(table: string, order: string[]): Promise<unknown[]> {
+    const rows: unknown[] = [];
+    let total: number | null = null;
+    for (;;) {
+      let q = this.sb.from(table).select("*", rows.length ? undefined : { count: "exact" });
+      for (const col of order) q = q.order(col, { ascending: true });
+      const { data, error, count } = await q.range(rows.length, rows.length + EXPORT_PAGE - 1);
       if (error) throw error;
-      out[t] = data;
+      if (!rows.length) total = count ?? null;
+      rows.push(...(data ?? []));
+      // a server with a smaller max_rows sends shorter pages; the count says when it's complete
+      const complete = total === null ? (data?.length ?? 0) < EXPORT_PAGE : rows.length >= total;
+      if (!data?.length || complete) return rows;
     }
+  }
+
+  async exportData() {
+    const out: Record<string, unknown> = { exported_at: new Date().toISOString(), profile: await this.getProfile() };
+    for (const [table, order] of EXPORT_TABLES) out[table] = await this.readAll(table, order);
     return out;
   }
 

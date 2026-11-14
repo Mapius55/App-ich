@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { backend } from "../lib/backend";
-import type { CoachContext, CoachEvent } from "../lib/types";
+import type { CoachContext, CoachEvent, Goal } from "../lib/types";
 import type { OrbState } from "./Portal";
 import { pulseOrb } from "../lib/orbSignals";
-import { eventWhen } from "../lib/dates";
+import { eventWhen, minutesLabel, shortDay } from "../lib/dates";
+import { perWeekLabel } from "../lib/plan";
 import { isAudioUnlocked, listenOnce, Speaker, splitSentences, unlockAudio, type ListenHandle } from "../lib/voice";
 
 // The conversation as pure voice: the coach speaks (no text on screen), you
@@ -17,6 +18,31 @@ interface Toast {
   label: string;
   title: string;
   when?: string;
+  icon?: "calendar" | "goal" | "check";
+}
+
+// goal_saved covers new goals (created: true) and changed ones; a step ticked a
+// moment ago tells a tick apart from other changes. A goal gets its "Ziel" toast
+// once, a step its "Etappe erledigt" once, and further saves of the same goal
+// right after (e.g. its steps being added) stay quiet.
+const RECENT = 2 * 60 * 1000;
+const QUIET = 15 * 1000;
+function goalToast(e: { goal: Goal; created?: boolean }, seen: Map<string, number>): Omit<Toast, "id"> | null {
+  const { goal } = e;
+  const now = Date.now();
+  if (e.created && !seen.has(goal.id)) {
+    seen.set(goal.id, now);
+    return { label: "Ziel", title: goal.title, when: goal.target_date ? shortDay(goal.target_date) : undefined, icon: "goal" };
+  }
+  const ticked = goal.milestones.find((m) => m.done_at && now - new Date(m.done_at).getTime() < RECENT && !seen.has(m.id));
+  if (ticked) {
+    seen.set(ticked.id, now);
+    seen.set(goal.id, now);
+    return { label: "Etappe erledigt", title: ticked.title, icon: "check" };
+  }
+  if (now - (seen.get(goal.id) ?? 0) < QUIET) return null;
+  seen.set(goal.id, now);
+  return { label: "Plan aktualisiert", title: goal.title, icon: "goal" };
 }
 
 interface Props {
@@ -29,6 +55,10 @@ interface Props {
   extra?: React.ReactNode;
   /** Round button at the left of the dock (e.g. the menu). */
   leftButton?: React.ReactNode;
+  /** Sent once by itself as soon as the conversation is ready (e.g. "Lass uns meinen Tag planen."). */
+  kickoff?: string | null;
+  /** Called when the kickoff went out, so it isn't sent again later. */
+  onKickoffSent?: () => void;
 }
 
 const STATUS: Record<Phase, string> = {
@@ -39,13 +69,14 @@ const STATUS: Record<Phase, string> = {
   speaking: "",
 };
 
-export function VoiceConversation({ mode, thread, context, onEvent, onOrbState, extra, leftButton }: Props) {
+export function VoiceConversation({ mode, thread, context, onEvent, onOrbState, extra, leftButton, kickoff, onKickoffSent }: Props) {
   const [phase, setPhase] = useState<Phase>("idle");
   const [speaking, setSpeaking] = useState(false);
   const [heard, setHeard] = useState("");
   const [note, setNote] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [toasts, setToasts] = useState<Toast[]>([]);
+  const toasted = useRef(new Map<string, number>()); // goal and step ids → when they last had a toast
   const [typing, setTyping] = useState(false);
   const [input, setInput] = useState("");
   const [locked, setLocked] = useState(!isAudioUnlocked());
@@ -57,6 +88,12 @@ export function VoiceConversation({ mode, thread, context, onEvent, onOrbState, 
   const started = useRef<string | null>(null);
   const onEventRef = useRef(onEvent);
   onEventRef.current = onEvent;
+  const [ready, setReady] = useState(false); // the thread has been loaded
+  const kickoffRef = useRef(kickoff);
+  kickoffRef.current = kickoff;
+  const kickoffSent = useRef(false);
+  const onKickoffSentRef = useRef(onKickoffSent);
+  onKickoffSentRef.current = onKickoffSent;
 
   // what the portal shows
   const shown: Phase = speaking ? "speaking" : phase;
@@ -121,6 +158,30 @@ export function VoiceConversation({ mode, thread, context, onEvent, onOrbState, 
           } else if (e.type === "event_deleted") {
             toast({ label: "Aus dem Kalender entfernt", title: e.title });
             onEventRef.current(e);
+          } else if (e.type === "goal_saved") {
+            const t = goalToast(e, toasted.current);
+            if (t) toast(t);
+            pulseOrb(0.4);
+            onEventRef.current(e);
+          } else if (e.type === "time_logged") {
+            // the goal_saved that follows for the same goal needs no second toast
+            toasted.current.set(e.goal_id, Date.now());
+            if (e.minutes > 0) {
+              toast({ label: `+${minutesLabel(e.minutes)}`, title: e.title, icon: "check" });
+              pulseOrb(0.4);
+            }
+            onEventRef.current(e);
+          } else if (e.type === "goal_deleted") {
+            toast({ label: "Ziel entfernt", title: e.title, icon: "goal" });
+            onEventRef.current(e);
+          } else if (e.type === "habit_saved") {
+            toast({ label: "Gewohnheit", title: e.habit.title, when: perWeekLabel(e.habit.per_week), icon: "check" });
+            pulseOrb(0.4);
+            onEventRef.current(e);
+          } else if (e.type === "habit_logged") {
+            toast({ label: e.done ? "Abgehakt" : "Wieder offen", title: e.title, icon: "check" });
+            if (e.done) pulseOrb(0.4);
+            onEventRef.current(e);
           } else if (e.type !== "done") {
             onEventRef.current(e);
           }
@@ -147,8 +208,12 @@ export function VoiceConversation({ mode, thread, context, onEvent, onOrbState, 
         if (lastA) setLastReply(lastA.content);
         if (msgs.length === 0 && started.current !== thread) {
           started.current = thread;
-          run();
+          // with a kickoff waiting, it opens the day instead of the greeting
+          const k = kickoffRef.current;
+          if (k && !kickoffSent.current) sendKickoff(k);
+          else run();
         }
+        setReady(true);
       })
       .catch((err) => alive && setError(err instanceof Error ? err.message : String(err)));
     return () => {
@@ -156,6 +221,21 @@ export function VoiceConversation({ mode, thread, context, onEvent, onOrbState, 
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [thread]);
+
+  const sendKickoff = (text: string) => {
+    kickoffSent.current = true;
+    onKickoffSentRef.current?.();
+    setHeard(text);
+    setTimeout(() => setHeard((h) => (h === text ? "" : h)), 8000);
+    run(text);
+  };
+
+  // A kickoff goes out once, when the conversation is loaded and quiet.
+  useEffect(() => {
+    if (!kickoff || kickoffSent.current || !ready || phase !== "idle" || speaking) return;
+    sendKickoff(kickoff);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [kickoff, ready, phase, speaking]);
 
   const talk = async () => {
     await unlockAudio();
@@ -239,10 +319,20 @@ export function VoiceConversation({ mode, thread, context, onEvent, onOrbState, 
         {toasts.map((t) => (
           <div key={t.id} className="event-card added">
             <span className="event-card-icon" aria-hidden="true">
-              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
-                <rect x="4" y="5" width="16" height="15" rx="3" />
-                <path d="M4 10h16M9 3v4M15 3v4" />
-              </svg>
+              {t.icon === "check" ? (
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M5 12.5l4.2 4.2L19 7" />
+                </svg>
+              ) : t.icon === "goal" ? (
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M6 21V4M6 4h11l-2.5 4L17 12H6" />
+                </svg>
+              ) : (
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+                  <rect x="4" y="5" width="16" height="15" rx="3" />
+                  <path d="M4 10h16M9 3v4M15 3v4" />
+                </svg>
+              )}
             </span>
             <span className="event-card-body">
               <span className="event-card-label">{t.label}</span>
