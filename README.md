@@ -76,8 +76,8 @@ supabase login
 supabase link --project-ref <projekt-id>
 supabase db push
 supabase secrets set ANTHROPIC_API_KEY=<schlüssel> PUSH_CRON_SECRET=<passwort>
-supabase functions deploy coach
-supabase functions deploy account
+supabase functions deploy coach --no-verify-jwt
+supabase functions deploy account --no-verify-jwt
 supabase functions deploy calendar --no-verify-jwt
 supabase functions deploy push --no-verify-jwt
 ```

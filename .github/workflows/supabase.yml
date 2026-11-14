@@ -42,7 +42,7 @@ jobs:
           if [ ${#args[@]} -gt 0 ]; then supabase secrets set --project-ref "$PROJECT_REF" "${args[@]}"; fi
       - name: Funktionen
         run: |
-          supabase functions deploy coach --project-ref "$PROJECT_REF"
-          supabase functions deploy account --project-ref "$PROJECT_REF"
+          supabase functions deploy coach --no-verify-jwt --project-ref "$PROJECT_REF"
+          supabase functions deploy account --no-verify-jwt --project-ref "$PROJECT_REF"
           supabase functions deploy calendar --no-verify-jwt --project-ref "$PROJECT_REF"
           supabase functions deploy push --no-verify-jwt --project-ref "$PROJECT_REF"

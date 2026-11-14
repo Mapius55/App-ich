@@ -1,8 +1,10 @@
 # Minimal Supabase CLI config. The project itself is linked with `supabase link`.
 project_id = "app-ich"
 
+# Every function checks the login itself (auth.getUser), so the gateway check is
+# off. This also works with Supabase's newer asymmetric JWT signing keys.
 [functions.coach]
-verify_jwt = true
+verify_jwt = false
 
 # The iPhone calendar subscribes without logging in (private token in the link).
 [functions.calendar]
@@ -13,4 +15,4 @@ verify_jwt = false
 verify_jwt = false
 
 [functions.account]
-verify_jwt = true
+verify_jwt = false
