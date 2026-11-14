@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { backend } from "../lib/backend";
 import { Portal, type OrbState } from "../components/Portal";
 import { Conversation } from "../components/Conversation";
+import { UpNext } from "../components/UpNext";
 import type { Palette } from "../lib/palette";
 import type { Weather } from "../lib/weather";
 import type { CoachContext, CoachEvent, Profile } from "../lib/types";
@@ -16,6 +17,8 @@ interface Props {
   onEvent: (e: CoachEvent) => void;
   onOpenMemories: () => void;
   onOpenCalendar: () => void;
+  onOpenSettings: () => void;
+  eventsVersion: number;
   onSignOut: () => void;
 }
 
@@ -29,10 +32,22 @@ function greeting(isDark: boolean, d = new Date()): string {
   return "Guten Abend";
 }
 
-export function Home({ profile, palette, weather, context, day, focus, onEvent, onOpenMemories, onOpenCalendar, onSignOut }: Props) {
+export function Home({ profile, palette, weather, context, day, focus, onEvent, onOpenMemories, onOpenCalendar, onOpenSettings, eventsVersion, onSignOut }: Props) {
   const [orbState, setOrbState] = useState<OrbState>("idle");
   const [settled, setSettled] = useState(false);
   const [menu, setMenu] = useState(false);
+  const [online, setOnline] = useState(navigator.onLine);
+
+  useEffect(() => {
+    const on = () => setOnline(true);
+    const off = () => setOnline(false);
+    window.addEventListener("online", on);
+    window.addEventListener("offline", off);
+    return () => {
+      window.removeEventListener("online", on);
+      window.removeEventListener("offline", off);
+    };
+  }, []);
 
   // The orb greets you alone for a moment, then makes room for the conversation.
   useEffect(() => {
@@ -82,6 +97,7 @@ export function Home({ profile, palette, weather, context, day, focus, onEvent, 
     <main className={`screen home ${settled ? "settled" : "intro"}`}>
       <header className="topbar">
         <span className="pill">{today}</span>
+        {!online && <span className="pill">Offline</span>}
         <span className="pill">
           {palette.phase}
           {weather && ` · ${Math.round(weather.temperature)}°`}
@@ -102,6 +118,7 @@ export function Home({ profile, palette, weather, context, day, focus, onEvent, 
             <nav>
               <button onClick={() => (setMenu(false), onOpenCalendar())}>Kalender</button>
               <button onClick={() => (setMenu(false), onOpenMemories())}>Was ich über dich weiss</button>
+              <button onClick={() => (setMenu(false), onOpenSettings())}>Einstellungen</button>
               <button onClick={() => (setMenu(false), onSignOut())}>Abmelden</button>
             </nav>
             <p className="menu-colors">
@@ -127,6 +144,7 @@ export function Home({ profile, palette, weather, context, day, focus, onEvent, 
           {profile.display_name ? `, ${profile.display_name}` : ""}
         </h1>
         {focus && <p className="focus-quote">„{focus}“</p>}
+        <UpNext refresh={eventsVersion} />
       </section>
 
       <div className="home-conversation">

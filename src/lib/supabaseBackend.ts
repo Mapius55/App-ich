@@ -1,5 +1,5 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-import type { Backend, CalendarEvent, ChatMessage, CoachContext, CoachEvent, CoachRequest, DayState, Memory, Profile } from "./types";
+import type { Backend, CalendarEvent, ChatMessage, CoachContext, CoachEvent, CoachRequest, DayState, Memory, Profile, PushSubscriptionRow } from "./types";
 import { normaliseUsername, USERNAME_RE } from "./types";
 
 // Supabase Auth works with e-mail addresses. People here log in with a plain
@@ -141,6 +141,54 @@ export class SupabaseBackend implements Backend {
     const id = await this.uid();
     const { error } = await this.sb.from("profiles").update({ calendar_token: crypto.randomUUID() }).eq("id", id);
     if (error) throw error;
+  }
+
+  private async fn(name: string, init: RequestInit = {}): Promise<Response> {
+    const { data } = await this.sb.auth.getSession();
+    const headers = new Headers(init.headers);
+    headers.set("apikey", this.anonKey);
+    if (data.session) headers.set("Authorization", `Bearer ${data.session.access_token}`);
+    if (init.body) headers.set("Content-Type", "application/json");
+    return fetch(`${this.url}/functions/v1/${name}`, { ...init, headers });
+  }
+
+  async pushPublicKey(): Promise<string | null> {
+    const res = await this.fn("push?action=key");
+    if (!res.ok) throw new Error("Der Benachrichtigungs-Dienst ist noch nicht eingerichtet.");
+    return (await res.json()).publicKey as string;
+  }
+
+  async savePushSubscription(s: PushSubscriptionRow) {
+    const { error } = await this.sb.from("push_subscriptions").upsert(s, { onConflict: "endpoint" });
+    if (error) throw error;
+  }
+
+  async deletePushSubscription(endpoint: string) {
+    const { error } = await this.sb.from("push_subscriptions").delete().eq("endpoint", endpoint);
+    if (error) throw error;
+  }
+
+  async sendTestPush(): Promise<number> {
+    const res = await this.fn("push", { method: "POST", body: JSON.stringify({ action: "test" }) });
+    if (!res.ok) throw new Error("Test-Nachricht konnte nicht gesendet werden.");
+    return (await res.json()).sent as number;
+  }
+
+  async exportData() {
+    const tables = ["memories", "events", "days", "messages", "push_subscriptions"] as const;
+    const out: Record<string, unknown> = { exported_at: new Date().toISOString(), profile: await this.getProfile() };
+    for (const t of tables) {
+      const { data, error } = await this.sb.from(t).select("*");
+      if (error) throw error;
+      out[t] = data;
+    }
+    return out;
+  }
+
+  async deleteAccount() {
+    const res = await this.fn("account", { method: "POST", body: JSON.stringify({ action: "delete" }) });
+    if (!res.ok) throw new Error("Das Konto konnte nicht gelöscht werden. Bitte später nochmal versuchen.");
+    await this.sb.auth.signOut();
   }
 
   async getMessages(thread: string): Promise<ChatMessage[]> {

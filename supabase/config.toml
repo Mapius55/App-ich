@@ -7,3 +7,10 @@ verify_jwt = true
 # The iPhone calendar subscribes without logging in (private token in the link).
 [functions.calendar]
 verify_jwt = false
+
+# Called by the GitHub schedule (shared secret) and by the app (checks the login itself).
+[functions.push]
+verify_jwt = false
+
+[functions.account]
+verify_jwt = true

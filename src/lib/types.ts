@@ -11,6 +11,16 @@ export interface Profile {
   lat: number | null;
   lon: number | null;
   calendar_token?: string;
+  timezone?: string | null;
+  notify_morning?: string | null; // "07:30:00"
+  notify_evening?: string | null;
+}
+
+export interface PushSubscriptionRow {
+  endpoint: string;
+  p256dh: string;
+  auth: string;
+  app_url: string;
 }
 
 /** An entry in the calendar "I am". */
@@ -110,6 +120,17 @@ export interface Backend {
   /** Subscription link for the iPhone calendar (null in demo mode). */
   calendarLink(): Promise<string | null>;
   renewCalendarLink(): Promise<void>;
+
+  /** Web push: null when there's no server (demo). */
+  pushPublicKey(): Promise<string | null>;
+  savePushSubscription(s: PushSubscriptionRow): Promise<void>;
+  deletePushSubscription(endpoint: string): Promise<void>;
+  sendTestPush(): Promise<number>;
+
+  /** Everything stored about you, as one JSON object. */
+  exportData(): Promise<Record<string, unknown>>;
+  /** Deletes the account and all data. */
+  deleteAccount(): Promise<void>;
 
   getMessages(thread: string): Promise<ChatMessage[]>;
   getDay(day: string): Promise<DayState | null>;

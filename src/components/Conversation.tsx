@@ -45,14 +45,23 @@ export function Conversation({ mode, thread, context, onEvent, onOrbState, extra
 
   const scrollDown = () => requestAnimationFrame(() => scrollRef.current?.scrollTo({ top: 1e9, behavior: "smooth" }));
 
+  const lastRequest = useRef<{ message?: string } | null>(null);
+
   const run = useCallback(
-    async (message?: string) => {
+    async (message?: string, retry = false) => {
+      if (!navigator.onLine) {
+        setError("Du bist offline. Sobald du wieder Netz hast, kannst du weiterschreiben.");
+        lastRequest.current = { message };
+        if (message && !retry) setMessages((m) => [...m, { id: `u-${Date.now()}`, role: "user", content: message, created_at: new Date().toISOString() }]);
+        return;
+      }
+      lastRequest.current = { message };
       setBusy(true);
       setWaiting(true);
       setError(null);
       onOrbState("thinking");
       const replyId = `r-${Date.now()}`;
-      if (message) {
+      if (message && !retry) {
         setMessages((m) => [...m, { id: `u-${Date.now()}`, role: "user", content: message, created_at: new Date().toISOString() }]);
       }
       let gotText = false;
@@ -205,6 +214,13 @@ export function Conversation({ mode, thread, context, onEvent, onOrbState, extra
         {error && (
           <div className="msg-error" role="alert">
             {error}
+            {lastRequest.current && !busy && (
+              <div>
+                <button className="btn ghost retry" onClick={() => run(lastRequest.current?.message, true)}>
+                  Nochmal versuchen
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>

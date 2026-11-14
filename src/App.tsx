@@ -12,6 +12,7 @@ import { Onboarding } from "./screens/Onboarding";
 import { Home } from "./screens/Home";
 import { Memories } from "./screens/Memories";
 import { Calendar } from "./screens/Calendar";
+import { Settings } from "./screens/Settings";
 
 // Screen changes zoom through the portal (View Transitions API, where the
 // browser has it; elsewhere screens simply fade in via CSS).
@@ -38,7 +39,8 @@ export default function App() {
   const [coords, setCoords] = useState<Coords | null>(() => storedCoords());
   const [mood, setMood] = useState<Mood | null>(null);
   const [focus, setFocus] = useState<string | null>(null);
-  const [view, setView] = useState<"home" | "memories" | "calendar">("home");
+  const [view, setView] = useState<"home" | "memories" | "calendar" | "settings">("home");
+  const [eventsVersion, setEventsVersion] = useState(0);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [day, setDay] = useState(() => localDayKey());
 
@@ -60,6 +62,9 @@ export default function App() {
       .getProfile()
       .then((p) => {
         withTransition(() => setProfile(p));
+        // keep the time zone current, so notifications arrive at your local time
+        const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+        if (p.timezone !== tz) backend.updateProfile({ timezone: tz }).catch(() => {});
         if (!storedCoords() && p.lat != null && p.lon != null) {
           const c = { lat: p.lat, lon: p.lon };
           storeCoords(c);
@@ -114,6 +119,11 @@ export default function App() {
       case "profile":
         setProfile((p) => (p ? { ...p, ...e.profile, onboarded: p.onboarded } : p));
         break;
+      case "event_created":
+      case "event_updated":
+      case "event_deleted":
+        setEventsVersion((v) => v + 1);
+        break;
     }
   }, []);
 
@@ -165,7 +175,18 @@ export default function App() {
   }
 
   if (view === "memories") return <Memories onBack={() => withTransition(() => setView("home"))} />;
-  if (view === "calendar") return <Calendar onBack={() => withTransition(() => setView("home"))} />;
+  if (view === "calendar") return <Calendar onBack={() => withTransition(() => (setView("home"), setEventsVersion((v) => v + 1)))} />;
+  if (view === "settings")
+    return (
+      <Settings
+        profile={profile}
+        hasCoords={!!coords}
+        onBack={() => withTransition(() => setView("home"))}
+        onProfile={(patch) => setProfile((p) => (p ? { ...p, ...patch } : p))}
+        onCoords={(c) => (c ? onCoords(c) : setCoords(null))}
+        onOpenCalendar={() => withTransition(() => setView("calendar"))}
+      />
+    );
 
   return (
     <Home
@@ -178,6 +199,8 @@ export default function App() {
       onEvent={onEvent}
       onOpenMemories={() => withTransition(() => setView("memories"))}
       onOpenCalendar={() => withTransition(() => setView("calendar"))}
+      onOpenSettings={() => withTransition(() => setView("settings"))}
+      eventsVersion={eventsVersion}
       onSignOut={() => backend.signOut()}
     />
   );

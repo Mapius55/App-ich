@@ -27,7 +27,7 @@ const KINDS: [RegExp, string][] = [
   [/arzt|zahnarzt/i, "Arzttermin"],
   [/treffen|meeting|termin/i, "Termin"],
 ];
-function parseDemoEvent(text: string, now = new Date()): { title: string; start: Date; allDay: boolean } | null {
+export function parseDemoEvent(text: string, now = new Date()): { title: string; start: Date; allDay: boolean } | null {
   const kind = KINDS.find(([re]) => re.test(text));
   if (!kind) return null;
   const t = text.toLowerCase();
@@ -213,6 +213,29 @@ export class DemoBackend implements Backend {
     return null; // a subscription needs the server; the demo offers a file download instead
   }
   async renewCalendarLink() {}
+
+  async pushPublicKey() {
+    return null; // notifications need the server
+  }
+  async savePushSubscription() {}
+  async deletePushSubscription() {}
+  async sendTestPush() {
+    return 0;
+  }
+
+  async exportData() {
+    const u = this.user();
+    return { exported_at: new Date().toISOString(), profile: u.profile, memories: u.memories, events: u.events ?? [], days: u.days, messages: u.messages };
+  }
+
+  async deleteAccount() {
+    const name = this.session();
+    const users = this.load();
+    if (name) delete users[name];
+    this.save(users);
+    localStorage.removeItem(SESSION);
+    this.emit();
+  }
 
   async getMessages(thread: string) {
     return this.user().messages[thread] ?? [];

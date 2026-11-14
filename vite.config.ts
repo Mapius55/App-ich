@@ -11,6 +11,10 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: "autoUpdate",
+      // own service worker (src/sw.ts): app shell offline + coach notifications
+      strategies: "injectManifest",
+      srcDir: "src",
+      filename: "sw.ts",
       includeAssets: ["icon.svg", "apple-touch-icon.png"],
       manifest: {
         name: "I am",
@@ -29,10 +33,8 @@ export default defineConfig({
           { src: "icon-512.png", sizes: "512x512", type: "image/png", purpose: "maskable" },
         ],
       },
-      workbox: {
-        navigateFallback: `${base}index.html`,
-        // Never cache API calls (Supabase, weather) in the service worker.
-        navigateFallbackDenylist: [/\/functions\//, /\/rest\//, /\/auth\//],
+      injectManifest: {
+        globPatterns: ["**/*.{js,css,html,svg,png,webmanifest}"],
       },
     }),
   ],
