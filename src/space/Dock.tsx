@@ -1,5 +1,5 @@
 // The dock's left slot: ✓ "Fertig" while a detail is open, "+" when the current
-// place or level registered an add handler, otherwise empty.
+// place or level registered an add handler, otherwise an empty spacer.
 import type { AddKey } from "./state";
 
 const ADD_LABEL: Record<AddKey, string> = {
@@ -26,5 +26,5 @@ export function DockLeft({ detailOpen, addKey, onAdd, onDone }: { detailOpen: bo
         </svg>
       </button>
     );
-  return null;
+  return <span className="dock-spacer" />;
 }

@@ -230,6 +230,11 @@ export function VoiceConversation({ mode, thread, context, onEvent, onOrbState, 
     run(text);
   };
 
+  // Once the parent cleared the kickoff, a later one may go out (the space keeps this mounted).
+  useEffect(() => {
+    if (!kickoff) kickoffSent.current = false;
+  }, [kickoff]);
+
   // A kickoff goes out once, when the conversation is loaded and quiet.
   useEffect(() => {
     if (!kickoff || kickoffSent.current || !ready || phase !== "idle" || speaking) return;
