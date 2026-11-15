@@ -102,7 +102,7 @@ export function MonthInPlace({ month, label, today, data, origin, closing, reduc
           );
         })}
       </div>
-      <p className="mo-sum">{data.loaded ? monthSummary(sum.minutes, sum.days) : " "}</p>
+      <p className="mo-sum">{data.loaded ? monthSummary(sum.minutes, sum.days) : "\u00a0"}</p>
     </div>
   );
 }

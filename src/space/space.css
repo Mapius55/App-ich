@@ -228,6 +228,8 @@ html.space-on:not([data-level="0"]) .voice-layer .idle-hint,
 html.space-on:not([data-place="jetzt"]) .voice-layer .idle-hint,
 html.space-on:not([data-level="0"]) .voice-layer .voice-replay,
 html.space-on:not([data-place="jetzt"]) .voice-layer .voice-replay { display: none; }
+/* Jetzt has room for one status line: until the first message the hint wins over "Nochmal hören" */
+.voice-layer .idle-hint ~ .voice-replay { display: none; }
 /* compact dock away from Jetzt (D25): mic 56, round 48 */
 .voice-layer .voice.compact .voice-dock { gap: 18px; }
 .voice-layer .voice.compact .dock-main.big { width: var(--mic); height: var(--mic); box-shadow: 0 8px 30px color-mix(in srgb, var(--sky-1) 30%, transparent); }

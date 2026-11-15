@@ -102,11 +102,13 @@ html[data-voice-active] .space .lvl-next { opacity: 0; visibility: hidden; }
 }
 
 /* ---------- Tag ---------- */
+/* the padding gives the glow of a fresh or flashed row room inside the clipped box */
 .space .day-box {
   position: relative;
   flex: 1;
   min-height: 0;
-  margin-top: clamp(12px, 3.6svh, 30px);
+  margin: calc(clamp(12px, 3.6svh, 30px) - 8px) -10px 0;
+  padding: 8px 10px 0;
   overflow: hidden;
 }
 .space .day-box.scroll {
@@ -140,6 +142,7 @@ html[data-voice-active] .space .lvl-next { opacity: 0; visibility: hidden; }
   color: inherit;
   text-align: left;
 }
+.space .day-row-main.bare { min-height: 52px; }
 .space .day-time {
   font-size: 0.9375rem;
   line-height: 1.375rem;
@@ -159,24 +162,35 @@ html[data-voice-active] .space .lvl-next { opacity: 0; visibility: hidden; }
 .space .day-list.compact .day-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /* a past goal block: „Halbmarathon Zürich · Hat’s geklappt? Ja · Nein“ (the row grows to 76 px) */
-.space .day-row.answer .day-row-main { min-height: 0; padding-bottom: 0; }
-.space .day-list.compact .day-row.answer .day-row-main { min-height: 44px; }
+/* the row's own button keeps a 44 px box; the answer line overlaps its lower 12 px */
+.space .day-row.answer .day-row-main { min-height: 44px; padding-bottom: 0; }
 .space .ba {
+  position: relative;
+  margin-top: -12px;
+  pointer-events: none;
   grid-column: 2;
+  min-width: 0;
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
   min-height: 44px;
   font-size: 0.8125rem;
   line-height: 1.125rem;
   color: var(--text-soft);
 }
-.space .ba-text { margin-right: 2px; }
-.space .ba-dot { padding: 0 1px; }
+.space .ba-text { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.space .ba-q { flex: none; display: inline-flex; align-items: center; white-space: pre; }
+.space .ba-ask { margin-right: 4px; }
+.space .ba.done .ba-q,
+.space .ba.missed .ba-q { margin-left: 4px; }
+.space .ba-dot { padding: 0 4px; }
+/* 44 px boxes around short words: they reach a little into their neighbours, so
+   „… · Hat’s geklappt? Ja · Nein“ stays on one line at 390 px */
 .space .ba-btn {
+  pointer-events: auto;
   min-width: 44px;
   min-height: 44px;
-  padding: 0 6px;
+  margin: 0 -8px;
+  padding: 0 4px;
   border: 0;
   background: none;
   color: var(--text);
@@ -187,6 +201,10 @@ html[data-voice-active] .space .lvl-next { opacity: 0; visibility: hidden; }
   text-underline-offset: 3px;
 }
 .space .ba-btn[aria-pressed="true"] { color: var(--accent); text-decoration-color: currentColor; }
+.space .ba-ask + .ba-btn { margin-left: -4px; margin-right: -10px; }
+.space .ba-dot + .ba-btn { margin-left: -4px; }
+.space .ba.done .ba-btn,
+.space .ba.missed .ba-btn { margin-left: -6px; }
 
 /* the JETZT line: label, the circle's echo, an accent hairline */
 .space .day-now {
@@ -308,6 +326,7 @@ html[data-voice-active] .space .lvl-next { opacity: 0; visibility: hidden; }
   color: var(--text-soft);
   text-align: center;
 }
+.space .wk-sum.wrapped .wk-sum-dot { visibility: hidden; }
 .space .wk-sum-coach {
   min-height: 44px;
   padding: 0 4px;

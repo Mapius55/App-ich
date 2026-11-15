@@ -1,7 +1,7 @@
 // Woche (level 2): seven rows, Monday first. Each row: weekday and date, the first
 // entries in one line, a 06–22 day track (goal blocks in accent, others soft, a now
 // tick today) and a micro line with the time for goals. Tap a row → that day.
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { daySubline, spokenMinutes, timeHM, weekdayShort, weekRange, weekTitle } from "../lib/dates";
 import { addDays, dayMinutes, dayOf, daysBetween, isoWeek, weekDays, weekStart } from "../lib/plan";
 import type { CalendarEvent } from "../lib/types";
@@ -70,9 +70,29 @@ export function WeekLevel({ titleId, active }: WeekLevelProps) {
   }, [days, events, data.log, now]);
 
   const kind = weekKind(monday, today);
+
   const range = weekRange(monday);
   const tick = nowTick(now, week.range);
-  const summary = events ? weekSummary(kind, week.done, week.planned) : " ";
+  const summary = events ? weekSummary(kind, week.done, week.planned) : "\u00a0";
+
+  // " · Mit dem Coach planen" follows the summary inline; when it wraps, the dot goes
+  // (hidden, not removed, so the measurement cannot flip back and forth)
+  const loaded = !!data.events;
+  const sumRef = useRef<HTMLParagraphElement>(null);
+  const [sumWrapped, setSumWrapped] = useState(false);
+  useLayoutEffect(() => {
+    const p = sumRef.current;
+    if (!p) return;
+    const measure = () => {
+      const [text, , btn] = Array.from(p.children) as HTMLElement[];
+      setSumWrapped(!!btn && btn.offsetTop > text.offsetTop + text.offsetHeight / 2);
+    };
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(measure);
+    ro.observe(p);
+    return () => ro.disconnect();
+  }, [summary, kind, loaded]);
 
   return (
     <div className="tl tl-week" ref={swipeRef} data-active={active || undefined}>
@@ -88,7 +108,7 @@ export function WeekLevel({ titleId, active }: WeekLevelProps) {
       />
       <div className="tl-follow" ref={followRef}>
         <div className="tl-page" ref={pageRef}>
-          <p className="wk-sum">
+          <p className={`wk-sum${sumWrapped ? " wrapped" : ""}`} ref={sumRef}>
             <span>{summary}</span>
             {events && kind !== "past" && (
               <>
@@ -141,7 +161,7 @@ export function WeekLevel({ titleId, active }: WeekLevelProps) {
                     <span className="wk-main" aria-hidden="true">
                       <span className="wk-line-row">
                         <span className="wk-line">
-                          {!events ? " " : n === 0 ? <span className="wk-free">Frei</span> : r.list.map((e, i) => <EntryBit key={e.id} e={e} first={i === 0} />)}
+                          {!events ? "\u00a0" : n === 0 ? <span className="wk-free">Frei</span> : r.list.map((e, i) => <EntryBit key={e.id} e={e} first={i === 0} />)}
                         </span>
                         {tight && microEl}
                       </span>
@@ -151,7 +171,7 @@ export function WeekLevel({ titleId, active }: WeekLevelProps) {
                         ))}
                         {rel === 0 && tick !== null && <span className="wk-tick" style={{ left: `${tick * 100}%` }} />}
                       </span>
-                      {!tight && (microEl ?? <span className="wk-micro">{" "}</span>)}
+                      {!tight && (microEl ?? <span className="wk-micro">{"\u00a0"}</span>)}
                     </span>
                   </button>
                 </li>

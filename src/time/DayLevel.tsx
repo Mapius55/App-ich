@@ -111,12 +111,12 @@ export function DayLevel({ titleId, active, weather }: DayLevelProps) {
     const box = boxRef.current;
     const list = listRef.current;
     if (!box || !list || expanded || !allItems.length) return;
-    if (list.scrollHeight <= box.clientHeight + 1) return;
+    if (list.offsetTop + list.offsetHeight <= box.clientHeight + 1) return;
     if (pastOpen) return setUser({ key: contentKey, expanded: true, pastOpen: true });
     if (fit === 0) return setFitState({ key: layoutKey, fit: 1, limit: Infinity });
     if (fit === 1 && pastCount >= 2) return setFitState({ key: layoutKey, fit: 2, limit: Infinity });
     if (fit < 3) {
-      const room = box.clientHeight - MORE_H;
+      const room = box.clientHeight - list.offsetTop - MORE_H;
       let k = 0;
       for (const li of Array.from(list.children) as HTMLElement[]) {
         if (li.offsetTop + li.offsetHeight > room) break;
@@ -272,7 +272,7 @@ function DayRow(props: {
       data-id={e.id}
       className={`day-row${past ? " past" : ""}${e.goal_id ? " goal" : ""}${planned !== null ? " answer" : ""}${fresh ? " is-fresh" : ""}${flash ? " is-flash" : ""}`}
     >
-      <button type="button" className="day-row-main" aria-label={label} onClick={(ev) => props.onOpen(ev.currentTarget)}>
+      <button type="button" className={`day-row-main${meta || planned !== null ? "" : " bare"}`} aria-label={label} onClick={(ev) => props.onOpen(ev.currentTarget)}>
         <span className={`day-time${e.all_day ? " allday" : ""}`}>{e.all_day ? "Ganztags" : time}</span>
         <span className="day-body">
           <span className="day-title">

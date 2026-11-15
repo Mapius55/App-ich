@@ -16,25 +16,29 @@ export interface BlockAnswerProps {
 
 export function BlockAnswer({ title, goal, planned, value, onAnswer }: BlockAnswerProps) {
   const state = value === undefined ? null : value > 0 ? "done" : "missed";
-  const text = state === "done" ? `Zählt für ${goal} · ${hoursMinutes(value || planned)}` : state === "missed" ? `Zählt nicht für ${goal}` : `${goal} · Hat’s geklappt?`;
+  // one line: only the goal's name gives way (ellipsis); the question and its buttons never wrap
+  const lead = state === "done" ? `Zählt für ${goal} · ${hoursMinutes(value || planned)}` : state === "missed" ? `Zählt nicht für ${goal}` : goal;
   return (
     <div className={`ba${state ? ` ${state}` : ""}`} role="group" aria-label={`Hat es geklappt? ${title}`}>
-      <span className="ba-text">{text}</span>
-      {state !== "missed" && (
-        <button type="button" className="ba-btn" aria-pressed={state === "done"} onClick={() => onAnswer(state === "done" ? null : true)}>
-          Ja
-        </button>
-      )}
-      {state === null && (
-        <span className="ba-dot" aria-hidden="true">
-          ·
-        </span>
-      )}
-      {state !== "done" && (
-        <button type="button" className="ba-btn" aria-pressed={state === "missed"} onClick={() => onAnswer(state === "missed" ? null : false)}>
-          Nein
-        </button>
-      )}
+      <span className="ba-text">{lead}</span>
+      <span className="ba-q">
+        {state === null && <span className="ba-ask">{" · Hat’s geklappt?"}</span>}
+        {state !== "missed" && (
+          <button type="button" className="ba-btn" aria-pressed={state === "done"} onClick={() => onAnswer(state === "done" ? null : true)}>
+            Ja
+          </button>
+        )}
+        {state === null && (
+          <span className="ba-dot" aria-hidden="true">
+            ·
+          </span>
+        )}
+        {state !== "done" && (
+          <button type="button" className="ba-btn" aria-pressed={state === "missed"} onClick={() => onAnswer(state === "missed" ? null : false)}>
+            Nein
+          </button>
+        )}
+      </span>
     </div>
   );
 }

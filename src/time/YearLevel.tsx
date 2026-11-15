@@ -100,7 +100,7 @@ export function YearLevel({ titleId, active }: YearLevelProps) {
         titleId={titleId}
         title={open ? monthLabel.toUpperCase() : String(year)}
         srTitle={open ? monthLabel : `Jahr ${year}`}
-        sub={data.loaded ? yearSummary(total.minutes, total.days) : " "}
+        sub={data.loaded ? yearSummary(total.minutes, total.days) : "\u00a0"}
         prev={open ? null : { label: "Vorheriges Jahr", onClick: () => step(-1) }}
         next={open ? null : { label: "Nächstes Jahr", onClick: () => step(1), disabled: anchorYear >= maxYear }}
         fadeRef={setFade}
@@ -122,7 +122,9 @@ export function YearLevel({ titleId, active }: YearLevelProps) {
               {months.map(({ month, cells }, i) => {
                 const sum = sumDays(data.perDay, month);
                 const current = year === thisYear && i === Number(today.slice(5, 7)) - 1;
-                const aria = `${MONTH_LONG[i]} ${year}: ${sum.days ? `${sum.days} ${sum.days === 1 ? "Tag" : "Tage"} mit Zeit für Ziele, ${spokenMinutes(sum.minutes)}` : "keine Zeit für Ziele"}. Monat öffnen`;
+                const planned = [...data.planned].filter((d) => d.startsWith(month)).length;
+                const targets = [...data.targets].filter((d) => d.startsWith(month)).map((d) => `${Number(d.slice(8))}. ${MONTH_LONG[i]}`);
+                const aria = `${MONTH_LONG[i]} ${year}: ${sum.days ? `${sum.days} ${sum.days === 1 ? "Tag" : "Tage"} mit Zeit für Ziele, ${spokenMinutes(sum.minutes)}` : "keine Zeit für Ziele"}${planned ? `, ${planned} ${planned === 1 ? "Tag" : "Tage"} geplant` : ""}${targets.length ? `, Zieltag am ${targets.join(" und ")}` : ""}. Monat öffnen`;
                 return (
                   <button
                     key={month}
