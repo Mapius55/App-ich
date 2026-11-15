@@ -19,6 +19,20 @@ export function onPulse(l: Listener): () => void {
   return () => listeners.delete(l);
 }
 
+// Pressing the circle from outside the Portal (the space's orb slot sits under a
+// pointer-transparent Portal): down brings the sky closer, up lets go with a kick.
+type PressListener = (down: boolean) => void;
+const pressListeners = new Set<PressListener>();
+
+export function pressOrb(down: boolean) {
+  pressListeners.forEach((l) => l(down));
+}
+
+export function onPress(l: PressListener): () => void {
+  pressListeners.add(l);
+  return () => pressListeners.delete(l);
+}
+
 /** Opens the microphone just to measure loudness. Returns a stop function. */
 export async function startVoiceLevel(): Promise<() => void> {
   try {

@@ -8,7 +8,7 @@
 
 import Anthropic from "npm:@anthropic-ai/sdk@1.8.0";
 import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2.119.0";
-import { contextBlock, effortLine, MODE_CHECKIN, MODE_ONBOARDING, MODE_TIDY, PERSONA, type ContextGoal } from "./prompt.ts";
+import { cleanView, contextBlock, effortLine, MODE_CHECKIN, MODE_ONBOARDING, MODE_TIDY, PERSONA, type ContextGoal } from "./prompt.ts";
 import { zonedToUtc } from "../_shared/ics.ts";
 import { addDays, daysBetween, goalEffort, habitStreak, habitWeek, streakLabel, weekStart } from "../_shared/plan.ts";
 
@@ -39,7 +39,7 @@ interface ReqBody {
   mode: "onboarding" | "checkin" | "tidy";
   thread: string;
   message?: string;
-  context: { day: string; localTime: string; timezone: string; season: string; phase: string; weather?: string; hasLocation: boolean };
+  context: { day: string; localTime: string; timezone: string; season: string; phase: string; weather?: string; hasLocation: boolean; view?: string };
 }
 
 function parseBody(raw: unknown): ReqBody {
@@ -71,6 +71,8 @@ function parseBody(raw: unknown): ReqBody {
       phase: s(c.phase, 40),
       weather: c.weather ? s(c.weather, 80) : undefined,
       hasLocation: !!c.hasLocation,
+      // what the app shows (the space); validated, never trusted as instructions
+      view: cleanView(c.view),
     },
   };
 }
@@ -220,7 +222,7 @@ const TOOLS: Anthropic.Beta.BetaTool[] = [
   {
     name: "create_goal",
     description:
-      "Legt ein Ziel auf der Seite „Plan“ an: etwas Konkretes, auf das die Person hinarbeitet (Rennen, Prüfung, Projekt), oft mit Datum.",
+      "Legt ein Ziel an (die Person sieht es bei den Zielen, in der App rechts vom Kreis): etwas Konkretes, auf das die Person hinarbeitet (Rennen, Prüfung, Projekt), oft mit Datum.",
     input_schema: {
       type: "object",
       properties: {

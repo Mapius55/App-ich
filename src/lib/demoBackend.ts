@@ -788,7 +788,7 @@ export class DemoBackend implements Backend {
     const goal = goalFound ? await this.addGoal(goalFound, [], "coach") : null;
     if (goal) {
       onEvent({ type: "goal_saved", goal, created: true });
-      goalNote = `Schön, „${goal.title}“ ist jetzt dein Ziel. Du findest es unter Plan. `;
+      goalNote = `Schön, „${goal.title}“ ist jetzt dein Ziel. Du findest es bei deinen Zielen. `;
     }
     // "heute 1,5 Stunden trainiert": time for a goal (a report, so no appointment from it)
     const spent = req.message && !goal ? recogniseDemoTime(req.message, await this.listGoals()) : null;
@@ -865,9 +865,10 @@ export class DemoBackend implements Backend {
         reply = `${greet}, ${name}. Wie geht es dir heute?`;
       } else if (goal) {
         reply = "Was wäre ein erster kleiner Schritt dahin?";
-      } else if (/\btag\b.*\bplanen\b/i.test(req.message)) {
-        // "Lass uns meinen Tag planen." (from Plan): no mood, no focus from it
-        reply = "Gern. Was ist heute das Wichtigste, und wann hast du Zeit dafür?";
+      } else if (/\b(tag|woche)\b.*\bplanen\b/i.test(req.message)) {
+        // "Lass uns meinen Tag planen." / "… meine Woche planen." (Tag, Woche): no mood, no focus from it
+        const when = /\bmeine woche\b/i.test(req.message) ? "diese Woche" : /\bwoche\b/i.test(req.message) ? "in der Woche" : /\bmorgen\b/i.test(req.message) ? "morgen" : /\btag am\b/i.test(req.message) ? "an dem Tag" : "heute";
+        reply = `Gern. Was ist ${when} das Wichtigste, und wann hast du Zeit dafür?`;
         const next = (await this.listGoals()).find((g) => g.status === "active");
         if (next) reply += ` Für „${next.title}“ schlage ich einen Block ${new Date().getHours() < 17 ? "heute" : "morgen"} um 18 Uhr vor, eine Stunde.`;
       } else if (habitsDone.length || spent) {

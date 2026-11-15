@@ -1,5 +1,7 @@
-import { describe, expect, it } from "vitest";
-import { parseDemoEvent } from "../src/lib/demoBackend";
+import { beforeEach, describe, expect, it } from "vitest";
+import { DemoBackend, parseDemoEvent } from "../src/lib/demoBackend";
+import { dayOf } from "../src/lib/plan";
+import type { CoachEvent, CoachRequest } from "../src/lib/types";
 
 const now = new Date(2026, 10, 15, 10, 0); // Sunday 15 Nov 2026, 10:00
 
@@ -42,4 +44,58 @@ describe("splitting the coach's speech into sentences", () => {
     const [s] = splitSentences("Gut. Schön. Das freut mich wirklich sehr, erzähl mir mehr davon. ", 30);
     expect(s).toEqual(["Gut. Schön. Das freut mich wirklich sehr, erzähl mir mehr davon."]);
   });
+});
+
+class MemoryStorage {
+  private m = new Map<string, string>();
+  getItem(k: string) {
+    return this.m.has(k) ? this.m.get(k)! : null;
+  }
+  setItem(k: string, v: string) {
+    this.m.set(k, String(v));
+  }
+  removeItem(k: string) {
+    this.m.delete(k);
+  }
+  clear() {
+    this.m.clear();
+  }
+}
+
+describe("demo coach: planning from Tag and Woche", () => {
+  const ctx: CoachRequest["context"] = { day: dayOf(), localTime: "", timezone: "Europe/Zurich", season: "Herbst", phase: "Tag", hasLocation: false };
+  const talk = async (b: DemoBackend, message: string) => {
+    const events: CoachEvent[] = [];
+    await b.coach({ mode: "checkin", thread: ctx.day, message, context: ctx }, (e) => events.push(e));
+    return { events, text: events.flatMap((e) => (e.type === "text" ? [e.text] : [])).join("") };
+  };
+
+  beforeEach(() => {
+    (globalThis as { localStorage?: unknown }).localStorage = new MemoryStorage();
+  });
+
+  it("plans the week (and other days) like the day: no mood, no focus, no entry", async () => {
+    const b = new DemoBackend();
+    await b.signUp("demo.woche", "geheim1234");
+    for (const [message, when] of [
+      ["Lass uns meine Woche planen.", "diese Woche"],
+      ["Lass uns die Woche vom 23. November planen.", "in der Woche"],
+      ["Lass uns den Tag morgen planen.", "morgen"],
+      ["Lass uns den Tag am Dienstag, 17. November planen.", "an dem Tag"],
+    ] as const) {
+      const res = await talk(b, message);
+      expect(res.text).toContain(`Was ist ${when} das Wichtigste, und wann hast du Zeit dafür?`);
+      expect(res.events.some((e) => e.type === "mood" || e.type === "focus" || e.type === "event_created" || e.type === "goal_saved")).toBe(false);
+    }
+    expect(await b.getDay(ctx.day)).toBeNull();
+    expect(await b.listEvents("2000-01-01T00:00:00Z", "2100-01-01T00:00:00Z")).toEqual([]);
+  }, 30000);
+
+  it("points to the goals place for a new goal", async () => {
+    const b = new DemoBackend();
+    await b.signUp("demo.zielort", "geheim1234");
+    const res = await talk(b, "Mein Ziel ist der Halbmarathon am 6. Dezember");
+    expect(res.text).toContain("Du findest es bei deinen Zielen.");
+    expect(res.text).not.toContain("Plan");
+  }, 20000);
 });
