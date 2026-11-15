@@ -301,3 +301,26 @@ export function yearWeeks(today: string, weeks = 53): string[][] {
   const first = addDays(lastMonday, -7 * (weeks - 1));
   return Array.from({ length: weeks }, (_, w) => Array.from({ length: 7 }, (_, d) => addDays(first, w * 7 + d)));
 }
+
+// ---------- calendar year (the space's Jahr level) ----------
+
+/** ISO 8601 week number (weeks start on Monday; week 1 holds the year's first Thursday). */
+export function isoWeek(day: string): number {
+  const thursday = toUtc(day) + (3 - weekdayIndex(day)) * 86400000;
+  const yearStart = Date.UTC(new Date(thursday).getUTCFullYear(), 0, 1);
+  return 1 + Math.floor((thursday - yearStart) / (7 * 86400000));
+}
+
+/**
+ * The twelve months of a calendar year, each as a Monday-first grid of
+ * always 6 weeks (42 cells), so all month blocks have the same height.
+ * The first rows equal monthGrid(); trailing out-of-month days pad to 42.
+ */
+export function yearMonths(year: number): { month: string; cells: { day: string; inMonth: boolean }[] }[] {
+  return Array.from({ length: 12 }, (_, i) => {
+    const month = `${String(year).padStart(4, "0")}-${String(i + 1).padStart(2, "0")}`;
+    const cells = monthGrid(`${month}-01`);
+    while (cells.length < 42) cells.push({ day: addDays(cells[cells.length - 1].day, 1), inMonth: false });
+    return { month, cells };
+  });
+}

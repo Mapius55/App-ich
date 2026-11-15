@@ -143,6 +143,7 @@ export interface CoachContext {
   phase: string; // light phase, e.g. "Sonnenuntergang"
   weather?: string; // e.g. "bedeckt, 7 °C"
   hasLocation: boolean;
+  view?: string; // what the app shows, e.g. "Woche: 16.–22. November 2026 (KW 47)"
 }
 
 export interface CoachRequest {
