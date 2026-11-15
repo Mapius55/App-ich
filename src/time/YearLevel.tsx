@@ -6,7 +6,7 @@ import { spokenMinutes } from "../lib/dates";
 import { heatLevel, yearMonths } from "../lib/plan";
 import { usePlanData } from "../space/data";
 import { useSpace } from "../space/state";
-import { hoursShort, MONTH_LONG, MONTH_SHORT, sumDays, yearSummary } from "./layout";
+import { hoursShort, MONTH_LONG, MONTH_SHORT, monthSummary, sumDays, yearSummary } from "./layout";
 import { CornerPill, LevelHeader } from "./LevelHeader";
 import { MonthInPlace } from "./MonthInPlace";
 import { useArrival, usePeriodSwap, useTimePaging } from "./usePaging";
@@ -88,6 +88,8 @@ export function YearLevel({ titleId, active }: YearLevelProps) {
   }, [openMonth]);
 
   const total = sumDays(data.perDay, String(year));
+  // with a month open the subline is that month's ("18 Tage · 24 Std für Ziele")
+  const monthTotal = open ? sumDays(data.perDay, open.month) : null;
   const filterTitle = yearGoal ? (goalTitle(yearGoal) ?? "einem Ziel") : null;
   const monthIdx = open ? Number(open.month.slice(5, 7)) - 1 : -1;
   const monthLabel = open ? `${MONTH_LONG[monthIdx]} ${year}` : "";
@@ -100,7 +102,7 @@ export function YearLevel({ titleId, active }: YearLevelProps) {
         titleId={titleId}
         title={open ? monthLabel.toUpperCase() : String(year)}
         srTitle={open ? monthLabel : `Jahr ${year}`}
-        sub={data.loaded ? yearSummary(total.minutes, total.days) : "\u00a0"}
+        sub={!data.loaded ? "\u00a0" : monthTotal ? monthSummary(monthTotal.minutes, monthTotal.days) : yearSummary(total.minutes, total.days)}
         prev={open ? null : { label: "Vorheriges Jahr", onClick: () => step(-1) }}
         next={open ? null : { label: "Nächstes Jahr", onClick: () => step(1), disabled: anchorYear >= maxYear }}
         fadeRef={setFade}

@@ -20,9 +20,11 @@ interface Toast {
   label: string;
   title: string;
   when?: string;
-  icon?: "calendar" | "goal" | "check";
+  icon?: "calendar" | "goal" | "check" | "link";
   /** what "Ansehen" opens (space only) */
   target?: Target;
+  /** a text button of its own, e.g. "Verbindungen ansehen" (request_connections) */
+  open?: { label: string; run(): void };
 }
 
 // goal_saved covers new goals (created: true) and changed ones; a step ticked a
@@ -79,6 +81,8 @@ interface Props {
   onActivity?(active: boolean): void;
   /** the typed field opened or closed */
   onTyping?(on: boolean): void;
+  /** request_connections: a toast with "Verbindungen ansehen" (space only; none when they're already shown) */
+  connections?: { shown(): boolean; open(): void };
 }
 
 const dayOfIso = (iso: string) => dayOf(new Date(iso));
@@ -109,6 +113,7 @@ export function VoiceConversation({
   onOpenTarget,
   onActivity,
   onTyping,
+  connections,
 }: Props) {
   const [phase, setPhase] = useState<Phase>("idle");
   const [speaking, setSpeaking] = useState(false);
@@ -139,6 +144,8 @@ export function VoiceConversation({
   holdRef.current = hold;
   const suppressRef = useRef(suppressToast);
   suppressRef.current = suppressToast;
+  const connectionsRef = useRef(connections);
+  connectionsRef.current = connections;
   // the greeting waits while held (layer mode); asks from the space queue here
   const [greetPending, setGreetPending] = useState(false);
   const asks = useRef<string[]>([]);
@@ -184,7 +191,11 @@ export function VoiceConversation({
         return;
       }
       lastMessage.current = message;
-      if (message) setSpoke(true);
+      // the person spoke first (e.g. during the tour): a held greeting no longer fits
+      if (message) {
+        setSpoke(true);
+        setGreetPending(false);
+      }
       speaker.current.reset();
       setError(null);
       setNote(null);
@@ -235,6 +246,10 @@ export function VoiceConversation({
           } else if (e.type === "habit_logged") {
             toast({ label: e.done ? "Abgehakt" : "Wieder offen", title: e.title, icon: "check", target: targetOf(e, dayOfIso) ?? undefined });
             if (e.done) pulseOrb(0.4);
+            onEventRef.current(e);
+          } else if (e.type === "request_connections") {
+            const c = connectionsRef.current;
+            if (c && !c.shown()) toast({ label: "Verbindungen", title: "Was darf ich lesen?", icon: "link", open: { label: "Verbindungen ansehen", run: c.open } });
             onEventRef.current(e);
           } else if (e.type !== "done") {
             onEventRef.current(e);
@@ -319,10 +334,10 @@ export function VoiceConversation({
       sendKickoff(asks.current.shift()!);
     } else if (greetPending) {
       setGreetPending(false);
-      run();
+      if (!spoke) run();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [layer, askTick, ready, hold, phase, speaking, greetPending]);
+  }, [layer, askTick, ready, hold, phase, speaking, greetPending, spoke]);
 
   const talk = async () => {
     await unlockAudio();
@@ -423,6 +438,10 @@ export function VoiceConversation({
                 <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M5 12.5l4.2 4.2L19 7" />
                 </svg>
+              ) : t.icon === "link" ? (
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1" />
+                </svg>
               ) : t.icon === "goal" ? (
                 <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M6 21V4M6 4h11l-2.5 4L17 12H6" />
@@ -450,6 +469,19 @@ export function VoiceConversation({
                 }}
               >
                 Ansehen
+              </button>
+            )}
+            {t.open && (
+              <button
+                type="button"
+                className="event-card-open"
+                onClick={() => {
+                  const open = t.open!;
+                  setToasts((xs) => xs.filter((x) => x.id !== t.id));
+                  open.run();
+                }}
+              >
+                {t.open.label}
               </button>
             )}
           </div>

@@ -1,33 +1,51 @@
-// Du › Verbindungen: the iPhone calendar (steps inline, no card), and WHOOP, Polar,
-// Strava as "Bald verfügbar" until their backends exist.
+// Du › Verbindungen: one quiet row per service, no cards. WHOOP (connect, the last 14 days, the
+// coach switch), Nolio (the trainer's plan, owner only), the iPhone calendar (steps inline), Polar and
+// Garmin ("Bald verfügbar"), Strava (honest: its rules don't allow an AI coach). A service whose status
+// can't be read shows "Bald verfügbar", never an error or a dead button.
 import { IphoneConnect } from "../components/plan/IphoneConnect";
+import { nolioRowKind, SERVICE_LINES } from "../lib/connections";
+import { NolioRow } from "./conn/NolioRow";
+import { useNolio } from "./conn/store";
+import { WhoopRow } from "./conn/WhoopRow";
+import "./conn/conn.css";
 
-const SOON = [
-  { name: "WHOOP", text: "Liest Schlaf, Erholung und Belastung, damit ich weiss, wie viel heute drinliegt." },
-  { name: "Polar", text: "Liest Trainings, Schlaf und Erholung von deiner Uhr." },
-  { name: "Strava", text: "Liest deine Läufe, Velotouren und anderen Trainings, damit sie bei deinen Zielen zählen." },
-];
+function SoonRow({ id, name, text }: { id: string; name: string; text: string }) {
+  return (
+    <section className="du-conn cx-conn" aria-labelledby={`du-conn-${id}`} data-service={id} data-state="soon">
+      <div className="du-conn-head">
+        <h4 id={`du-conn-${id}`} className="du-conn-name">
+          {name}
+        </h4>
+        <button type="button" className="du-soon" disabled>
+          Bald verfügbar
+        </button>
+      </div>
+      <p className="du-conn-text">{text}</p>
+    </section>
+  );
+}
 
 export function Connections() {
+  const nolio = useNolio();
+  const garminViaNolio = nolioRowKind(nolio.value, nolio.failed) === "ready" && !!nolio.value?.connected;
   return (
     <div className="du-conns">
-      <section className="du-conn" aria-labelledby="du-conn-iphone">
+      <WhoopRow />
+      <NolioRow />
+      <section className="du-conn" aria-labelledby="du-conn-iphone" data-service="iphone">
         <h4 id="du-conn-iphone" className="du-conn-name">
           iPhone-Kalender
         </h4>
         <IphoneConnect variant="inline" />
       </section>
-      {SOON.map((c) => (
-        <section key={c.name} className="du-conn" aria-label={c.name}>
-          <div className="du-conn-head">
-            <h4 className="du-conn-name">{c.name}</h4>
-            <button type="button" className="du-soon" disabled>
-              Bald verfügbar
-            </button>
-          </div>
-          <p className="du-conn-text">{c.text}</p>
-        </section>
-      ))}
+      <SoonRow id="polar" name="Polar" text={SERVICE_LINES.polar} />
+      <SoonRow id="garmin" name="Garmin" text={garminViaNolio ? `${SERVICE_LINES.garminViaNolio} Direkt verbinden kommt bald.` : SERVICE_LINES.garmin} />
+      <section className="du-conn cx-conn" aria-labelledby="du-conn-strava" data-service="strava" data-state="none">
+        <h4 id="du-conn-strava" className="du-conn-name">
+          Strava
+        </h4>
+        <p className="du-conn-text">{SERVICE_LINES.strava}</p>
+      </section>
     </div>
   );
 }

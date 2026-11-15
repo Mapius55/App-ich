@@ -4,7 +4,6 @@
 import { useLayoutEffect, useRef } from "react";
 import { daySubline, spokenMinutes } from "../lib/dates";
 import { heatLevel, monthGrid } from "../lib/plan";
-import { monthSummary, sumDays } from "./layout";
 import type { YearData } from "./useYearData";
 
 const WD = ["MO", "DI", "MI", "DO", "FR", "SA", "SO"];
@@ -64,7 +63,6 @@ export function MonthInPlace({ month, label, today, data, origin, closing, reduc
   }, [closing, origin, reduced]);
 
   const cells = monthGrid(`${month}-01`);
-  const sum = sumDays(data.perDay, month);
   return (
     <div className="mo" ref={ref}>
       <div className="mo-wd" aria-hidden="true">
@@ -102,7 +100,6 @@ export function MonthInPlace({ month, label, today, data, origin, closing, reduc
           );
         })}
       </div>
-      <p className="mo-sum">{data.loaded ? monthSummary(sum.minutes, sum.days) : "\u00a0"}</p>
     </div>
   );
 }

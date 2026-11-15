@@ -85,7 +85,10 @@
   background: linear-gradient(to bottom, color-mix(in srgb, var(--bg-bottom) 0%, transparent), var(--bg-bottom) 64px);
   pointer-events: none;
 }
-.tour-caption .tour-caption-inner { max-width: 30rem; margin: 0 auto; pointer-events: auto; }
+/* only its two buttons take touches: a swipe across the caption still pages the day or
+   moves between places, and a drag that starts on a button cannot scroll the document */
+.tour-caption .tour-caption-inner { max-width: 30rem; margin: 0 auto; pointer-events: none; }
+.tour-caption .tour-row button { pointer-events: auto; touch-action: none; }
 
 /* small phones: the block takes less room from the circle */
 @media (max-height: 700px) {

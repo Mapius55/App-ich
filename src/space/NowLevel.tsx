@@ -1,6 +1,6 @@
 // Jetzt (level 0, §3.1): three pills, the greeting, the focus, the orb slot (the
 // fixed OrbLayer draws the circle over it) and the door line to the day.
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { backend } from "../lib/backend";
 import { localMidnightIso } from "../lib/dates";
 import type { Palette } from "../lib/palette";
@@ -115,6 +115,25 @@ export function NowLevel({ profile, palette, weather, focus, onSlot }: NowLevelP
     return () => (ro.disconnect(), clearTimeout(t));
   }, []);
 
+  // Farben heute opens and closes in 320 ms: tell the circle at once where its slot will
+  // be, so it glides along with the content (the measure above confirms once it rests)
+  const colorsRef = useRef<HTMLDivElement>(null);
+  const colorsWere = useRef(colorsOpen);
+  useLayoutEffect(() => {
+    if (colorsWere.current === colorsOpen) return;
+    colorsWere.current = colorsOpen;
+    const el = slotRef.current;
+    const panel = colorsRef.current;
+    const inner = panel?.firstElementChild as HTMLElement | null;
+    if (!el || !panel || !inner) return;
+    // (read in one layout: the grid row starts its transition from the old height)
+    const delta = (colorsOpen ? inner.scrollHeight : 0) - panel.offsetHeight;
+    if (Math.abs(delta) < 1) return;
+    const height = Math.max(0, el.clientHeight - delta);
+    const { left, top } = docOffset(el);
+    onSlotRef.current({ size: Math.max(0, Math.floor(Math.min(el.clientWidth, height, 300))), cx: left + el.clientWidth / 2, cy: top + delta + height / 2 });
+  }, [colorsOpen]);
+
   // (the slot never captures the pointer: vertical drags scroll, sideways drags page)
   const press = (down: boolean) => () => pressOrb(down);
 
@@ -142,7 +161,7 @@ export function NowLevel({ profile, palette, weather, focus, onSlot }: NowLevelP
           </button>
         </div>
 
-        <div id="now-colors" className="now-colors" data-open={colorsOpen || undefined} inert={!colorsOpen}>
+        <div ref={colorsRef} id="now-colors" className="now-colors" data-open={colorsOpen || undefined} inert={!colorsOpen}>
           <div className="now-colors-inner">
             <span className="now-colors-label">Farben heute</span>
             <span className="now-swatches">

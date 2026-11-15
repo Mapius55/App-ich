@@ -11,6 +11,7 @@ import { backend } from "../lib/backend";
 import type { Coords } from "../lib/location";
 import type { Palette } from "../lib/palette";
 import { daySubline, weekRange } from "../lib/dates";
+import { weekStart } from "../lib/plan";
 import { pressOrb } from "../lib/orbSignals";
 import type { Weather } from "../lib/weather";
 import type { CoachContext, CoachEvent, Profile } from "../lib/types";
@@ -140,6 +141,8 @@ export function Space(props: SpaceProps) {
   const [detail, setDetail] = useState<Detail | null>(null);
   const [detailOrigin, setDetailOrigin] = useState<HTMLElement | null>(null);
   const [duSection, setDuSection] = useState<DuSection | null>(initial.s?.duSection ?? null);
+  // the row open in Du, as Du reports it (by hand too): the hash follows it
+  const [duOpen, setDuOpenState] = useState<DuSection | null>(initial.s?.duSection ?? null);
   // (tourSeen() again: App decides once per page load, and the tour may have ended since, e.g. before a re-login)
   const [tour, setTourState] = useState<TourStep | null>(() => (props.startTour && !tourSeen() && !initial.deepLink ? 1 : null));
   const [highlight, setHighlight] = useState<string | null>(null);
@@ -147,6 +150,7 @@ export function Space(props: SpaceProps) {
   const reduced = useReducedMotion();
   const [orbState, setOrbState] = useState<OrbState>("idle");
   const [voiceActive, setVoiceActive] = useState(false);
+  const [typedOpen, setTypedOpen] = useState(false); // the dock's typed field is open
   const [announce, setAnnounce] = useState("");
   const [slot, setSlot] = useState<OrbSlot | null>(null);
 
@@ -165,8 +169,11 @@ export function Space(props: SpaceProps) {
   const zieleRef = useRef<HTMLElement>(null);
   const inners = useRef<(HTMLDivElement | null)[]>([null, null, null, null]);
   const innerRefs = useRef([0, 1, 2, 3].map((k) => (el: HTMLDivElement | null) => void (inners.current[k] = el)));
-  const motion = useRef({ p: initial.s?.place === "jetzt" ? (initial.s.level as number) : 0, x: 0, pagerStyled: false, anim: 0, dragBase: 0 });
+  const motion = useRef({ p: initial.s?.place === "jetzt" ? (initial.s.level as number) : 0, x: -POS[initial.s?.place ?? "jetzt"] * pageWidth(), pagerStyled: false, anim: 0, dragBase: 0 });
   const lastLevelCss = useRef<string[]>(["", "", "", ""]);
+  // a programmatic move in flight (the 1 s anchor reset at Jetzt must not fire half way;
+  // the hidden time column may scroll while a side is shown)
+  const navigating = useRef(0);
   const lastPagerCss = useRef<string[]>(["", "", ""]);
   const willChangeTimer = useRef(0);
 
@@ -243,6 +250,12 @@ export function Space(props: SpaceProps) {
     },
     onMotion: setMoving,
     snap: !typing,
+    // on a side the time column is hidden: a drag that chains to the document (e.g. from a
+    // toast in the fixed voice layer) must not move it (only programmatic moves may)
+    hold: () => {
+      const s = stateRef.current;
+      return s.place !== "jetzt" && !s.typing && !navigating.current && !motion.current.anim ? s.level : null;
+    },
   });
 
   // the pager offset of a settled place
@@ -391,8 +404,10 @@ export function Space(props: SpaceProps) {
   const go = useCallback(
     async (p: Place, o?: { highlight?: string; duSection?: DuSection }) => {
       if (stateRef.current.detail && !(await close("nav"))) return;
-      if (p === "du") setDuSection(o?.duSection ?? null);
-      else setDuSection(null);
+      if (p === "du") {
+        setDuSection(o?.duSection ?? null);
+        if (o?.duSection) setDuOpenState(o.duSection);
+      } else setDuSection(null);
       if (stateRef.current.place !== p || motion.current.x !== baseX(p)) await pagerTo(p, GO_MS);
       if (o?.highlight) flash(o.highlight);
       focusAfterNav({ place: p, level: stateRef.current.level }, o?.highlight);
@@ -401,8 +416,6 @@ export function Space(props: SpaceProps) {
     [close, flash, pagerTo, focusAfterNav],
   );
 
-  // a programmatic move in flight (the 1 s anchor reset at Jetzt must not fire half way)
-  const navigating = useRef(0);
   const goLevel = useCallback(
     async (l: Level, o?: { day?: string; highlight?: string; yearGoal?: string | null }) => {
       if (stateRef.current.detail && !(await close("nav"))) return;
@@ -447,6 +460,7 @@ export function Space(props: SpaceProps) {
     if (step === null && stateRef.current.tour !== null) markTourSeen();
     setTourState(step);
   }, []);
+  const setDuOpen = useCallback((section: DuSection | null) => setDuOpenState(section), []);
   const startTour = useCallback(async () => {
     await go("jetzt");
     await goLevel(0);
@@ -454,7 +468,7 @@ export function Space(props: SpaceProps) {
   }, [go, goLevel]);
 
   const api: SpaceApi = useMemo(
-    () => ({ ...state, go, goLevel, setAnchor, setYearGoal, open, close, registerCloser, flash, registerAdd, ask, startTour, setTour }),
+    () => ({ ...state, go, goLevel, setAnchor, setYearGoal, open, close, registerCloser, flash, registerAdd, ask, startTour, setTour, setDuOpen }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [place, level, anchor, today, yearGoal, detail, detailOrigin, duSection, tour, highlight, typing, reduced],
   );
@@ -511,7 +525,13 @@ export function Space(props: SpaceProps) {
     root.classList.add("space-on");
     return () => {
       root.classList.remove("space-on");
-      for (const k of ["place", "level", "detail", "typing", "tour", "voiceActive"]) delete root.dataset[k];
+      for (const k of ["place", "level", "detail", "typing", "tour", "voiceActive", "typed"]) delete root.dataset[k];
+      // A real unmount (Abmelden, a new sign-up): the next Space opens at Jetzt, so the
+      // last place must not linger in the URL as a deep link. (Deferred: StrictMode's
+      // test unmount mounts again at once.)
+      setTimeout(() => {
+        if (!root.classList.contains("space-on") && window.location.hash) history.replaceState(history.state, "", `${window.location.pathname}${window.location.search}`);
+      }, 0);
     };
   }, []);
   useEffect(() => {
@@ -526,33 +546,65 @@ export function Space(props: SpaceProps) {
     else delete d.tour;
     if (voiceActive) d.voiceActive = "true";
     else delete d.voiceActive;
-  }, [place, level, detail, typing, tour, voiceActive]);
+    if (typedOpen) d.typed = "true";
+    else delete d.typed;
+  }, [place, level, detail, typing, tour, voiceActive, typedOpen]);
 
-  // hash (replaceState only) and the polite announcement after every settle
+  // hash (replaceState only) and the polite announcement after every settle. The first
+  // write waits until after the first paint: a deep link may carry a query for another
+  // module ("#du/verbindungen?whoop=…"), read at page load.
+  const painted = useRef(false);
   useEffect(() => {
-    const hash = toHash({ place, level, anchor, duSection });
-    if (hash !== window.location.hash) history.replaceState(history.state, "", `${window.location.pathname}${window.location.search}${hash}`);
-  }, [place, level, anchor, duSection]);
+    const write = () => {
+      painted.current = true;
+      const hash = toHash({ place, level, anchor, duSection: duOpen });
+      if (hash !== window.location.hash) history.replaceState(history.state, "", `${window.location.pathname}${window.location.search}${hash}`);
+    };
+    if (painted.current) return write();
+    let r2 = 0;
+    const r1 = requestAnimationFrame(() => (r2 = requestAnimationFrame(write)));
+    return () => (cancelAnimationFrame(r1), cancelAnimationFrame(r2));
+  }, [place, level, anchor, duOpen]);
+  // Woche adds its summary ("…, 7 Stunden 45 für deine Ziele geplant") once that week's data is there
+  const announceWeek = (base: string, monday: string, delay: number) => {
+    let tries = 0;
+    let t = 0;
+    const withSummary = () => {
+      const spoken = document.querySelector<HTMLElement>(`.space .lvl[data-level="2"] .wk-sum[data-week="${monday}"][data-spoken]`)?.dataset.spoken;
+      if (spoken) setAnnounce(`${base}, ${spoken}`);
+      else if (++tries < 8) t = window.setTimeout(withSummary, 150);
+      else setAnnounce(base);
+    };
+    t = window.setTimeout(withSummary, delay);
+    return () => clearTimeout(t);
+  };
   useEffect(() => {
     const base = announcement({ place, level, anchor, today });
     if (place !== "jetzt" || level !== 2) {
       setAnnounce(base);
       return;
     }
-    // Woche adds its summary ("…, 7 Stunden 45 für deine Ziele geplant") once its data is there
-    let tries = 0;
-    let t = 0;
-    const withSummary = () => {
-      const spoken = document.querySelector<HTMLElement>('.space .lvl[data-level="2"] .wk-sum[data-spoken]')?.dataset.spoken;
-      if (spoken) setAnnounce(`${base}, ${spoken}`);
-      else if (++tries < 8) t = window.setTimeout(withSummary, 150);
-      else setAnnounce(base);
-    };
-    t = window.setTimeout(withSummary, 0);
-    return () => clearTimeout(t);
-    // only on settle (place / level), not on every anchor step
+    return announceWeek(base, weekStart(anchor), 0);
+    // only on settle (place / level); paging through time has its own path below
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [place, level]);
+
+  // Paging through time (chevrons, ← / →, "Zu heute", a swipe) is announced too, once
+  // it rests for 300 ms, so fast paging speaks only the period it ends on.
+  const periodKey = place !== "jetzt" ? "" : level === 1 ? anchor : level === 2 ? weekStart(anchor) : level === 3 ? anchor.slice(0, 4) : "";
+  const lastPeriod = useRef({ place, level, key: periodKey });
+  useEffect(() => {
+    const was = lastPeriod.current;
+    lastPeriod.current = { place, level, key: periodKey };
+    if (!periodKey || was.place !== place || was.level !== level || was.key === periodKey) return; // a settle has its own announcement
+    const base = announcement({ place, level, anchor, today });
+    if (level !== 2) {
+      const t = window.setTimeout(() => setAnnounce(base), 300);
+      return () => clearTimeout(t);
+    }
+    return announceWeek(base, periodKey, 300);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [place, level, periodKey]);
 
   // after 1 s settled at Jetzt, the anchor returns to today and the year filter goes
   useEffect(() => {
@@ -582,10 +634,13 @@ export function Space(props: SpaceProps) {
       const s = stateRef.current;
       if (away < RESUME_KEEP_MS || s.detail || (s.place === "jetzt" && s.level === 0)) return;
       setDuSection(null);
-      animatePager(0, 0).then(() => {
-        setPlace("jetzt");
-        levels.scrollToLevel(0, "auto");
-      });
+      navigating.current++;
+      animatePager(0, 0)
+        .then(() => {
+          setPlace("jetzt");
+          return levels.scrollToLevel(0, "auto");
+        })
+        .finally(() => navigating.current--);
     };
     document.addEventListener("visibilitychange", onVis);
     return () => document.removeEventListener("visibilitychange", onVis);
@@ -685,6 +740,14 @@ export function Space(props: SpaceProps) {
     },
     [go, goLevel],
   );
+  // the coach asks which apps it may read (request_connections): "Verbindungen ansehen" opens Du › Verbindungen
+  const connections = useMemo(
+    () => ({
+      shown: () => stateRef.current.place === "du" && stateRef.current.duSection === "connections",
+      open: () => void go("du", { duSection: "connections" }),
+    }),
+    [go],
+  );
 
   // once a day, a little after the greeting, the coach quietly tidies its notes
   useEffect(() => {
@@ -730,7 +793,7 @@ export function Space(props: SpaceProps) {
 
   return (
     <SpaceContext.Provider value={api}>
-      <SkipNav onGo={onSkip} />
+      <SkipNav onGo={onSkip} inert={!!detail} />
       <div ref={spaceEl} className="space" data-place={place} inert={!!detail}>
         <OrbLayer
           apiRef={orbApi}
@@ -794,7 +857,9 @@ export function Space(props: SpaceProps) {
           idleHint="untilFirstMessage"
           suppressToast={suppressToast}
           onOpenTarget={openTarget}
+          connections={connections}
           onActivity={setVoiceActive}
+          onTyping={setTypedOpen}
         />
       </div>
       <TourCaption />

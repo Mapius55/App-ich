@@ -30,23 +30,37 @@ export interface SwipeXOptions {
 }
 
 const IGNORE = "input, textarea, select, [contenteditable=''], [contenteditable='true'], [data-no-swipe], .dock";
-const DISCRETE_OUT_MS = 160;
 const DISCRETE_BACK_MS = 220;
+// a committed time swipe leaves the content at the finger's offset: the level's period swap
+// carries it on out in the same direction and resets it (usePeriodSwap); this is the
+// safety net when nothing does
+const DISCRETE_HOLD_MAX = 700;
 
 function standalone(): boolean {
   return (navigator as Navigator & { standalone?: boolean }).standalone === true || window.matchMedia("(display-mode: standalone)").matches;
 }
 const reducedMotion = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-// After a horizontal drag the browser still fires a click on the button under the
-// finger; swallow that one click.
+// After a horizontal drag the browser may still fire a click on the button under the
+// finger (mouse and pen do); swallow that one click. The next pointerdown or key ends
+// it, so a real tap or click right after a swipe always goes through.
 function swallowNextClick() {
+  let t = 0;
+  const off = () => {
+    clearTimeout(t);
+    window.removeEventListener("click", stop, { capture: true });
+    window.removeEventListener("pointerdown", off, { capture: true });
+    window.removeEventListener("keydown", off, { capture: true });
+  };
   const stop = (e: Event) => {
     e.stopPropagation();
     e.preventDefault();
+    off();
   };
-  window.addEventListener("click", stop, { capture: true, once: true });
-  setTimeout(() => window.removeEventListener("click", stop, { capture: true }), 400);
+  window.addEventListener("click", stop, { capture: true });
+  window.addEventListener("pointerdown", off, { capture: true });
+  window.addEventListener("keydown", off, { capture: true });
+  t = window.setTimeout(off, 400);
 }
 
 interface Gesture {
@@ -74,10 +88,11 @@ function attach(root: HTMLElement, opts: { current: SwipeXOptions }): () => void
     else if (g.el) g.el.style.transform = `translate3d(${discreteFollow(g.dx, can)}px,0,0)`;
   };
 
-  // discrete: bring the content home (a short slide on commit, a spring on cancel)
+  // discrete: bring the content home (a spring on cancel, at once under reduced motion)
   const release = (el: HTMLElement | null, ms: number) => {
     if (!el) return;
     clearTimeout(springTimer);
+    delete el.dataset.held;
     if (reducedMotion() || ms === 0) {
       el.style.transition = "";
       el.style.transform = "";
@@ -90,6 +105,16 @@ function attach(root: HTMLElement, opts: { current: SwipeXOptions }): () => void
       el.style.transition = "";
       el.style.willChange = "";
     }, ms + 40);
+  };
+  // discrete commit: stay at the finger's offset (data-held) until the new period enters
+  const hold = (el: HTMLElement | null) => {
+    if (!el) return;
+    clearTimeout(springTimer);
+    el.style.transition = "";
+    el.dataset.held = "";
+    springTimer = window.setTimeout(() => {
+      if (el.dataset.held !== undefined) release(el, DISCRETE_BACK_MS);
+    }, DISCRETE_HOLD_MAX);
   };
 
   const down = (e: PointerEvent) => {
@@ -126,6 +151,7 @@ function attach(root: HTMLElement, opts: { current: SwipeXOptions }): () => void
         g.el = o.follow?.() ?? null;
         if (g.el) {
           clearTimeout(springTimer);
+          delete g.el.dataset.held;
           g.el.style.transition = "none";
           g.el.style.willChange = "transform";
         }
@@ -154,7 +180,10 @@ function attach(root: HTMLElement, opts: { current: SwipeXOptions }): () => void
     let dir = cancelled ? 0 : decideCommit(o.mode, was.dx, v, was.width);
     if (dir && o.canGo && !o.canGo(dir)) dir = 0;
     const info: SwipeInfo = { dx: was.dx, v, width: was.width };
-    if (o.mode === "discrete") release(was.el, dir ? DISCRETE_OUT_MS : DISCRETE_BACK_MS);
+    if (o.mode === "discrete") {
+      if (dir && !reducedMotion()) hold(was.el);
+      else release(was.el, dir ? 0 : DISCRETE_BACK_MS);
+    }
     if (dir) o.onCommit(dir, info);
     else o.onCancel?.(info);
   };

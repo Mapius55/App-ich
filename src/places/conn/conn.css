@@ -1,0 +1,181 @@
+/* Connections (Du › Verbindungen and the onboarding chooser). Typography and hairlines, no cards. */
+
+/* ---------- Du › Verbindungen ---------- */
+.space .cx-conn { gap: 10px; }
+.space .cx-conn .du-conn-head + .du-conn-text { margin-top: -6px; }
+.space .cx-when {
+  flex: none;
+  max-width: 55%;
+  font-size: 0.8125rem;
+  line-height: 1.3;
+  color: var(--text-soft);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.space .cx-btn { align-self: flex-start; min-height: 44px; }
+.space .cx-ok {
+  margin: 0;
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 1.1875rem;
+  line-height: 1.35;
+  color: var(--text);
+}
+.space .cx-outcome { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; }
+.space .cx-error { margin: 0; font-size: 0.875rem; text-align: left; }
+.space .cx-note { color: var(--text); }
+.space .cx-counts { margin: 0; font-size: 0.875rem; line-height: 1.45; color: var(--text); }
+.space .cx-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 0 22px; }
+.space .cx-actions .btn.quiet { padding-left: 0; padding-right: 0; min-height: 44px; }
+.space .cx-consent { align-items: center; gap: 14px; padding: 4px 0; }
+.space .cx-consent > span:first-child { font-size: 0.9375rem; color: var(--text); }
+.space .cx-hint { font-size: 0.8125rem; line-height: 1.4; color: var(--text-soft); }
+.space .cx-foot { margin: 0; font-size: 0.75rem; line-height: 1.5; color: var(--text-soft); }
+.space .cx-link {
+  display: inline-block;
+  padding: 10px 0; /* a 44 px tap area around a small link */
+  margin: -10px 0;
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-color: var(--line-strong, rgba(255, 255, 255, 0.3));
+  text-underline-offset: 3px;
+}
+
+/* the last 14 days: three thin bar rows, one hue, the newest value on the right */
+.space .cx-strip { display: flex; flex-direction: column; gap: 8px; padding: 2px 0 4px; }
+.space .cx-strip-head { margin: 0; min-height: 22px; display: flex; align-items: center; justify-content: space-between; }
+.space .cx-strip-reset {
+  min-height: 32px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-soft);
+  font-size: 0.8125rem;
+}
+.space .cx-metric { display: grid; grid-template-columns: 78px minmax(0, 1fr) 50px; align-items: end; gap: 10px; }
+.space .cx-metric-label {
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-soft);
+  padding-bottom: 1px;
+}
+.space .cx-bars { display: flex; align-items: flex-end; gap: 3px; height: 26px; }
+.space .cx-bar { flex: 1 1 0; min-width: 0; height: 100%; display: flex; align-items: flex-end; cursor: pointer; }
+.space .cx-bar > span {
+  display: block;
+  width: 100%;
+  border-radius: 2px 2px 1px 1px;
+  background: color-mix(in srgb, var(--text) 34%, transparent);
+  transition: background 160ms ease;
+}
+.space .cx-bar.last > span { background: color-mix(in srgb, var(--text) 82%, transparent); }
+.space .cx-bar.sel > span { background: var(--accent); }
+.space .cx-bar.gap > span { height: 2px; background: color-mix(in srgb, var(--text) 14%, transparent); }
+.space .cx-metric-value {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  line-height: 1;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+/* ---------- read-only entry from Nolio (inside the Unfold and the old sheet) ---------- */
+.nolio-entry { display: flex; flex-direction: column; gap: 14px; }
+.nolio-entry .nolio-from {
+  margin: 0;
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 1.0625rem;
+  line-height: 1.4;
+  color: var(--text-soft);
+}
+.nolio-entry .nolio-facts { margin: 0; display: flex; flex-direction: column; gap: 12px; }
+.nolio-entry .nolio-facts > div { display: flex; flex-direction: column; gap: 3px; }
+.nolio-entry dt {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-soft);
+}
+.nolio-entry dd { margin: 0; font-size: 1rem; line-height: 1.45; color: var(--text); white-space: pre-line; overflow-wrap: anywhere; }
+.nolio-entry .nolio-title { margin: 0; font-size: 1.375rem; font-weight: 700; line-height: 1.2; overflow-wrap: anywhere; }
+.detail-root .nolio-entry .nolio-title {
+  font-family: var(--sans);
+  font-weight: 800;
+  font-size: 1.5rem;
+  letter-spacing: -0.01em;
+  text-transform: uppercase;
+}
+
+/* ---------- which trainings count (goal) ---------- */
+.space .sp-pick { display: flex; flex-direction: column; gap: 8px; padding: 4px 0 6px; }
+.space .sp-chips, .sp-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.sp-chip,
+.cx-chip {
+  min-height: 44px;
+  padding: 0 16px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--glass);
+  color: var(--text);
+  font-size: 0.875rem;
+  font-weight: 600;
+  line-height: 1.1;
+  transition: background 0.25s, border-color 0.25s, transform 0.2s var(--ease-out);
+}
+.sp-chip:active,
+.cx-chip:active { transform: scale(0.96); }
+.sp-chip[aria-pressed="true"] { background: var(--text); color: #0a0a0f; border-color: transparent; }
+.space .sp-hint { margin: 0; font-size: 0.8125rem; line-height: 1.4; color: var(--text-soft); }
+
+/* ---------- the onboarding chooser (under the conversation) ---------- */
+.cx-chooser {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+  max-width: 360px;
+  font-family: var(--sans);
+  animation: rise 0.8s var(--ease-out) 0.2s both;
+}
+.cx-chooser .cx-chips { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
+.cx-chip.soon { color: var(--text-soft); }
+.cx-chip.on { border-color: transparent; background: color-mix(in srgb, var(--text) 18%, transparent); }
+.cx-chip.later { background: none; border-color: transparent; color: var(--text-soft); font-weight: 500; }
+.cx-chip svg { flex: none; }
+.cx-chooser .cx-reason { margin: 0; font-size: 0.875rem; line-height: 1.45; color: var(--text-soft); text-wrap: balance; }
+.cx-chooser .cx-reason.ok { font-family: var(--serif); font-style: italic; font-size: 1.0625rem; color: var(--text); }
+.cx-chooser .cx-iphone { width: 100%; text-align: left; }
+.cx-chooser .cx-iphone .hint { margin: 0 0 8px; }
+.cx-chooser .cx-iphone .steps { margin: 0 0 10px; padding-left: 20px; font-size: 0.875rem; color: var(--text-soft); line-height: 1.45; }
+.cx-chooser .cx-iphone .row { display: flex; flex-wrap: wrap; gap: 8px; }
+.cx-chooser .cx-iphone a.btn { display: inline-flex; align-items: center; min-height: 44px; text-decoration: none; color: inherit; }
+
+@media (prefers-reduced-motion: reduce) {
+  .cx-chooser { animation: none; }
+  .space .cx-bar > span { transition: none; }
+}
+.cx-chooser .link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 4px;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.space .sp { display: flex; flex-direction: column; }
+.space .sp-toggle { font-size: 0.8125rem; }

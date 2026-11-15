@@ -60,6 +60,8 @@ export interface SpaceApi extends SpaceState {
   startTour(): void;
   /** null ends the tour (Space then also calls markTourSeen()) */
   setTour(step: TourStep | null): void;
+  /** Du reports the row that is open (by hand, the dock "+", a deep link): the hash follows ("#du/verbindungen") */
+  setDuOpen(section: DuSection | null): void;
 }
 
 export const SpaceContext = createContext<SpaceApi | null>(null);
@@ -108,10 +110,16 @@ export function toHash(s: Pick<SpaceState, "place" | "level" | "anchor" | "duSec
 /**
  * The place a hash points to. "" and "#jetzt" → Jetzt. A week resolves to today
  * when today is in it (else its Monday); a year to today's date in that year.
- * Anything unknown or invalid → null.
+ * A query after the place ("?…") is ignored. Anything unknown or invalid → null.
  */
 export function fromHash(hash: string, today: string): Pick<SpaceState, "place" | "level" | "anchor" | "duSection"> | null {
-  const h = decodeURIComponent(hash.replace(/^#/, "")).trim().toLowerCase();
+  // a query after the place belongs to someone else (e.g. "#du/verbindungen?whoop=confirm&code=…")
+  let h: string;
+  try {
+    h = decodeURIComponent(hash.replace(/^#/, "").split("?")[0]).trim().toLowerCase();
+  } catch {
+    return null; // a malformed escape
+  }
   const at = (place: Place, level: Level, anchor = today, duSection: DuSection | null = null) => ({ place, level, anchor, duSection });
   if (h === "" || h === "jetzt") return at("jetzt", 0);
   if (h === "ziele") return at("ziele", 0);

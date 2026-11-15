@@ -86,7 +86,11 @@
   transition: opacity var(--t-fast) ease;
 }
 .space .lvl-next-chev { margin-left: 2px; letter-spacing: 0; }
-html[data-voice-active] .space .lvl-next { opacity: 0; visibility: hidden; }
+html[data-voice-active] .space .lvl-next,
+html[data-typed] .space .lvl-next { opacity: 0; visibility: hidden; }
+/* the typed field stands above the dock: Tag and Woche end above it (Tag re-fits its list) */
+html[data-typed] .space .lvl[data-level="1"] .lvl-inner,
+html[data-typed] .space .lvl[data-level="2"] .lvl-inner { padding-bottom: calc(var(--lvl-content-bottom) + 50px); }
 
 .space .tl .form-error { margin: 8px 0 0; }
 
@@ -409,7 +413,13 @@ html[data-voice-active] .space .lvl-next { opacity: 0; visibility: hidden; }
 .space .wk-tick { position: absolute; top: -3px; bottom: -3px; width: 1.5px; margin-left: -0.75px; border-radius: 1px; background: var(--text); }
 .space .wk-micro { font-size: 0.75rem; line-height: 1rem; color: var(--text-soft); white-space: nowrap; }
 .space .wk-micro .done { color: var(--accent); }
-.space .wk-rows.tight .wk-micro { flex: none; }
+/* tight rows (small phones, big text): the date column fits the row, and the micro line
+   gives way so line 1 keeps at least its first entry */
+.space .wk-rows.tight .wk-micro { flex: 0 1 auto; min-width: 0; max-width: 48%; overflow: hidden; text-overflow: ellipsis; }
+.space .wk-rows.tight .wk-wd,
+.space .wk-rows.tight .wk-num { line-height: 1; }
+.space .wk-rows.tight .wk-date { gap: 2px; }
+.space .wk-rows.tight .wk-row.today .wk-num { width: 30px; height: 30px; font-size: 1rem; }
 .space .wk-row.arrive { animation: wk-wash 150ms ease-out; }
 @keyframes wk-wash { from { background: color-mix(in srgb, var(--accent) 18%, transparent); } }
 
@@ -535,7 +545,6 @@ html[data-voice-active] .space .lvl-next { opacity: 0; visibility: hidden; }
 .space .mo-num { line-height: 1; }
 .space .mo-dots { display: flex; gap: 3px; height: 4px; }
 .space .mo-dots i { width: 4px; height: 4px; border-radius: 50%; background: currentColor; opacity: 0.75; }
-.space .mo-sum { margin: 12px 0 0; text-align: center; font-size: 0.8125rem; color: var(--text-soft); }
 
 @media (prefers-reduced-motion: reduce) {
   .space .wk-row.arrive,

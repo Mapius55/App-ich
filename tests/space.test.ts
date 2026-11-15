@@ -74,8 +74,16 @@ describe("hash routing", () => {
     expect(fromHash("#Ziele", TODAY)).toEqual(at("ziele", 0));
   });
 
+  it("a query after the place is ignored (it belongs to another module, e.g. the WHOOP return)", () => {
+    expect(fromHash("#du/verbindungen?whoop=confirm&code=abc", TODAY)).toEqual(at("du", 0, TODAY, "connections"));
+    expect(fromHash("#du?whoop=error", TODAY)).toEqual(at("du", 0));
+    expect(fromHash("#tag/2026-11-15?x=1", TODAY)).toEqual(at("jetzt", 1, "2026-11-15"));
+    expect(fromHash("#?x=1", TODAY)).toEqual(at("jetzt", 0));
+    expect(fromHash("#du/xyz?whoop=confirm", TODAY)).toBeNull();
+  });
+
   it("unknown or invalid hashes give null", () => {
-    for (const h of ["#foo", "#tag/2026-02-30", "#tag/morgen", "#tag/2026-11-15/x", "#jahr/26", "#du/xyz", "#woche/", "#tag"]) {
+    for (const h of ["#foo", "#tag/2026-02-30", "#tag/morgen", "#tag/2026-11-15/x", "#jahr/26", "#du/xyz", "#woche/", "#tag", "#%E0%A4%A", "#du/%zz"]) {
       expect(fromHash(h, TODAY), h).toBeNull();
     }
   });

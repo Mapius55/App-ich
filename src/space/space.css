@@ -51,11 +51,24 @@ html.space-on #root { height: auto; }
 .space[data-place="ziele"] #ziele { transform: none; }
 .space[data-place="ziele"] .time { transform: translate3d(-100%, 0, 0); }
 .space[data-place="du"] .time { transform: translate3d(100%, 0, 0); }
+/* the bottom padding lets the last row rest clear above the dock and its fade */
 .space .side-inner {
   max-width: 560px;
   min-height: calc(100% + 1px);
   margin: 0 auto;
-  padding: var(--lvl-title-top) var(--gutter) calc(var(--lvl-content-bottom) + 24px);
+  padding: var(--lvl-title-top) var(--gutter) calc(var(--lvl-content-bottom) + 40px);
+}
+/* at the top the docked circle sits over the scrolling side: a soft fade under it */
+.space .side::before {
+  content: "";
+  position: sticky;
+  z-index: 1;
+  top: 0;
+  display: block;
+  height: calc(var(--safe-t) + 48px);
+  margin-bottom: calc(-1 * (var(--safe-t) + 48px));
+  background: linear-gradient(to bottom, color-mix(in srgb, var(--bg-top) 90%, transparent), color-mix(in srgb, var(--bg-top) 0%, transparent));
+  pointer-events: none;
 }
 /* will-change only while scrolling or dragging (removed 300 ms after settle) */
 .space.is-moving .time,
@@ -217,6 +230,33 @@ html[data-typing="detail"][data-kb] .voice-layer { opacity: 0; visibility: hidde
 .voice-layer form,
 .voice-layer .dock { pointer-events: auto; }
 .voice-layer .dock { touch-action: none; }
+/* on a side a drag on the status or a toast must not scroll the hidden time column */
+html.space-on:not([data-place="jetzt"]) .voice-layer .voice-status > *,
+html.space-on:not([data-place="jetzt"]) .voice-layer .toasts > * { touch-action: none; }
+
+/* A soft ground behind the voice stack, away from Jetzt: on the sides content scrolls
+   under the dock, and on the levels the status, the echo, toasts and the typed field rise
+   over the content. It grows with the stack (it is the layer's own box), so text never
+   sits on text and nothing readable sits under the buttons. */
+.voice-layer::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  top: -28px;
+  bottom: 0;
+  left: calc(50% - 50vw);
+  right: calc(50% - 50vw);
+  background: linear-gradient(to bottom, color-mix(in srgb, var(--bg-bottom) 0%, transparent), color-mix(in srgb, var(--bg-bottom) 94%, transparent) 40px);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity var(--t-fast) ease;
+}
+html.space-on:not([data-place="jetzt"]) .voice-layer::before,
+html.space-on[data-voice-active]:not([data-level="0"]) .voice-layer::before,
+html.space-on[data-typed]:not([data-level="0"]) .voice-layer::before { opacity: 1; }
+/* away from Jetzt the echo of what was said keeps to one line */
+html.space-on:not([data-level="0"]) .voice-layer .voice-heard,
+html.space-on:not([data-place="jetzt"]) .voice-layer .voice-heard { max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* away from Jetzt the status area belongs to the level ("WOCHE ⌄"): no idle hint, no replay */
 html.space-on:not([data-level="0"]) .voice-layer .idle-hint,
 html.space-on:not([data-place="jetzt"]) .voice-layer .idle-hint,
@@ -234,6 +274,16 @@ html.space-on:not([data-place="jetzt"]) .voice-layer .voice-replay { display: no
 .voice-layer .voice.compact .dock-round,
 .voice-layer .voice.compact .dock-spacer { width: var(--round); height: var(--round); }
 .voice-layer .voice.compact .dock-round svg { width: 20px; height: 20px; }
+/* arriving at or leaving Jetzt the dock eases between its two sizes instead of snapping */
+@media (prefers-reduced-motion: no-preference) {
+  .voice-layer .voice-dock { transition: gap var(--t-fast) var(--ease-out); }
+  .voice-layer .voice-dock .dock-main.big,
+  .voice-layer .voice-dock .dock-round,
+  .voice-layer .voice-dock .dock-spacer {
+    transition: transform 0.25s var(--ease-out), background 0.3s, opacity 0.2s, width var(--t-fast) var(--ease-out), height var(--t-fast) var(--ease-out), box-shadow var(--t-fast) ease;
+  }
+  .voice-layer .voice-dock svg { transition: width var(--t-fast) var(--ease-out), height var(--t-fast) var(--ease-out); }
+}
 /* a toast's "Ansehen" (never opens a form) */
 .voice-layer .event-card { width: 100%; max-width: 360px; }
 .voice-layer .event-card-body { flex: 1; }

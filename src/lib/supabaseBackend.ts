@@ -15,12 +15,18 @@ import type {
   HabitInput,
   Memory,
   Milestone,
+  NolioStatus,
+  NolioSyncResult,
   Profile,
   PushSubscriptionRow,
+  WhoopConfirmResult,
+  WhoopStatus,
+  WhoopSyncResult,
 } from "./types";
 import { normaliseUsername, USERNAME_RE } from "./types";
 import { addDays, dayOf, weekStart } from "./plan";
 import { blockTimeEntry } from "./demoBackend";
+import { deviceAttribution } from "../../supabase/functions/_shared/nolio.ts";
 
 // Supabase Auth works with e-mail addresses. People here log in with a plain
 // username, so each username maps to an internal address on a reserved,
@@ -81,6 +87,24 @@ const toHabit = ({ habit_logs, ...row }: HabitRow): Habit => ({ ...row, done_day
 
 /** First day of the habit history the app shows: the current week and the 15 before it. */
 const habitsSince = () => addDays(weekStart(dayOf()), -15 * 7);
+
+/** The status JSON of the whoop function, checked field by field; null when it isn't one. */
+function whoopStatusFrom(j: unknown): WhoopStatus | null {
+  const o = j as Partial<WhoopStatus> | null;
+  if (!o || typeof o !== "object" || typeof o.available !== "boolean") return null;
+  const st = o.status;
+  return {
+    available: o.available,
+    connected: o.connected === true,
+    status: st === "connected" || st === "pending" || st === "needs_reconnect" ? st : null,
+    consent_ai: o.consent_ai === true,
+    connected_at: typeof o.connected_at === "string" ? o.connected_at : null,
+    last_sync_at: typeof o.last_sync_at === "string" ? o.last_sync_at : null,
+    last_error: typeof o.last_error === "string" ? o.last_error : null,
+    attribution: typeof o.attribution === "string" && o.attribution.trim() ? o.attribution : "Daten von WHOOP",
+    days: Array.isArray(o.days) ? o.days.filter((d) => d && typeof d === "object" && typeof d.day === "string") : [],
+  };
+}
 
 function friendlyAuthError(message: string): string {
   const m = message.toLowerCase();
@@ -412,6 +436,117 @@ export class SupabaseBackend implements Backend {
     if (data.session) headers.set("Authorization", `Bearer ${data.session.access_token}`);
     if (init.body) headers.set("Content-Type", "application/json");
     return fetch(`${this.url}/functions/v1/${name}`, { ...init, headers });
+  }
+
+  /**
+   * A call to a connection function. Null when the function isn't deployed or can't be reached
+   * (network error, CORS-less gateway answer, 404, 502–504): the app then shows "Bald verfügbar".
+   */
+  private async connFn(name: string, init: RequestInit = {}): Promise<Response | null> {
+    let res: Response;
+    try {
+      res = await this.fn(name, init);
+    } catch {
+      return null;
+    }
+    if (res.status === 404 || res.status === 502 || res.status === 503 || res.status === 504) {
+      await res.body?.cancel().catch(() => {});
+      return null;
+    }
+    return res;
+  }
+
+  private async connJson<T>(name: string, init: RequestInit, what: string): Promise<T> {
+    const res = await this.connFn(name, init);
+    if (!res) throw new Error(`${what} ist gerade nicht erreichbar.`);
+    if (!res.ok) {
+      await res.body?.cancel().catch(() => {});
+      throw new Error(`${what} ist gerade nicht erreichbar. Versuch es später nochmal.`);
+    }
+    return (await res.json()) as T;
+  }
+
+  async whoopStatus(): Promise<WhoopStatus | null> {
+    const res = await this.connFn("whoop?action=status");
+    if (!res) return null;
+    if (!res.ok) {
+      await res.body?.cancel().catch(() => {});
+      throw new Error("WHOOP ist gerade nicht erreichbar.");
+    }
+    try {
+      return whoopStatusFrom(await res.json());
+    } catch {
+      return null;
+    }
+  }
+
+  async whoopStart(): Promise<{ url: string }> {
+    const j = await this.connJson<{ url?: unknown; reason?: unknown }>("whoop", { method: "POST", body: JSON.stringify({ action: "start" }) }, "WHOOP");
+    if (typeof j.url !== "string" || !/^https:\/\//.test(j.url)) throw new Error("WHOOP ist noch nicht eingerichtet.");
+    return { url: j.url };
+  }
+
+  async whoopConfirm(code: string): Promise<WhoopConfirmResult> {
+    const res = await this.connFn("whoop", { method: "POST", body: JSON.stringify({ action: "confirm", code }) });
+    if (!res || !res.ok) {
+      await res?.body?.cancel().catch(() => {});
+      return { ok: false, reason: "error" };
+    }
+    const j = (await res.json().catch(() => null)) as Record<string, unknown> | null;
+    if (!j || j.ok === false) return { ok: false, reason: typeof j?.reason === "string" ? j.reason : "error" };
+    const status = whoopStatusFrom(j);
+    return status ? { ...status, ok: true } : { ok: false, reason: "error" };
+  }
+
+  async whoopSync(): Promise<WhoopSyncResult> {
+    return this.connJson<WhoopSyncResult>("whoop", { method: "POST", body: JSON.stringify({ action: "sync" }) }, "WHOOP");
+  }
+
+  async whoopDisconnect(): Promise<void> {
+    const j = await this.connJson<{ ok?: boolean }>("whoop", { method: "POST", body: JSON.stringify({ action: "disconnect" }) }, "WHOOP");
+    if (j.ok === false) throw new Error("Die Verbindung zu WHOOP liess sich nicht trennen. Versuch es später nochmal.");
+  }
+
+  async setWhoopConsent(on: boolean): Promise<boolean> {
+    const { data, error } = await this.sb.rpc("set_whoop_consent", { p_consent: on });
+    if (error) throw error;
+    return data === true;
+  }
+
+  async nolioStatus(): Promise<NolioStatus | null> {
+    const res = await this.connFn("nolio?action=status");
+    if (!res) return null;
+    if (!res.ok) {
+      await res.body?.cancel().catch(() => {});
+      throw new Error("Nolio ist gerade nicht erreichbar.");
+    }
+    const j = (await res.json().catch(() => null)) as NolioStatus | null;
+    if (!j || typeof j !== "object") return null;
+    const status: NolioStatus = {
+      available: j.available === true,
+      connected: j.connected === true,
+      last_sync_at: typeof j.last_sync_at === "string" ? j.last_sync_at : null,
+      last_error: typeof j.last_error === "string" ? j.last_error : null,
+      running: j.running === true,
+      counts: j.counts && typeof j.counts === "object" ? j.counts : null,
+      garmin: typeof j.garmin === "string" ? j.garmin : null,
+    };
+    // Garmin's attribution: where the latest trainings came from a Garmin device (own rows, RLS)
+    if (status.available && !status.garmin) {
+      const { data } = await this.sb.from("nolio_trainings").select("source, device_name").eq("restricted", false).order("day", { ascending: false }).limit(10);
+      for (const r of (data ?? []) as { source: string | null; device_name: string | null }[]) {
+        const a = deviceAttribution(r.source, r.device_name);
+        if (a) {
+          status.garmin = a;
+          break;
+        }
+      }
+    }
+    return status;
+  }
+
+  async nolioSync(): Promise<NolioSyncResult> {
+    return this.connJson<NolioSyncResult>("nolio", { method: "POST", body: JSON.stringify({ action: "sync" }) }, "Nolio");
   }
 
   async pushPublicKey(): Promise<string | null> {

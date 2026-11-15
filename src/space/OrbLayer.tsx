@@ -28,6 +28,18 @@ const DOCK_SIZE = 36;
 const DOCKED_AT = 0.98;
 const DOCKED_AFTER_MS = 250;
 const DOCKED_FPS = 12;
+// a new slot while resting at Jetzt (Farben heute, a tour step): the circle glides there
+// with the layout's own expand (320 ms, --ease-out) instead of jumping
+const SLOT_MS = 320;
+const EASE_OUT = "cubic-bezier(.2,.75,.2,1)";
+
+/** where a circle of `size` sits over `s` at dock progress e (0 = the slot, 1 = docked) */
+function pose(s: OrbSlot, e: number, dock: { cx: number; cy: number }): string {
+  const cx = s.cx + (dock.cx - s.cx) * e;
+  const cy = s.cy + (dock.cy - s.cy) * e;
+  const sc = 1 + (DOCK_SIZE / s.size - 1) * e;
+  return `translate3d(${(cx - s.size / 2).toFixed(2)}px,${(cy - s.size / 2).toFixed(2)}px,0) scale(${sc.toFixed(4)})`;
+}
 
 export interface OrbLayerProps {
   apiRef: { current: OrbApi | null };
@@ -68,6 +80,7 @@ export function OrbLayer({ apiRef, palette, state, slot, away, detailOpen, reduc
   const dockedRef = useRef(false);
   dockedRef.current = docked;
   const dockTimer = useRef(0);
+  const slotAnim = useRef<Animation | null>(null);
   const hidden = useDocumentHidden();
   // the docked centre, measured on mount, resize and slot changes (never per frame)
   const dockAt = useRef({ cx: 195, cy: 73 });
@@ -77,6 +90,11 @@ export function OrbLayer({ apiRef, palette, state, slot, away, detailOpen, reduc
 
   useLayoutEffect(() => {
     const paint = (d: number) => {
+      // the space moves: the scroll / pager position takes over from a slot glide
+      if (slotAnim.current && d !== lastD.current) {
+        slotAnim.current.cancel();
+        slotAnim.current = null;
+      }
       lastD.current = d;
       // settled docked → pause after 250 ms; leaving the dock unpauses at once
       if (d >= DOCKED_AT) {
@@ -96,33 +114,51 @@ export function OrbLayer({ apiRef, palette, state, slot, away, detailOpen, reduc
       const el = moveRef.current;
       const s = slotRef.current;
       if (!el || !s || !s.size) return;
-      const { cx: dockCx, cy: dockCy } = dockAt.current;
       // reduced motion: no travel, the big circle swaps to the docked one at d = 0.5 with a fade
-      const pose = d >= 0.5 ? 1 : 0;
-      const e = reducedRef.current ? pose : dockEase(d);
-      const cx = s.cx + (dockCx - s.cx) * e;
-      const cy = s.cy + (dockCy - s.cy) * e;
-      const sc = 1 + (DOCK_SIZE / s.size - 1) * e;
-      const css = `translate3d(${(cx - s.size / 2).toFixed(2)}px,${(cy - s.size / 2).toFixed(2)}px,0) scale(${sc.toFixed(4)})`;
+      const half = d >= 0.5 ? 1 : 0;
+      const css = pose(s, reducedRef.current ? half : dockEase(d), dockAt.current);
       if (css !== lastCss.current) {
         el.style.transform = css;
         lastCss.current = css;
       }
-      if (reducedRef.current && lastPose.current !== null && lastPose.current !== pose) el.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 150 });
-      lastPose.current = pose;
+      if (reducedRef.current && lastPose.current !== null && lastPose.current !== half) el.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 150 });
+      lastPose.current = half;
     };
     apiRef.current = { dock: paint, moving: setMovingState };
     return () => {
       apiRef.current = null;
+      // (reset the id too: a remount, e.g. StrictMode's, must be able to start a new timer)
       clearTimeout(dockTimer.current);
+      dockTimer.current = 0;
     };
   }, [apiRef]);
 
-  // a new slot (or a resize): put the circle where it belongs for the last d
+  // a new slot (or a resize): put the circle where it belongs for the last d; resting at
+  // Jetzt it glides from where it was
+  const prevSlot = useRef<OrbSlot | null>(null);
   useLayoutEffect(() => {
     measureDock();
+    const prev = prevSlot.current;
+    prevSlot.current = slot;
     lastCss.current = "";
     apiRef.current?.dock(lastD.current);
+    const el = moveRef.current;
+    if (!el || !slot?.size || !prev?.size || reduced || lastD.current !== 0 || typeof el.animate !== "function") return;
+    if (prev.cx === slot.cx && prev.cy === slot.cy && prev.size === slot.size) return;
+    // from the old pose, expressed in the new box (its size may have changed); mid-glide
+    // from where the circle is right now
+    const running = slotAnim.current;
+    const from =
+      running && prev.size === slot.size
+        ? getComputedStyle(el).transform
+        : `translate3d(${(prev.cx - slot.size / 2).toFixed(2)}px,${(prev.cy - slot.size / 2).toFixed(2)}px,0) scale(${(prev.size / slot.size).toFixed(4)})`;
+    running?.cancel();
+    const a = el.animate([{ transform: from }, { transform: lastCss.current }], { duration: SLOT_MS, easing: EASE_OUT });
+    slotAnim.current = a;
+    a.finished.then(
+      () => slotAnim.current === a && (slotAnim.current = null),
+      () => {},
+    );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [slot?.cx, slot?.cy, slot?.size, reduced, apiRef]);
   useEffect(() => {

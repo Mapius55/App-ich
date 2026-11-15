@@ -26,7 +26,7 @@ const STEPS: Record<TourStep, Step> = {
   },
   3: {
     serif: "Rechts deine Ziele, links du.",
-    sans: "Wisch hier beim Kreis zur Seite oder tipp oben auf «Ziele» oder «Du». Bei «Du» findest du, was ich über dich weiss, und deine Einstellungen.",
+    sans: "Wisch hier beim Kreis zur Seite oder tipp oben auf «Ziele» oder «Du». Bei «Du» findest du, was ich über dich weiss, deine Verbindungen und deine Einstellungen.",
     glyph: "↔",
   },
   4: {

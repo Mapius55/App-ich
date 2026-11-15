@@ -10,9 +10,10 @@ const TARGETS: { label: string; place: Place; level?: Level }[] = [
   { label: "Du", place: "du" },
 ];
 
-export function SkipNav({ onGo }: { onGo: (place: Place, level?: Level) => void }) {
+/** `inert` while a detail is open: everything outside the Unfold and the dock rests */
+export function SkipNav({ onGo, inert = false }: { onGo: (place: Place, level?: Level) => void; inert?: boolean }) {
   return (
-    <nav aria-label="Orte" className="skip">
+    <nav aria-label="Orte" className="skip" inert={inert}>
       <span className="skip-label">Springen zu:</span>
       {TARGETS.map((t) => (
         <button key={t.label} type="button" className="pill" onClick={() => onGo(t.place, t.level)}>

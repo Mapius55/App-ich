@@ -403,7 +403,7 @@ export function Unfold({ kindLabel, origin, onRequestClose, children }: UnfoldPr
   return (
     <UnfoldSlot.Provider value={slot}>
       <div ref={scrimRef} className="unfold-scrim" aria-hidden="true" onClick={() => !closing.current && requestRef.current("backdrop")} />
-      <div ref={panelRef} className="unfold" role="dialog" aria-modal="true" aria-label={kindLabel} tabIndex={-1}>
+      <div ref={panelRef} className="unfold" role="dialog" aria-label={kindLabel} tabIndex={-1}>
         <div ref={contentRef} className="unfold-content">
           <div className="unfold-head" data-unfold-head="">
             <span className="unfold-grip" aria-hidden="true" />

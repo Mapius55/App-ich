@@ -169,6 +169,8 @@ interface Engine {
   stop(): void;
   resize(size: number): void;
   drawOnce(): void;
+  /** a new seed (a new day): the flow takes the new pattern; false when it was the same */
+  setSeed(seed: number): boolean;
   restore(): boolean;
   lose(): void;
 }
@@ -182,6 +184,7 @@ function createEngine(canvas: HTMLCanvasElement, live: Live): Engine | null {
     cols: (WebGLUniformLocation | null)[];
   };
   let U: Uniforms;
+  let seedNow = live.seed.current;
   const init = (): boolean => {
     let prog: WebGLProgram;
     try {
@@ -197,7 +200,8 @@ function createEngine(canvas: HTMLCanvasElement, live: Live): Engine | null {
       cover: u("u_cover"), cirrus: u("u_cirrus"), stratus: u("u_stratus"),
       cols: [u("u_c0"), u("u_c1"), u("u_c2"), u("u_c3"), u("u_c4")],
     };
-    gl.uniform1f(U.seed, (live.seed.current % 1000) / 37);
+    seedNow = live.seed.current;
+    gl.uniform1f(U.seed, (seedNow % 1000) / 37);
     gl.uniform2f(U.pan, 0, 0);
     gl.enable(gl.BLEND);
     if (canvas.width) gl.uniform2f(U.res, canvas.width, canvas.height);
@@ -294,6 +298,12 @@ function createEngine(canvas: HTMLCanvasElement, live: Live): Engine | null {
     drawOnce() {
       step(0);
       draw();
+    },
+    setSeed(next: number) {
+      if (next === seedNow || gl.isContextLost()) return false;
+      seedNow = next;
+      gl.uniform1f(U.seed, (next % 1000) / 37); // (the one program is always in use)
+      return true;
     },
     restore() {
       return init();
@@ -407,6 +417,13 @@ export function Portal({ colors, size, daylight = 1, clouds = DEFAULT_CLOUDS, sp
     if (paused) e.stop();
     else e.start();
   }, [paused]);
+
+  // a new seed (the palette's day changed, e.g. left open over midnight): no remount
+  useEffect(() => {
+    const e = engine.current;
+    if (!e) return;
+    if (e.setSeed(seed) && pausedRef.current) e.drawOnce();
+  }, [seed]);
 
   // press only (no drag): down brings the sky closer, up lets go with a kick
   const handlers = interactive

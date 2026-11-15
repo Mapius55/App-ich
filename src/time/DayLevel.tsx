@@ -262,10 +262,11 @@ function DayRow(props: {
   useSeenWhenVisible(ref, e.id);
   const time = e.all_day ? null : timeHM(e.starts_at);
   const end = !e.all_day && e.ends_at ? timeHM(e.ends_at) : null;
-  const planned = goal ? pastBlockMinutes(e, now) : null;
+  const nolio = e.source === "nolio"; // planned by the trainer: read-only, counts by itself once done in Nolio
+  const planned = goal && !nolio ? pastBlockMinutes(e, now) : null;
   const goalLabel = goal ? (goal === e.title ? "Ziel" : goal) : null;
-  const meta = planned === null ? [e.location, goalLabel].filter(Boolean).join(" · ") : "";
-  const label = `${e.title}, ${e.all_day ? "ganztägig" : `${time}${end ? ` bis ${end}` : ""}`}${e.kind === "block" ? ", Block" : ""}${goal ? `, Ziel ${goal}` : ""}. Bearbeiten${fresh ? ", neu vom Coach" : ""}`;
+  const meta = planned === null ? [e.location, goalLabel, nolio ? "vom Trainer" : null].filter(Boolean).join(" · ") : "";
+  const label = `${e.title}, ${e.all_day ? "ganztägig" : `${time}${end ? ` bis ${end}` : ""}`}${e.kind === "block" ? ", Block" : ""}${goal ? `, Ziel ${goal}` : ""}${nolio ? ", vom Trainer geplant. Ansehen" : ". Bearbeiten"}${fresh ? ", neu vom Coach" : ""}`;
   return (
     <li
       ref={ref}

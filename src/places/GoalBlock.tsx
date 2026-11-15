@@ -10,6 +10,8 @@ import { planData } from "../space/data";
 import { useFresh, useSeenWhenVisible } from "../space/fresh";
 import { useSpace } from "../space/state";
 import { useRevealWhenFresh } from "./reveal";
+import { SportsPicker } from "./conn/SportsPicker";
+import { useNolioAvailable } from "./conn/store";
 
 /** "So, 6. Dez · noch 22 Tage", or null for an open-ended goal */
 export function goalMeta(goal: Pick<Goal, "target_date">, today: string): string | null {
@@ -129,6 +131,8 @@ export function GoalBlock({ goal, today, flash, active }: { goal: Goal; today: s
   const [expanded, setExpanded] = useState(false);
   const [justDone, setJustDone] = useState<string | null>(null);
   const timer = useRef(0);
+  // which Nolio trainings count: only where Nolio is there (nothing else reads goals.sports)
+  const nolio = useNolioAvailable();
   useEffect(() => () => clearTimeout(timer.current), []);
 
   const p = goalProgress(goal, today);
@@ -218,6 +222,7 @@ export function GoalBlock({ goal, today, flash, active }: { goal: Goal; today: s
       ) : (
         <AddStep goal={goal} first={ms.length === 0} />
       )}
+      {nolio && <SportsPicker goal={goal} />}
     </article>
   );
 }

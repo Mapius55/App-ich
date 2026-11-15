@@ -28,7 +28,7 @@ const ORDER: DuSection[] = ["memories", "body", "connections", "notifications", 
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 export function YouPlace({ titleId, active, profile, palette, hasCoords, onProfile, onCoords }: YouPlaceProps) {
-  const { duSection, reduced, registerAdd } = useSpace();
+  const { duSection, reduced, registerAdd, setDuOpen } = useSpace();
   const [openRow, setOpenRow] = useState<DuSection | null>(duSection);
   const [memories, setMemories] = useState<Memory[] | null>(null);
   const [memError, setMemError] = useState<string | null>(null);
@@ -56,6 +56,9 @@ export function YouPlace({ titleId, active, profile, palette, hasCoords, onProfi
     setOpenRow(duSection);
     reveal.current = duSection;
   }, [duSection]);
+
+  // the hash follows the open row ("#du/verbindungen"), however it opened
+  useEffect(() => setDuOpen(openRow), [openRow, setDuOpen]);
 
   // a row that should come into view: put it where the title sits, once the row that
   // closed above it has folded away (its 240 ms), else on the next frame

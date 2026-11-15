@@ -8,6 +8,7 @@ import { ConfirmDelete as ConfirmInline } from "../../space/ConfirmDelete";
 import { SpaceContext, type CloseVia } from "../../space/state";
 import { Unfold, useUnfold, useUnfoldClose } from "../../space/Unfold";
 import { ConfirmDelete, Sheet } from "./Sheet";
+import { NolioEventForm } from "../../places/conn/NolioEventForm";
 
 // Reminders are minutes before the start. For all-day entries they count back
 // from midnight, and negative values mean after midnight: -480 = 08:00 that
@@ -486,7 +487,14 @@ interface Props {
 export function EventSheet({ event, day, goals, onClose, onChanged }: Props) {
   return (
     <Sheet title={event ? "Eintrag" : "Neuer Eintrag"} onClose={onClose}>
-      {(close) => <EventForm event={event} day={day} goals={goals} variant="sheet" close={close} onChanged={onChanged} />}
+      {(close) =>
+        // the trainer's entries from Nolio are read-only here (only the reminder)
+        event?.source === "nolio" ? (
+          <NolioEventForm event={event} goals={goals} variant="sheet" close={close} onChanged={onChanged} />
+        ) : (
+          <EventForm event={event} day={day} goals={goals} variant="sheet" close={close} onChanged={onChanged} />
+        )
+      }
     </Sheet>
   );
 }
@@ -509,7 +517,11 @@ export interface EventDetailProps {
 export function EventDetail({ event, day, time, goals, origin, onRequestClose, onChanged, onDirty, gone, version }: EventDetailProps) {
   return (
     <Unfold kindLabel={event ? "Eintrag" : "Neuer Eintrag"} origin={origin} onRequestClose={onRequestClose}>
-      <EventForm key={version} event={event} day={day} time={time} goals={goals} variant="detail" onChanged={onChanged} onDirty={onDirty} gone={gone} />
+      {event?.source === "nolio" ? (
+        <NolioEventForm key={version} event={event} goals={goals} variant="detail" onChanged={onChanged} onDirty={onDirty} gone={gone} />
+      ) : (
+        <EventForm key={version} event={event} day={day} time={time} goals={goals} variant="detail" onChanged={onChanged} onDirty={onDirty} gone={gone} />
+      )}
     </Unfold>
   );
 }

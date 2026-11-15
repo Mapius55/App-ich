@@ -74,8 +74,16 @@ export function usePeriodSwap(key: string, animate: boolean) {
   useLayoutEffect(() => {
     const dir = enterDir.current;
     enterDir.current = 0;
-    if (!dir) return;
     const page = pageRef.current;
+    // a committed swipe left the content at the finger's offset (the exit continued from
+    // there, in the swipe's direction): the new period starts from rest
+    const held = page?.closest<HTMLElement>("[data-held]");
+    if (held) {
+      delete held.dataset.held;
+      held.style.transform = "";
+      held.style.willChange = "";
+    }
+    if (!dir) return;
     if (!page || typeof page.animate !== "function") return;
     const enter = page.animate([{ transform: `translateX(${24 * dir}px)`, opacity: 0 }, { transform: "none", opacity: 1 }], { duration: 240, easing: EASE_OUT });
     const titles = fade(titleRef.current, [{ opacity: 0 }, { opacity: 1 }], { duration: 200, easing: "ease-out" });

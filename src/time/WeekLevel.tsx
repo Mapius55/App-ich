@@ -60,7 +60,8 @@ export function WeekLevel({ titleId, active }: WeekLevelProps) {
     for (const list of byDay.values()) list.sort(byStart);
     const range = trackRange(events ?? []);
     const answered = new Set((data.log ?? []).flatMap((t) => (t.event_id ? [t.event_id] : [])));
-    const goalBlocks = (events ?? []).filter((e) => e.kind === "block" && e.goal_id);
+    // a planned Nolio training doesn't count by itself: the completed one comes as goal time from Nolio
+    const goalBlocks = (events ?? []).filter((e) => e.kind === "block" && e.goal_id && e.source !== "nolio");
     const done = dayMinutes(data.log ?? [], goalBlocks, answered, now, localDay);
     const rows = days.map((day) => {
       const list = byDay.get(day) ?? [];
@@ -108,7 +109,7 @@ export function WeekLevel({ titleId, active }: WeekLevelProps) {
       />
       <div className="tl-follow" ref={followRef}>
         <div className="tl-page" ref={pageRef}>
-          <p className={`wk-sum${sumWrapped ? " wrapped" : ""}`} ref={sumRef} data-spoken={events ? weekSummary(kind, week.done, week.planned, spokenMinutes) : undefined}>
+          <p className={`wk-sum${sumWrapped ? " wrapped" : ""}`} ref={sumRef} data-week={monday} data-spoken={events ? weekSummary(kind, week.done, week.planned, spokenMinutes) : undefined}>
             <span>{summary}</span>
             {events && kind !== "past" && (
               <>
@@ -129,12 +130,13 @@ export function WeekLevel({ titleId, active }: WeekLevelProps) {
           <ol className={`wk-rows${tight ? " tight" : ""}`} ref={rowsRef}>
             {week.rows.map((r) => {
               const rel = daysBetween(today, r.day);
-              const micro = events ? microLine(r.day, today, r.done, r.planned) : [];
+              const fromTrainer = r.list.some((e) => e.source === "nolio");
+              const micro = events ? [...microLine(r.day, today, r.done, r.planned), ...(fromTrainer ? [{ text: "vom Trainer", kind: "trainer" as const }] : [])] : [];
               const n = r.list.length;
               const minutes = [rel <= 0 && r.done > 0 ? `${spokenMinutes(r.done)} für Ziele` : null, rel >= 0 && r.planned > 0 ? `${spokenMinutes(r.planned)} geplant` : null]
                 .filter(Boolean)
                 .join(", ");
-              const label = `${daySubline(r.day, today)}${rel === 0 ? ", heute" : ""}, ${n ? `${n} ${n === 1 ? "Eintrag" : "Einträge"}` : "frei"}${minutes ? `, ${minutes}` : ""}. Tag öffnen`;
+              const label = `${daySubline(r.day, today)}${rel === 0 ? ", heute" : ""}, ${n ? `${n} ${n === 1 ? "Eintrag" : "Einträge"}` : "frei"}${minutes ? `, ${minutes}` : ""}${fromTrainer ? ", mit Training vom Trainer" : ""}. Tag öffnen`;
               const microEl = micro.length ? (
                 <span className="wk-micro">
                   {micro.map((p, i) => (
