@@ -27,7 +27,7 @@ import { planData } from "./data";
 import { describeView } from "./describeView";
 import { DetailHost } from "./DetailHost";
 import { DockLeft } from "./Dock";
-import { markTourSeen } from "./flags";
+import { markTourSeen, tourSeen } from "./flags";
 import { CANCEL_MS, RESUME_KEEP_MS, pagerEnabled } from "./gestures";
 import { NOW_TITLE_ID, NowLevel } from "./NowLevel";
 import { OrbLayer, type OrbApi, type OrbSlot } from "./OrbLayer";
@@ -140,7 +140,8 @@ export function Space(props: SpaceProps) {
   const [detail, setDetail] = useState<Detail | null>(null);
   const [detailOrigin, setDetailOrigin] = useState<HTMLElement | null>(null);
   const [duSection, setDuSection] = useState<DuSection | null>(initial.s?.duSection ?? null);
-  const [tour, setTourState] = useState<TourStep | null>(() => (props.startTour && !initial.deepLink ? 1 : null));
+  // (tourSeen() again: App decides once per page load, and the tour may have ended since, e.g. before a re-login)
+  const [tour, setTourState] = useState<TourStep | null>(() => (props.startTour && !tourSeen() && !initial.deepLink ? 1 : null));
   const [highlight, setHighlight] = useState<string | null>(null);
   const [typing, setTyping] = useState<false | "detail" | "field">(false);
   const reduced = useReducedMotion();
@@ -230,6 +231,7 @@ export function Space(props: SpaceProps) {
     if (!root) return;
     if (on) root.classList.add("is-moving");
     else willChangeTimer.current = window.setTimeout(() => root.classList.remove("is-moving"), WILL_CHANGE_KEEP);
+    orbApi.current?.moving(on);
   }, []);
 
   const levels = useLevels({
@@ -399,16 +401,23 @@ export function Space(props: SpaceProps) {
     [close, flash, pagerTo, focusAfterNav],
   );
 
+  // a programmatic move in flight (the 1 s anchor reset at Jetzt must not fire half way)
+  const navigating = useRef(0);
   const goLevel = useCallback(
     async (l: Level, o?: { day?: string; highlight?: string; yearGoal?: string | null }) => {
       if (stateRef.current.detail && !(await close("nav"))) return;
-      if (o?.day) setAnchorState(o.day);
-      if (o && "yearGoal" in o) setYearGoalState(o.yearGoal ?? null);
-      if (stateRef.current.place !== "jetzt") {
-        setDuSection(null);
-        await pagerTo("jetzt", GO_MS);
+      navigating.current++;
+      try {
+        if (o?.day) setAnchorState(o.day);
+        if (o && "yearGoal" in o) setYearGoalState(o.yearGoal ?? null);
+        if (stateRef.current.place !== "jetzt") {
+          setDuSection(null);
+          await pagerTo("jetzt", GO_MS);
+        }
+        await levels.scrollToLevel(l, stateRef.current.reduced ? "auto" : "smooth");
+      } finally {
+        navigating.current--;
       }
-      await levels.scrollToLevel(l, stateRef.current.reduced ? "auto" : "smooth");
       if (o?.highlight) flash(o.highlight);
       focusAfterNav({ place: "jetzt", level: l }, o?.highlight);
     },
@@ -493,7 +502,7 @@ export function Space(props: SpaceProps) {
 
   // a tour requested later (e.g. after onboarding while mounted)
   useEffect(() => {
-    if (props.startTour && !initial.deepLink) setTourState((t) => t ?? 1);
+    if (props.startTour && !tourSeen() && !initial.deepLink) setTourState((t) => t ?? 1);
   }, [props.startTour, initial.deepLink]);
 
   // html data attributes: the test contract and the CSS hooks (the class before the first scroll)
@@ -525,7 +534,22 @@ export function Space(props: SpaceProps) {
     if (hash !== window.location.hash) history.replaceState(history.state, "", `${window.location.pathname}${window.location.search}${hash}`);
   }, [place, level, anchor, duSection]);
   useEffect(() => {
-    setAnnounce(announcement({ place, level, anchor, today }));
+    const base = announcement({ place, level, anchor, today });
+    if (place !== "jetzt" || level !== 2) {
+      setAnnounce(base);
+      return;
+    }
+    // Woche adds its summary ("…, 7 Stunden 45 für deine Ziele geplant") once its data is there
+    let tries = 0;
+    let t = 0;
+    const withSummary = () => {
+      const spoken = document.querySelector<HTMLElement>('.space .lvl[data-level="2"] .wk-sum[data-spoken]')?.dataset.spoken;
+      if (spoken) setAnnounce(`${base}, ${spoken}`);
+      else if (++tries < 8) t = window.setTimeout(withSummary, 150);
+      else setAnnounce(base);
+    };
+    t = window.setTimeout(withSummary, 0);
+    return () => clearTimeout(t);
     // only on settle (place / level), not on every anchor step
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [place, level]);
@@ -533,10 +557,14 @@ export function Space(props: SpaceProps) {
   // after 1 s settled at Jetzt, the anchor returns to today and the year filter goes
   useEffect(() => {
     if (place !== "jetzt" || level !== 0 || detail) return;
-    const t = setTimeout(() => {
+    let t = 0;
+    const reset = () => {
+      // (not while a move to a level is under way, e.g. "Im Jahr ansehen"; look again later)
+      if (navigating.current || motion.current.p > 0.02) return void (t = window.setTimeout(reset, 500));
       setAnchorState(today);
       setYearGoalState(null);
-    }, 1000);
+    };
+    t = window.setTimeout(reset, 1000);
     return () => clearTimeout(t);
   }, [place, level, detail, today]);
 
@@ -692,7 +720,8 @@ export function Space(props: SpaceProps) {
 
   const onSkip = (p: Place, l?: Level) => {
     if (p !== "jetzt") go(p);
-    else go("jetzt").then(() => goLevel(l ?? 0));
+    // "Heute" is today's Tag, whatever day Tag showed last
+    else go("jetzt").then(() => goLevel(l ?? 0, l === 1 ? { day: today } : undefined));
   };
   const backToCircle = useCallback(async () => {
     await go("jetzt");

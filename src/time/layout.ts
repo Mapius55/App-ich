@@ -167,12 +167,12 @@ export const NO_GOAL_TIME = "Noch keine Zeit für Ziele geplant";
  * past "5 Std für deine Ziele", future "3 Std für deine Ziele geplant", else "Noch keine Zeit für Ziele geplant".
  * done = time that went into goals (logged + past blocks), planned = goal blocks still ahead.
  */
-export function weekSummary(kind: WeekKind, done: number, planned: number): string {
-  if (kind === "past") return done > 0 ? `${hoursMinutes(done)} für deine Ziele` : NO_GOAL_TIME;
-  if (kind === "future") return planned > 0 ? `${hoursMinutes(planned)} für deine Ziele geplant` : NO_GOAL_TIME;
+export function weekSummary(kind: WeekKind, done: number, planned: number, fmt: (min: number) => string = hoursMinutes): string {
+  if (kind === "past") return done > 0 ? `${fmt(done)} für deine Ziele` : NO_GOAL_TIME;
+  if (kind === "future") return planned > 0 ? `${fmt(planned)} für deine Ziele geplant` : NO_GOAL_TIME;
   const total = done + planned;
   if (total <= 0) return NO_GOAL_TIME;
-  return `${hoursMinutes(total)} für deine Ziele geplant${done > 0 ? `, ${hoursMinutes(done)} davon geschafft` : ""}`;
+  return `${fmt(total)} für deine Ziele geplant${done > 0 ? `, ${fmt(done)} davon geschafft` : ""}`;
 }
 
 /** a week row's micro line: past "1 Std 45 für Ziele", future "2 Std 30 geplant", today both */

@@ -129,3 +129,6 @@
   .detail-root .uf-ask,
   .detail-root .confirm-inline { animation: none; }
 }
+
+/* a switch row is one tap target (the label): at least 44 px tall */
+.detail-root .toggle-row { min-height: 44px; }

@@ -70,8 +70,9 @@ export function YouPlace({ titleId, active, profile, palette, hasCoords, onProfi
       const row = root?.querySelector<HTMLElement>(`[data-section="${id}"]`);
       const title = root?.querySelector<HTMLElement>(".pl-title");
       if (!side || !row || !title) return;
-      const top = row.getBoundingClientRect().top - title.getBoundingClientRect().top;
-      if (Math.abs(top) > 4) side.scrollTo({ top: Math.max(0, side.scrollTop + top), behavior: reduced ? "auto" : "smooth" });
+      // the scroll position at which the row sits where the title sits at the top
+      const top = Math.max(0, row.getBoundingClientRect().top - title.getBoundingClientRect().top);
+      if (Math.abs(top - side.scrollTop) > 4) side.scrollTo({ top, behavior: reduced ? "auto" : "smooth" });
     };
     const wait = closedAbove.current && !reduced;
     closedAbove.current = false;

@@ -10,7 +10,7 @@ const clampLevel = (n: number): Level => Math.max(0, Math.min(3, n)) as Level;
 export interface Levels {
   /** ref callbacks for the four sections */
   sectionRef: (level: Level) => (el: HTMLElement | null) => void;
-  /** Tag mounts after the first paint, Woche the first time p > 0.3, Jahr the first time p > 1.3 */
+  /** Tag mounts after the first paint, Woche once p passed 0.3, Jahr once p passed 1.3 (applied on settle) */
   mounted: { day: boolean; week: boolean; year: boolean };
   /** scroll to a level; resolves on settle */
   scrollToLevel: (level: Level, behavior: ScrollBehavior) => Promise<void>;
@@ -42,6 +42,10 @@ export function useLevels(o: { initial: Level; onSettle: (level: Level) => void;
       setMounted(next);
     }
   }, []);
+  // During a touch scroll a mount would change the scroller's layout, and the browser
+  // re-snaps on layout changes: the fling would be cancelled and snap back. So the
+  // furthest p is only noted per frame, and the mount happens on settle.
+  const reached = useRef(0);
 
   // Tag after the first paint (two frames: the first paints Jetzt)
   useEffect(() => {
@@ -57,6 +61,8 @@ export function useLevels(o: { initial: Level; onSettle: (level: Level) => void;
   }, []);
 
   const settle = useCallback(() => {
+    reached.current = Math.max(reached.current, progress());
+    mountUpTo(reached.current);
     const level = clampLevel(Math.round(progress()));
     cb.current.onSettle(level);
     cb.current.onMotion?.(false);
@@ -64,17 +70,26 @@ export function useLevels(o: { initial: Level; onSettle: (level: Level) => void;
     const arrived = waiters.current.filter((w) => w.level === level);
     waiters.current = waiters.current.filter((w) => w.level !== level);
     arrived.forEach((w) => w.done());
-  }, [progress]);
+  }, [progress, mountUpTo]);
 
   useEffect(() => {
     let idle = 0;
     let raf = 0;
     let moving = false;
+    // A finger resting mid-drag is not a settle: wait for the touch to end. Where the
+    // browser fires scrollend, the idle timer is only a safety net (slow frames would
+    // otherwise "settle" in the middle of a fling).
+    let touches = 0;
+    const idleMs = "onscrollend" in window ? Math.max(SETTLE_IDLE, 800) : SETTLE_IDLE;
     const frame = () => {
       raf = 0;
       const p = progress();
-      mountUpTo(p);
+      if (p > reached.current) reached.current = p;
       cb.current.onFrame(p);
+    };
+    const arm = () => {
+      clearTimeout(idle);
+      if (moving) idle = window.setTimeout(end, idleMs);
     };
     const onScroll = () => {
       if (!moving) {
@@ -82,26 +97,37 @@ export function useLevels(o: { initial: Level; onSettle: (level: Level) => void;
         cb.current.onMotion?.(true);
       }
       if (!raf) raf = requestAnimationFrame(frame);
-      clearTimeout(idle);
-      idle = window.setTimeout(end, SETTLE_IDLE);
+      arm();
     };
     const end = () => {
       clearTimeout(idle);
+      if (touches > 0 || !moving) return;
       moving = false;
       // make sure the last position is painted before settling
       if (raf) cancelAnimationFrame(raf), (raf = 0);
       frame();
       settle();
     };
+    const onTouchStart = (e: TouchEvent) => (touches = e.touches.length);
+    const onTouchEnd = (e: TouchEvent) => {
+      touches = e.touches.length;
+      if (!touches) arm();
+    };
     window.addEventListener("scroll", onScroll, { passive: true });
     window.addEventListener("scrollend", end);
+    window.addEventListener("touchstart", onTouchStart, { passive: true, capture: true });
+    window.addEventListener("touchend", onTouchEnd, { passive: true, capture: true });
+    window.addEventListener("touchcancel", onTouchEnd, { passive: true, capture: true });
     return () => {
       clearTimeout(idle);
       if (raf) cancelAnimationFrame(raf);
       window.removeEventListener("scroll", onScroll);
       window.removeEventListener("scrollend", end);
+      window.removeEventListener("touchstart", onTouchStart, { capture: true });
+      window.removeEventListener("touchend", onTouchEnd, { capture: true });
+      window.removeEventListener("touchcancel", onTouchEnd, { capture: true });
     };
-  }, [mountUpTo, settle, progress]);
+  }, [settle, progress]);
 
   // deep link: jump to the initial level once laid out; snapping starts one frame later
   useEffect(() => {

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { spokenMinutes } from "../src/lib/dates";
 import {
   dayPlanText,
   dayRows,
@@ -159,6 +160,11 @@ describe("week summary and micro lines", () => {
     expect(weekSummary("past", 300, 0)).toBe("5 Std für deine Ziele");
     expect(weekSummary("future", 0, 180)).toBe("3 Std für deine Ziele geplant");
     for (const k of ["past", "current", "future"] as const) expect(weekSummary(k, 0, 0)).toBe("Noch keine Zeit für Ziele geplant");
+  });
+
+  it("has a spoken form for the Woche announcement", () => {
+    expect(weekSummary("current", 300, 165, spokenMinutes)).toBe("7 Stunden 45 für deine Ziele geplant, 5 Stunden davon geschafft");
+    expect(weekSummary("future", 0, 45, spokenMinutes)).toBe("45 Minuten für deine Ziele geplant");
   });
 
   it("counts planned goal blocks that have not ended", () => {

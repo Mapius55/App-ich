@@ -387,3 +387,6 @@
   .space .pl-goals { gap: 26px; margin-top: 20px; }
   .space .du-rows { margin-top: 18px; }
 }
+
+/* a switch row is one tap target (the label): at least 44 px tall */
+.space .side .toggle-row { min-height: 44px; }

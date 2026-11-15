@@ -18,6 +18,9 @@ export function useKeyboardInset(): void {
       last = next;
       if (next) root.style.setProperty("--kb", `${next}px`);
       else root.style.removeProperty("--kb");
+      // html[data-kb]: the on-screen keyboard is up (the voice layer hides for a detail's fields)
+      if (next) root.dataset.kb = "true";
+      else delete root.dataset.kb;
     };
     const schedule = () => {
       if (!raf) raf = requestAnimationFrame(update);
@@ -30,6 +33,7 @@ export function useKeyboardInset(): void {
       vv.removeEventListener("scroll", schedule);
       if (raf) cancelAnimationFrame(raf);
       root.style.removeProperty("--kb");
+      delete root.dataset.kb;
     };
   }, []);
 }

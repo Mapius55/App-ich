@@ -16,9 +16,13 @@
   --t-fast: 240ms; --t-normal: 420ms; --t-slow: 900ms;
   --text-dim: color-mix(in srgb, var(--text) 70%, transparent);
   --hair: color-mix(in srgb, var(--text) 8%, transparent);
-  /* --orb-0/1/2 are set by App from palette.orb (fallbacks until then) */
+  /* --orb-0/1/2/4 are set by App from palette.orb (fallbacks until then) */
   --orb-0: #6f86d6; --orb-1: #b9c8ff; --orb-2: #3b4fa8;
-  --orb-grad: radial-gradient(circle at 40% 35%, var(--orb-1), var(--orb-0) 45%, var(--orb-2) 72%, transparent 74%);
+  /* the circle's echoes (JETZT dot, today's disc and cell, fallbacks) read as "the same
+     circle, small": a flat colour flow running in from the edges, never a ball (user
+     feedback: no highlight spot, no shading; checked at 8, 34 and 36 px) */
+  --orb-grad: radial-gradient(120% 70% at 0% 100%, var(--orb-1) 0%, transparent 60%), radial-gradient(80% 120% at 100% 0%, var(--orb-4, var(--orb-2)) 0%, transparent 60%),
+    radial-gradient(70% 70% at 70% 80%, var(--orb-2) 0%, transparent 70%), var(--orb-0);
 }
 
 /* ---------- shared state classes used by B and C ---------- */

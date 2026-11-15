@@ -20,6 +20,8 @@ export interface OrbSlot {
 export interface OrbApi {
   /** d = max(p, q), 0 = over the slot, 1 = docked */
   dock(d: number): void;
+  /** the space scrolls or pages (called at start and settle, never per frame) */
+  moving(on: boolean): void;
 }
 
 const DOCK_SIZE = 36;
@@ -62,6 +64,7 @@ export function OrbLayer({ apiRef, palette, state, slot, away, detailOpen, reduc
   const lastCss = useRef("");
   const lastPose = useRef<0 | 1 | null>(null);
   const [docked, setDocked] = useState(false);
+  const [moving, setMovingState] = useState(false);
   const dockedRef = useRef(false);
   dockedRef.current = docked;
   const dockTimer = useRef(0);
@@ -108,7 +111,7 @@ export function OrbLayer({ apiRef, palette, state, slot, away, detailOpen, reduc
       if (reducedRef.current && lastPose.current !== null && lastPose.current !== pose) el.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 150 });
       lastPose.current = pose;
     };
-    apiRef.current = { dock: paint };
+    apiRef.current = { dock: paint, moving: setMovingState };
     return () => {
       apiRef.current = null;
       clearTimeout(dockTimer.current);
@@ -133,8 +136,11 @@ export function OrbLayer({ apiRef, palette, state, slot, away, detailOpen, reduc
   }, [apiRef]);
 
   const active = state !== "idle";
-  const paused = detailOpen || hidden || (docked && !active);
-  const fps = docked && active ? DOCKED_FPS : undefined;
+  // While the space scrolls or pages the circle travels and shrinks: its slow flow holds
+  // still (or redraws at the low rate while the coach is active), so the GPU only
+  // composites during the move. Settled at Jetzt it flows at full rate again.
+  const paused = detailOpen || hidden || ((docked || moving) && !active);
+  const fps = (docked || moving) && active ? DOCKED_FPS : undefined;
   const size = slot?.size ?? 0;
   const finger = tour === 1 && atJetzt && !reduced && slot;
 

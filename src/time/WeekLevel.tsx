@@ -108,7 +108,7 @@ export function WeekLevel({ titleId, active }: WeekLevelProps) {
       />
       <div className="tl-follow" ref={followRef}>
         <div className="tl-page" ref={pageRef}>
-          <p className={`wk-sum${sumWrapped ? " wrapped" : ""}`} ref={sumRef}>
+          <p className={`wk-sum${sumWrapped ? " wrapped" : ""}`} ref={sumRef} data-spoken={events ? weekSummary(kind, week.done, week.planned, spokenMinutes) : undefined}>
             <span>{summary}</span>
             {events && kind !== "past" && (
               <>
