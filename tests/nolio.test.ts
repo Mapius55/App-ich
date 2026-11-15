@@ -412,7 +412,7 @@ describe("diffEvents", () => {
     expect(r.deletes).toEqual(["e3"]); // the past entry stays as history
   });
 
-  it("keeps the reminder the person chose, and deletes nothing of a kind whose list was cut off", () => {
+  it("deletes nothing of a kind whose Nolio list was cut off", () => {
     const same = plan({ id: "ptrn_same" });
     const existing = [stored(same, "e1"), stored(plan({ id: "ptrn_cancelled" }), "e2")];
     const r = diffEvents(existing, [same], { block: false, termin: true }, fromIso);
