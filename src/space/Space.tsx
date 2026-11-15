@@ -252,9 +252,11 @@ export function Space(props: SpaceProps) {
     snap: !typing,
     // on a side the time column is hidden: a drag that chains to the document (e.g. from a
     // toast in the fixed voice layer) must not move it (only programmatic moves may)
+    // (while a field has focus the browser may scroll to show it: the column waits, and goes
+    // back once the field lets go, below)
     hold: () => {
       const s = stateRef.current;
-      return s.place !== "jetzt" && !s.typing && !navigating.current && !motion.current.anim ? s.level : null;
+      return s.place !== "jetzt" && !navigating.current && !motion.current.anim ? { level: s.level, snap: !s.typing } : null;
     },
   });
 
@@ -663,7 +665,14 @@ export function Space(props: SpaceProps) {
   }, []);
   const wasTyping = useRef(false);
   useEffect(() => {
-    if (wasTyping.current && !typing && stateRef.current.place === "jetzt") levels.scrollToLevel(stateRef.current.level, "auto");
+    const s = stateRef.current;
+    if (wasTyping.current && !typing) {
+      if (s.place === "jetzt") levels.scrollToLevel(s.level, "auto");
+      else {
+        const top = levels.section(s.level)?.offsetTop ?? 0;
+        if (Math.abs(window.scrollY - top) > 0.5) window.scrollTo({ top, behavior: "auto" });
+      }
+    }
     wasTyping.current = !!typing;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [typing]);

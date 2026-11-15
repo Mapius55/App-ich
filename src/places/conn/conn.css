@@ -179,3 +179,7 @@
 }
 .space .sp { display: flex; flex-direction: column; }
 .space .sp-toggle { font-size: 0.8125rem; }
+/* "Trennen" (ConfirmDelete) reads like the quiet text buttons next to it */
+.space .cx-actions > .btn.quiet,
+.space .cx-actions .confirm-inline .btn.quiet { text-transform: none; letter-spacing: 0; font-size: 0.9375rem; font-weight: 500; }
+.space .cx-actions > .btn.quiet.danger { color: color-mix(in srgb, #ff9b8e 80%, var(--text-soft)); }

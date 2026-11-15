@@ -26,9 +26,10 @@ export function useLevels(o: {
   onFrame: (p: number) => void;
   onMotion?: (moving: boolean) => void;
   snap: boolean;
-  /** the time column is hidden (a side is shown): the level to keep it at, else null. Any
-      document scroll then snaps straight back (e.g. a drag that chained from a fixed layer) */
-  hold?: () => Level | null;
+  /** the time column is hidden (a side is shown): the level to keep, else null. A document
+      scroll then neither moves the levels nor settles; with `snap` it goes straight back
+      (e.g. a drag that chained from a fixed layer). */
+  hold?: () => { level: Level; snap: boolean } | null;
 }): Levels {
   const sections = useRef<(HTMLElement | null)[]>([null, null, null, null]);
   const refs = useRef(([0, 1, 2, 3] as Level[]).map((l) => (el: HTMLElement | null) => void (sections.current[l] = el)));
@@ -102,9 +103,9 @@ export function useLevels(o: {
     };
     const onScroll = () => {
       const held = cb.current.hold?.() ?? null;
-      if (held !== null && !moving) {
-        const t = top(held);
-        if (Math.abs(window.scrollY - t) > 0.5) window.scrollTo({ top: t, behavior: "auto" });
+      if (held && !moving) {
+        const t = top(held.level);
+        if (held.snap && Math.abs(window.scrollY - t) > 0.5) window.scrollTo({ top: t, behavior: "auto" });
         return;
       }
       if (!moving) {

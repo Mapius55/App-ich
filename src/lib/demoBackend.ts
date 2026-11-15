@@ -885,6 +885,7 @@ export class DemoBackend implements Backend {
   async whoopConfirm(code: string): Promise<WhoopConfirmResult> {
     await sleep(400);
     let out: WhoopConfirmResult = { ok: false, reason: "mismatch" };
+    let connected = false;
     this.mutate((u) => {
       const w = u.whoop;
       if (!w?.code || !w.code_at) return;
@@ -899,8 +900,9 @@ export class DemoBackend implements Backend {
       const t = now();
       u.whoop = { status: "connected", consent_ai: w.consent_ai, connected_at: w.connected_at ?? t, last_sync_at: t, code: null, code_at: null };
       u.whoop_days = demoWhoopDays(dayOf());
+      connected = true;
     });
-    if ("ok" in out && out.ok === false) return out;
+    if (!connected) return out;
     return { ...this.whoopStatusOf(this.user())!, ok: true };
   }
 
