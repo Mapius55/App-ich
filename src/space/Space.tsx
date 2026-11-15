@@ -83,7 +83,10 @@ const isTextField = (el: Element | null) =>
     el instanceof HTMLTextAreaElement ||
     el instanceof HTMLSelectElement ||
     (el instanceof HTMLElement && el.isContentEditable));
-const pageWidth = () => document.documentElement.clientWidth || window.innerWidth;
+// the page width, cached (read on resize, never per frame)
+let pageW = 0;
+const pageWidth = () => pageW || (pageW = document.documentElement.clientWidth || window.innerWidth);
+if (typeof window !== "undefined") window.addEventListener("resize", () => (pageW = 0));
 const nextFrame = () => new Promise<void>((r) => requestAnimationFrame(() => r()));
 
 function useReducedMotion(): boolean {
@@ -294,6 +297,18 @@ export function Space(props: SpaceProps) {
   );
   // (in a layout effect, so the new data-place and the cleared inline styles paint together)
   useLayoutEffect(() => releasePager(place), [place, releasePager]);
+
+  // a new width (rotation): the settled pager offset follows
+  useEffect(() => {
+    const on = () => {
+      if (motion.current.anim || motion.current.pagerStyled) return;
+      motion.current.x = baseX(stateRef.current.place);
+      paint();
+    };
+    window.addEventListener("resize", on);
+    return () => window.removeEventListener("resize", on);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [paint]);
 
   // first paint: the circle and the levels where the (deep-linked) state puts them
   useLayoutEffect(() => {

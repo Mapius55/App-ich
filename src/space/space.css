@@ -230,6 +230,8 @@ html.space-on:not([data-level="0"]) .voice-layer .voice-replay,
 html.space-on:not([data-place="jetzt"]) .voice-layer .voice-replay { display: none; }
 /* Jetzt has room for one status line: until the first message the hint wins over "Nochmal hören" */
 .voice-layer .idle-hint ~ .voice-replay { display: none; }
+/* the typed field's placeholder says it already */
+.voice-layer .voice[data-typed] .idle-hint { display: none; }
 /* compact dock away from Jetzt (D25): mic 56, round 48 */
 .voice-layer .voice.compact .voice-dock { gap: 18px; }
 .voice-layer .voice.compact .dock-main.big { width: var(--mic); height: var(--mic); box-shadow: 0 8px 30px color-mix(in srgb, var(--sky-1) 30%, transparent); }
@@ -277,7 +279,8 @@ html.space-on:not([data-place="jetzt"]) .voice-layer .voice-replay { display: no
 /* ---------- tour nudges (§9, rendered by A; never under reduced motion) ---------- */
 @media (prefers-reduced-motion: no-preference) {
   /* step 1: Jetzt lifts 56 px and settles, twice; a ghost dot glides up over the circle */
-  html[data-tour="1"][data-place="jetzt"][data-level="0"] .space .now,
+  html[data-tour="1"][data-place="jetzt"][data-level="0"] .space .now-top > :not(.now-pills),
+  html[data-tour="1"][data-place="jetzt"][data-level="0"] .space .now-door,
   html[data-tour="1"][data-place="jetzt"][data-level="0"] .space .orb-nudge { animation: tour-lift 1.1s 0.9s 2 both; }
   .space .tour-finger {
     position: absolute;

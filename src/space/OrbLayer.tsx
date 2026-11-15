@@ -66,6 +66,11 @@ export function OrbLayer({ apiRef, palette, state, slot, away, detailOpen, reduc
   dockedRef.current = docked;
   const dockTimer = useRef(0);
   const hidden = useDocumentHidden();
+  // the docked centre, measured on mount, resize and slot changes (never per frame)
+  const dockAt = useRef({ cx: 195, cy: 73 });
+  const measureDock = () => {
+    dockAt.current = { cx: document.documentElement.clientWidth / 2, cy: anchorRef.current?.offsetTop ?? 73 };
+  };
 
   useLayoutEffect(() => {
     const paint = (d: number) => {
@@ -88,8 +93,7 @@ export function OrbLayer({ apiRef, palette, state, slot, away, detailOpen, reduc
       const el = moveRef.current;
       const s = slotRef.current;
       if (!el || !s || !s.size) return;
-      const dockCx = document.documentElement.clientWidth / 2;
-      const dockCy = anchorRef.current?.offsetTop ?? 73;
+      const { cx: dockCx, cy: dockCy } = dockAt.current;
       // reduced motion: no travel, the big circle swaps to the docked one at d = 0.5 with a fade
       const pose = d >= 0.5 ? 1 : 0;
       const e = reducedRef.current ? pose : dockEase(d);
@@ -113,11 +117,14 @@ export function OrbLayer({ apiRef, palette, state, slot, away, detailOpen, reduc
 
   // a new slot (or a resize): put the circle where it belongs for the last d
   useLayoutEffect(() => {
+    measureDock();
     lastCss.current = "";
     apiRef.current?.dock(lastD.current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [slot?.cx, slot?.cy, slot?.size, reduced, apiRef]);
   useEffect(() => {
     const on = () => {
+      measureDock();
       lastCss.current = "";
       apiRef.current?.dock(lastD.current);
     };
