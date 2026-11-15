@@ -1,13 +1,17 @@
 // The space: one T-shaped place. The time column (Jetzt, Tag, Woche, Jahr) is the
-// document scroller; Du and Ziele are fixed layers left and right of Jetzt.
-// Phase 0 skeleton: stacked snapped sections, settle → state, hash sync, sides by
-// buttons, the docked circle, the dock's left slot, voice mounted once.
-// Phase 1 (A) adds the pager, docking, Portal pause, resume, tour nudges.
+// document scroller; Du and Ziele are fixed layers left and right of Jetzt, moved by
+// one custom pointer pager that is live only at Jetzt (and on the sides). The circle
+// lives in a fixed layer and docks at the top as you leave Jetzt.
+//
+// Per frame nothing goes through React: one scroll listener (useLevels) and the pager
+// write transform/opacity to at most four elements (orb, the two sections in view or
+// the two moving layers, Jetzt's content). React state changes only on settle.
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { backend } from "../lib/backend";
 import type { Coords } from "../lib/location";
 import type { Palette } from "../lib/palette";
 import { daySubline, weekRange } from "../lib/dates";
+import { pressOrb } from "../lib/orbSignals";
 import type { Weather } from "../lib/weather";
 import type { CoachContext, CoachEvent, Profile } from "../lib/types";
 import { unlockAudio } from "../lib/voice";
@@ -24,14 +28,19 @@ import { describeView } from "./describeView";
 import { DetailHost } from "./DetailHost";
 import { DockLeft } from "./Dock";
 import { markTourSeen } from "./flags";
-import { NowLevel } from "./NowLevel";
-import { OrbLayer } from "./OrbLayer";
+import { CANCEL_MS, RESUME_KEEP_MS, pagerEnabled } from "./gestures";
+import { NOW_TITLE_ID, NowLevel } from "./NowLevel";
+import { OrbLayer, type OrbApi, type OrbSlot } from "./OrbLayer";
 import { SkipNav } from "./SkipNav";
+import { easeOut, settleMs } from "./swipeMath";
 import { TourCaption } from "./Tour";
+import { useKeyboardInset } from "./useKeyboardInset";
 import { useLevels } from "./useLevels";
+import { useSwipeX } from "./useSwipeX";
 import {
   SpaceContext,
   fromHash,
+  showsTarget,
   stepAnchor,
   toHash,
   type AddKey,
@@ -42,6 +51,7 @@ import {
   type Place,
   type SpaceApi,
   type SpaceState,
+  type Target,
   type TourStep,
 } from "./state";
 
@@ -62,13 +72,19 @@ export interface SpaceProps {
 export const TITLE_IDS = { tag: "lvl-tag-title", woche: "lvl-woche-title", jahr: "lvl-jahr-title", ziele: "place-ziele-title", du: "place-du-title" } as const;
 
 const FLASH_MS = 1600;
-const wait = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+const GO_MS = 420; // a pill / key / button move between places (--t-normal)
+const WILL_CHANGE_KEEP = 300;
+const POS: Record<Place, -1 | 0 | 1> = { du: -1, jetzt: 0, ziele: 1 };
+const PLACE_AT: Record<-1 | 0 | 1, Place> = { [-1]: "du", 0: "jetzt", 1: "ziele" };
+
 const isTextField = (el: Element | null) =>
   !!el &&
   ((el instanceof HTMLInputElement && !["button", "checkbox", "radio", "range", "submit", "reset", "color", "file"].includes(el.type)) ||
     el instanceof HTMLTextAreaElement ||
     el instanceof HTMLSelectElement ||
     (el instanceof HTMLElement && el.isContentEditable));
+const pageWidth = () => document.documentElement.clientWidth || window.innerWidth;
+const nextFrame = () => new Promise<void>((r) => requestAnimationFrame(() => r()));
 
 function useReducedMotion(): boolean {
   const [reduced, setReduced] = useState(() => window.matchMedia("(prefers-reduced-motion: reduce)").matches);
@@ -96,6 +112,13 @@ function announcement(s: Pick<SpaceState, "place" | "level" | "anchor" | "today"
   return "Jetzt";
 }
 
+/** the heading programmatic and keyboard navigation moves focus to */
+function headingOf(s: Pick<SpaceState, "place" | "level">): HTMLElement | null {
+  const id =
+    s.place === "ziele" ? TITLE_IDS.ziele : s.place === "du" ? TITLE_IDS.du : s.level === 1 ? TITLE_IDS.tag : s.level === 2 ? TITLE_IDS.woche : s.level === 3 ? TITLE_IDS.jahr : NOW_TITLE_ID;
+  return document.getElementById(id);
+}
+
 export function Space(props: SpaceProps) {
   const { profile, palette, weather, day: today, focus, hasCoords, onEvent, onProfile, onCoords } = props;
 
@@ -108,7 +131,7 @@ export function Space(props: SpaceProps) {
   }, []);
 
   const [place, setPlace] = useState<Place>(initial.s?.place ?? "jetzt");
-  const [level, setLevel] = useState<Level>(initial.s?.level ?? 0);
+  const [level, setLevel] = useState<Level>(initial.s?.place === "jetzt" ? initial.s.level : 0);
   const [anchor, setAnchorState] = useState(initial.s?.anchor ?? today);
   const [yearGoal, setYearGoalState] = useState<string | null>(null);
   const [detail, setDetail] = useState<Detail | null>(null);
@@ -116,16 +139,168 @@ export function Space(props: SpaceProps) {
   const [duSection, setDuSection] = useState<DuSection | null>(initial.s?.duSection ?? null);
   const [tour, setTourState] = useState<TourStep | null>(() => (props.startTour && !initial.deepLink ? 1 : null));
   const [highlight, setHighlight] = useState<string | null>(null);
-  const [typing, setTyping] = useState(false);
+  const [typing, setTyping] = useState<false | "detail" | "field">(false);
   const reduced = useReducedMotion();
   const [orbState, setOrbState] = useState<OrbState>("idle");
+  const [voiceActive, setVoiceActive] = useState(false);
   const [announce, setAnnounce] = useState("");
+  const [slot, setSlot] = useState<OrbSlot | null>(null);
 
-  const state: SpaceState = { place, level, anchor, today, yearGoal, detail, detailOrigin, duSection, tour, highlight, typing, reduced };
+  const state: SpaceState = { place, level, anchor, today, yearGoal, detail, detailOrigin, duSection, tour, highlight, typing: !!typing, reduced };
   const stateRef = useRef(state);
   stateRef.current = state;
 
-  const levels = useLevels({ initial: initial.s?.place === "jetzt" ? initial.s.level : 0, onSettle: setLevel, snap: !typing });
+  useKeyboardInset();
+
+  // ---------- motion: progress p (vertical), pager offset x (horizontal) ----------
+
+  const orbApi = useRef<OrbApi | null>(null);
+  const spaceRef = useRef<HTMLDivElement>(null);
+  const timeRef = useRef<HTMLElement>(null);
+  const duRef = useRef<HTMLElement>(null);
+  const zieleRef = useRef<HTMLElement>(null);
+  const inners = useRef<(HTMLDivElement | null)[]>([null, null, null, null]);
+  const innerRefs = useRef([0, 1, 2, 3].map((k) => (el: HTMLDivElement | null) => void (inners.current[k] = el)));
+  const motion = useRef({ p: initial.s?.place === "jetzt" ? (initial.s.level as number) : 0, x: 0, pagerStyled: false, anim: 0, dragBase: 0 });
+  const lastLevelCss = useRef<string[]>(["", "", "", ""]);
+  const lastPagerCss = useRef<string[]>(["", "", ""]);
+  const willChangeTimer = useRef(0);
+
+  // depth cue (D24) and Jetzt's fade/lift: one write per section, only when it changes
+  const paintLevels = useCallback((p: number, d: number) => {
+    const red = stateRef.current.reduced;
+    for (let k = 0; k < 4; k++) {
+      const el = inners.current[k];
+      if (!el) continue;
+      const t = p - k;
+      let scale = 1;
+      let op = 1;
+      let lift = 0;
+      if (!red && Math.abs(t) < 1) {
+        if (t > 0) {
+          scale = 1 - 0.04 * t; // leaving: 1 → 0.96, → 0.35
+          op = 1 - 0.65 * t;
+        } else if (t < 0) {
+          scale = 1 - 0.03 * t; // arriving: 1.03 → 1, 0.35 → 1
+          op = 1 + 0.65 * t;
+        }
+      }
+      if (k === 0) {
+        op = Math.min(op, Math.max(0, 1 - 2 * d)); // Jetzt's content: 1 − 2d
+        if (!red) lift = -12 * Math.min(1, 2 * d);
+      }
+      const tf = scale !== 1 || lift !== 0 ? `translate3d(0,${lift.toFixed(2)}px,0) scale(${scale.toFixed(4)})` : "";
+      const o = op !== 1 ? op.toFixed(3) : "";
+      const css = `${tf}|${o}`;
+      if (css === lastLevelCss.current[k]) continue;
+      lastLevelCss.current[k] = css;
+      el.style.transform = tf;
+      el.style.opacity = o;
+    }
+  }, []);
+
+  // the pager's two moving layers (the time column and the side coming in)
+  const paintPager = useCallback((x: number) => {
+    const W = pageWidth();
+    const css = [`translate3d(${x.toFixed(2)}px,0,0)`, x < 0 ? `translate3d(${(W + x).toFixed(2)}px,0,0)` : "", x > 0 ? `translate3d(${(x - W).toFixed(2)}px,0,0)` : ""];
+    const els = [timeRef.current, zieleRef.current, duRef.current];
+    css.forEach((c, i) => {
+      if (c === lastPagerCss.current[i] || !els[i]) return;
+      lastPagerCss.current[i] = c;
+      els[i]!.style.transform = c;
+    });
+    motion.current.pagerStyled = true;
+  }, []);
+
+  const paint = useCallback(() => {
+    const m = motion.current;
+    const q = Math.min(1, Math.abs(m.x) / pageWidth());
+    const d = Math.min(1, Math.max(m.p, q));
+    orbApi.current?.dock(d);
+    paintLevels(m.p, d);
+  }, [paintLevels]);
+
+  // will-change only while scrolling or dragging, removed 300 ms after settle
+  const setMoving = useCallback((on: boolean) => {
+    clearTimeout(willChangeTimer.current);
+    const root = spaceRef.current;
+    if (!root) return;
+    if (on) root.classList.add("is-moving");
+    else willChangeTimer.current = window.setTimeout(() => root.classList.remove("is-moving"), WILL_CHANGE_KEEP);
+  }, []);
+
+  const levels = useLevels({
+    initial: initial.s?.place === "jetzt" ? initial.s.level : 0,
+    onSettle: setLevel,
+    onFrame: (p) => {
+      motion.current.p = p;
+      paint();
+    },
+    onMotion: setMoving,
+    snap: !typing,
+  });
+
+  // the pager offset of a settled place
+  const baseX = (p: Place) => -POS[p] * pageWidth();
+
+  // animate the pager to x (eased), painting every frame; 0 ms = jump
+  const animatePager = useCallback(
+    (to: number, ms: number) =>
+      new Promise<void>((resolve) => {
+        const m = motion.current;
+        cancelAnimationFrame(m.anim);
+        const from = m.x;
+        if (ms <= 0 || Math.abs(to - from) < 0.5) {
+          m.x = to;
+          paintPager(to);
+          paint();
+          resolve();
+          return;
+        }
+        setMoving(true);
+        const t0 = performance.now();
+        const step = (now: number) => {
+          const k = Math.min(1, (now - t0) / ms);
+          m.x = from + (to - from) * easeOut(k);
+          paintPager(m.x);
+          paint();
+          if (k < 1) m.anim = requestAnimationFrame(step);
+          else {
+            m.anim = 0;
+            resolve();
+          }
+        };
+        m.anim = requestAnimationFrame(step);
+      }),
+    [paint, paintPager, setMoving],
+  );
+
+  // a settled place: CSS (.space[data-place]) holds the layers again
+  const releasePager = useCallback(
+    (p: Place) => {
+      const m = motion.current;
+      if (m.anim) return;
+      m.x = baseX(p);
+      if (m.pagerStyled) {
+        for (const el of [timeRef.current, zieleRef.current, duRef.current]) if (el) el.style.transform = "";
+        lastPagerCss.current = ["", "", ""];
+        m.pagerStyled = false;
+      }
+      paint();
+      setMoving(false);
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [paint, setMoving],
+  );
+  // (in a layout effect, so the new data-place and the cleared inline styles paint together)
+  useLayoutEffect(() => releasePager(place), [place, releasePager]);
+
+  // first paint: the circle and the levels where the (deep-linked) state puts them
+  useLayoutEffect(() => {
+    motion.current.x = baseX(stateRef.current.place);
+    paint();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ---------- the API (stable functions reading the latest state) ----------
 
@@ -165,16 +340,43 @@ export function Space(props: SpaceProps) {
     flashTimer.current = window.setTimeout(() => setHighlight(null), FLASH_MS);
   }, []);
 
+  // after programmatic or keyboard navigation: focus the new heading (or the flashed row)
+  const focusAfterNav = useCallback(async (flashed?: string) => {
+    if (stateRef.current.tour || stateRef.current.detail) return;
+    await nextFrame();
+    await nextFrame();
+    const s = stateRef.current;
+    if (flashed) {
+      const hit = document.querySelector<HTMLElement>(".space .lvl[aria-current] .is-flash, .space .side[data-shown] .is-flash");
+      const target = hit && (hit.matches("button, [tabindex], a[href]") ? hit : hit.querySelector<HTMLElement>("button, [tabindex], a[href]"));
+      if (target) return target.focus({ preventScroll: true });
+    }
+    headingOf(s)?.focus({ preventScroll: true });
+  }, []);
+
+  // move the pager to a place and settle there
+  const pagerTo = useCallback(
+    async (p: Place, ms: number) => {
+      await animatePager(baseX(p), stateRef.current.reduced ? 0 : ms);
+      if (stateRef.current.place === p) releasePager(p);
+      else setPlace(p);
+      await nextFrame();
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [animatePager, releasePager],
+  );
+
   const go = useCallback(
     async (p: Place, o?: { highlight?: string; duSection?: DuSection }) => {
       if (stateRef.current.detail && !(await close("nav"))) return;
-      setDuSection(p === "du" ? (o?.duSection ?? null) : null);
-      const moved = stateRef.current.place !== p;
-      setPlace(p);
+      if (p === "du") setDuSection(o?.duSection ?? null);
+      else setDuSection(null);
+      if (stateRef.current.place !== p || motion.current.x !== baseX(p)) await pagerTo(p, GO_MS);
       if (o?.highlight) flash(o.highlight);
-      if (moved) await wait(stateRef.current.reduced ? 0 : 340);
+      focusAfterNav(o?.highlight);
     },
-    [close, flash],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [close, flash, pagerTo, focusAfterNav],
   );
 
   const goLevel = useCallback(
@@ -183,14 +385,14 @@ export function Space(props: SpaceProps) {
       if (o?.day) setAnchorState(o.day);
       if (o && "yearGoal" in o) setYearGoalState(o.yearGoal ?? null);
       if (stateRef.current.place !== "jetzt") {
-        setPlace("jetzt");
         setDuSection(null);
-        await wait(stateRef.current.reduced ? 0 : 340);
+        await pagerTo("jetzt", GO_MS);
       }
       await levels.scrollToLevel(l, stateRef.current.reduced ? "auto" : "smooth");
       if (o?.highlight) flash(o.highlight);
+      focusAfterNav(o?.highlight);
     },
-    [close, flash, levels.scrollToLevel],
+    [close, flash, pagerTo, levels.scrollToLevel, focusAfterNav],
   );
 
   const setAnchor = useCallback((d: string) => setAnchorState(d), []);
@@ -228,6 +430,45 @@ export function Space(props: SpaceProps) {
     [place, level, anchor, today, yearGoal, detail, detailOrigin, duSection, tour, highlight, typing, reduced],
   );
 
+  // ---------- the pager: Du ↔ Jetzt ↔ Ziele, live only at Jetzt (settled near the top) and on a side ----------
+
+  const pager = useSwipeX({
+    mode: "pager",
+    enabled: !detail && !typing,
+    gate: () => pagerEnabled(stateRef.current, window.scrollY),
+    canGo: (dir) => Math.abs(POS[stateRef.current.place] + dir) <= 1,
+    onStart: () => {
+      pressOrb(false);
+      const m = motion.current;
+      cancelAnimationFrame(m.anim);
+      m.anim = 0;
+      m.dragBase = m.x;
+      setMoving(true);
+    },
+    onMove: (dx) => {
+      const m = motion.current;
+      m.x = m.dragBase + dx;
+      paintPager(m.x);
+      paint();
+    },
+    onCommit: (dir, info) => {
+      const target = PLACE_AT[(POS[stateRef.current.place] + dir) as -1 | 0 | 1];
+      if (target !== "du") setDuSection(null);
+      pagerTo(target, settleMs(baseX(target) - motion.current.x, info.v));
+    },
+    onCancel: () => {
+      pagerTo(stateRef.current.place, CANCEL_MS);
+    },
+  });
+  const pagerRef = pager.ref; // stable
+  const spaceEl = useCallback(
+    (el: HTMLDivElement | null) => {
+      spaceRef.current = el;
+      pagerRef(el);
+    },
+    [pagerRef],
+  );
+
   // ---------- global behaviour ----------
 
   // a tour requested later (e.g. after onboarding while mounted)
@@ -241,7 +482,7 @@ export function Space(props: SpaceProps) {
     root.classList.add("space-on");
     return () => {
       root.classList.remove("space-on");
-      for (const k of ["place", "level", "detail", "typing", "tour"]) delete root.dataset[k];
+      for (const k of ["place", "level", "detail", "typing", "tour", "voiceActive"]) delete root.dataset[k];
     };
   }, []);
   useEffect(() => {
@@ -250,11 +491,13 @@ export function Space(props: SpaceProps) {
     d.level = String(level);
     if (detail) d.detail = detail.kind;
     else delete d.detail;
-    if (typing) d.typing = "true";
+    if (typing) d.typing = typing === "detail" ? "detail" : "true";
     else delete d.typing;
     if (tour) d.tour = String(tour);
     else delete d.tour;
-  }, [place, level, detail, typing, tour]);
+    if (voiceActive) d.voiceActive = "true";
+    else delete d.voiceActive;
+  }, [place, level, detail, typing, tour, voiceActive]);
 
   // hash (replaceState only) and the polite announcement after every settle
   useEffect(() => {
@@ -277,9 +520,36 @@ export function Space(props: SpaceProps) {
     return () => clearTimeout(t);
   }, [place, level, detail, today]);
 
-  // typing: snap off while a text field has focus; on blur back to the level's top
+  // resume (D13): back after ≥ 30 min → Jetzt (unless a detail is open); sooner keeps the place
   useEffect(() => {
-    const update = () => setTyping(isTextField(document.activeElement));
+    let hiddenAt = 0;
+    const onVis = () => {
+      if (document.hidden) {
+        hiddenAt = Date.now();
+        return;
+      }
+      if (!hiddenAt) return;
+      const away = Date.now() - hiddenAt;
+      hiddenAt = 0;
+      const s = stateRef.current;
+      if (away < RESUME_KEEP_MS || s.detail || (s.place === "jetzt" && s.level === 0)) return;
+      setDuSection(null);
+      animatePager(0, 0).then(() => {
+        setPlace("jetzt");
+        levels.scrollToLevel(0, "auto");
+      });
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, [animatePager, levels.scrollToLevel]);
+
+  // typing: snap off while a text field has focus (the voice layer hides for fields in a
+  // detail); on blur back to the level's top
+  useEffect(() => {
+    const update = () => {
+      const el = document.activeElement;
+      setTyping(isTextField(el) ? (el?.closest(".detail-root") ? "detail" : "field") : false);
+    };
     const onOut = () => setTimeout(update, 0);
     document.addEventListener("focusin", update);
     document.addEventListener("focusout", onOut);
@@ -291,7 +561,7 @@ export function Space(props: SpaceProps) {
   const wasTyping = useRef(false);
   useEffect(() => {
     if (wasTyping.current && !typing && stateRef.current.place === "jetzt") levels.scrollToLevel(stateRef.current.level, "auto");
-    wasTyping.current = typing;
+    wasTyping.current = !!typing;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [typing]);
 
@@ -306,6 +576,7 @@ export function Space(props: SpaceProps) {
         if (e.key === "Escape") (handled(), close("escape"));
         return;
       }
+      const side = s.place === "ziele" ? zieleRef.current : s.place === "du" ? duRef.current : null;
       switch (e.key) {
         case "Escape":
           handled();
@@ -315,12 +586,15 @@ export function Space(props: SpaceProps) {
           break;
         case "ArrowDown":
         case "PageDown":
-          if (s.place === "jetzt") (handled(), goLevel(Math.min(3, s.level + 1) as Level));
-          break;
         case "ArrowUp":
-        case "PageUp":
-          if (s.place === "jetzt") (handled(), goLevel(Math.max(0, s.level - 1) as Level));
+        case "PageUp": {
+          const down = e.key === "ArrowDown" || e.key === "PageDown";
+          handled();
+          // on a side the keys scroll the side, never the hidden time column
+          if (side) side.scrollBy({ top: (down ? 1 : -1) * (e.key.startsWith("Page") ? side.clientHeight * 0.85 : 80), behavior: s.reduced ? "auto" : "smooth" });
+          else goLevel(Math.max(0, Math.min(3, s.level + (down ? 1 : -1))) as Level);
           break;
+        }
         case "Home":
           handled();
           go("jetzt").then(() => goLevel(0));
@@ -345,33 +619,6 @@ export function Space(props: SpaceProps) {
     return () => window.removeEventListener("keydown", onKey);
   }, [close, go, goLevel, setTour]);
 
-  // "Mit dem Coach planen" etc.: coachBus → the conversation's kickoff, one at a time
-  // (phase 1 replaces this bridge with VoiceConversation's own coachBus subscription)
-  const [kickoff, setKickoff] = useState<string | null>(null);
-  const kickoffRef = useRef<string | null>(null);
-  const asks = useRef<string[]>([]);
-  const pump = useCallback(() => {
-    if (kickoffRef.current !== null || !asks.current.length) return;
-    kickoffRef.current = asks.current.shift()!;
-    setKickoff(kickoffRef.current);
-  }, []);
-  useEffect(
-    () =>
-      coachBus.onAsk((text) => {
-        asks.current.push(text);
-        pump();
-      }),
-    [pump],
-  );
-  const onKickoffSent = useCallback(() => {
-    kickoffRef.current = null;
-    setKickoff(null);
-  }, []);
-  // the next ask goes out only after a render with no kickoff (the conversation re-arms on null)
-  useEffect(() => {
-    if (kickoff === null) pump();
-  }, [kickoff, pump]);
-
   // the coach sees where the person is
   const contextRef = useRef(props.context);
   contextRef.current = props.context;
@@ -380,6 +627,16 @@ export function Space(props: SpaceProps) {
     const view = describeView(stateRef.current, (id) => goals?.find((g) => g.id === id)?.title ?? null);
     return { ...contextRef.current(), view };
   }, []);
+
+  // a coach change visible where the person is glows instead of toasting; "Ansehen" goes there
+  const suppressToast = useCallback((t: Target) => showsTarget(t, stateRef.current), []);
+  const openTarget = useCallback(
+    (t: Target) => {
+      if (t.kind === "event") goLevel(1, { day: t.day, highlight: t.id });
+      else go("ziele", { highlight: t.id });
+    },
+    [go, goLevel],
+  );
 
   // once a day, a little after the greeting, the coach quietly tidies its notes
   useEffect(() => {
@@ -411,41 +668,61 @@ export function Space(props: SpaceProps) {
   const onAdd = addKey ? (adds.current[addKey] ?? null) : null;
   const sideShown = place !== "jetzt";
   const atLevel = (l: Level) => place === "jetzt" && level === l;
+  const away = place !== "jetzt" || level > 0;
 
   const onSkip = (p: Place, l?: Level) => {
     if (p !== "jetzt") go(p);
     else go("jetzt").then(() => goLevel(l ?? 0));
   };
+  const backToCircle = useCallback(async () => {
+    await go("jetzt");
+    await goLevel(0);
+  }, [go, goLevel]);
 
   return (
     <SpaceContext.Provider value={api}>
       <SkipNav onGo={onSkip} />
-      <div className="space" inert={!!detail}>
-        <OrbLayer />
-        <main className="time" inert={sideShown} aria-hidden={sideShown || undefined}>
-          <section ref={levels.sectionRef(0)} className="lvl" data-level={0} aria-current={atLevel(0) || undefined} aria-label="Jetzt">
-            <div className="lvl-inner">
-              <NowLevel profile={profile} palette={palette} weather={weather} focus={focus} orbState={orbState} />
+      <div ref={spaceEl} className="space" data-place={place} inert={!!detail}>
+        <OrbLayer
+          apiRef={orbApi}
+          palette={palette}
+          state={orbState}
+          slot={slot}
+          away={away}
+          detailOpen={!!detail}
+          reduced={reduced}
+          tour={tour}
+          atJetzt={atLevel(0)}
+          onBack={backToCircle}
+        />
+        <main ref={timeRef} className="time" inert={sideShown} aria-hidden={sideShown || undefined}>
+          <section ref={levels.sectionRef(0)} className="lvl" data-level={0} aria-current={atLevel(0) || undefined} aria-labelledby={NOW_TITLE_ID}>
+            <div ref={innerRefs.current[0]} className="lvl-inner">
+              <NowLevel profile={profile} palette={palette} weather={weather} focus={focus} onSlot={setSlot} />
             </div>
           </section>
           <section ref={levels.sectionRef(1)} className="lvl" data-level={1} aria-current={atLevel(1) || undefined} aria-labelledby={TITLE_IDS.tag}>
-            <div className="lvl-inner">
-              <DayLevel titleId={TITLE_IDS.tag} active={atLevel(1)} weather={weather} />
+            <div ref={innerRefs.current[1]} className="lvl-inner">
+              {levels.mounted.day && <DayLevel titleId={TITLE_IDS.tag} active={atLevel(1)} weather={weather} />}
             </div>
           </section>
           <section ref={levels.sectionRef(2)} className="lvl" data-level={2} aria-current={atLevel(2) || undefined} aria-labelledby={TITLE_IDS.woche}>
-            <div className="lvl-inner">{levels.mounted.week && <WeekLevel titleId={TITLE_IDS.woche} active={atLevel(2)} />}</div>
+            <div ref={innerRefs.current[2]} className="lvl-inner">
+              {levels.mounted.week && <WeekLevel titleId={TITLE_IDS.woche} active={atLevel(2)} />}
+            </div>
           </section>
           <section ref={levels.sectionRef(3)} className="lvl" data-level={3} aria-current={atLevel(3) || undefined} aria-labelledby={TITLE_IDS.jahr}>
-            <div className="lvl-inner">{levels.mounted.year && <YearLevel titleId={TITLE_IDS.jahr} active={atLevel(3)} />}</div>
+            <div ref={innerRefs.current[3]} className="lvl-inner">
+              {levels.mounted.year && <YearLevel titleId={TITLE_IDS.jahr} active={atLevel(3)} />}
+            </div>
           </section>
         </main>
-        <section id="du" className="side" role="region" aria-labelledby={TITLE_IDS.du} inert={place !== "du"} data-shown={place === "du" || undefined}>
+        <section ref={duRef} id="du" className="side" role="region" aria-labelledby={TITLE_IDS.du} inert={place !== "du"} data-shown={place === "du" || undefined}>
           <div className="side-inner">
             <YouPlace titleId={TITLE_IDS.du} active={place === "du"} profile={profile} palette={palette} hasCoords={hasCoords} onProfile={onProfile} onCoords={onCoords} />
           </div>
         </section>
-        <section id="ziele" className="side" role="region" aria-labelledby={TITLE_IDS.ziele} inert={place !== "ziele"} data-shown={place === "ziele" || undefined}>
+        <section ref={zieleRef} id="ziele" className="side" role="region" aria-labelledby={TITLE_IDS.ziele} inert={place !== "ziele"} data-shown={place === "ziele" || undefined}>
           <div className="side-inner">
             <GoalsPlace titleId={TITLE_IDS.ziele} active={place === "ziele"} />
           </div>
@@ -454,7 +731,7 @@ export function Space(props: SpaceProps) {
       <div className="detail-root">
         <DetailHost />
       </div>
-      <div className="voice-layer" data-compact={place !== "jetzt" || level > 0 || undefined}>
+      <div className="voice-layer">
         <VoiceConversation
           mode="checkin"
           thread={today}
@@ -462,8 +739,13 @@ export function Space(props: SpaceProps) {
           onEvent={onEvent}
           onOrbState={setOrbState}
           leftButton={<DockLeft detailOpen={!!detail} addKey={addKey} onAdd={onAdd} onDone={() => close("done")} />}
-          kickoff={kickoff}
-          onKickoffSent={onKickoffSent}
+          variant="layer"
+          compact={away}
+          hold={tour !== null}
+          idleHint="untilFirstMessage"
+          suppressToast={suppressToast}
+          onOpenTarget={openTarget}
+          onActivity={setVoiceActive}
         />
       </div>
       <TourCaption />

@@ -165,21 +165,23 @@ export function NowLevel({ profile, palette, weather, focus, onSlot }: NowLevelP
     <div className="now">
       <div className="now-top">
         <div className="now-pills">
-          <button type="button" className="pill now-pill now-side" onClick={() => go("du")} aria-label="Zu dir: was ich über dich weiss, Verbindungen, Einstellungen">
-            ‹ Du
+          <button type="button" className="now-pill now-side" onClick={() => go("du")} aria-label="Zu dir: was ich über dich weiss, Verbindungen, Einstellungen">
+            <span className="pill">‹ Du</span>
           </button>
           <button
             type="button"
-            className="pill now-pill now-phase"
+            className="now-pill now-phase"
             onClick={() => setColorsOpen((o) => !o)}
             aria-expanded={colorsOpen}
             aria-controls="now-colors"
             aria-label={`Farben heute: ${palette.phase}${temp !== null ? `, ${temp} Grad` : ""}`}
           >
-            <span className="now-phase-text">{phasePill}</span>
+            <span className="pill">
+              <span className="now-phase-text">{phasePill}</span>
+            </span>
           </button>
-          <button type="button" className="pill now-pill now-side" onClick={() => go("ziele")} aria-label="Zu deinen Zielen">
-            Ziele ›
+          <button type="button" className="now-pill now-side" onClick={() => go("ziele")} aria-label="Zu deinen Zielen">
+            <span className="pill">Ziele ›</span>
           </button>
         </div>
 

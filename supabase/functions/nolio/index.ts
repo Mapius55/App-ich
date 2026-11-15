@@ -323,6 +323,8 @@ async function checkKey(cfg: Config) {
   }
   if (out.scopes && NEEDED_SCOPES.some((s) => !out.scopes!.includes(s))) return { ...out, error_code: "missing_scope" };
   if (!cfg.owner) return { ...out, error_code: "owner_not_set" };
+  const owner = await admin().auth.admin.getUserById(cfg.owner);
+  if (owner.error || !owner.data.user) return { ...out, error_code: "owner_not_found" };
   return { ...out, ok: true };
 }
 

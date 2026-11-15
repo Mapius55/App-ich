@@ -78,9 +78,7 @@ begin
     if new.source = 'nolio' then
       raise exception 'Einträge aus Nolio legt nur der Abgleich an.' using errcode = 'insufficient_privilege';
     end if;
-    return new;
-  end if;
-  if old.source = 'nolio' then
+  elsif old.source = 'nolio' then
     if tg_op = 'DELETE' or (to_jsonb(new) - free) is distinct from (to_jsonb(old) - free) then
       if tg_table_name = 'events' then
         raise exception 'Dieser Eintrag kommt aus Nolio (vom Trainer geplant) und lässt sich nur dort ändern.'
@@ -92,6 +90,13 @@ begin
     raise exception 'Einträge aus Nolio legt nur der Abgleich an.' using errcode = 'insufficient_privilege';
   end if;
   if tg_op = 'DELETE' then return old; end if;
+  -- A planned Nolio training is not confirmed by hand: the completed training counts by itself
+  -- (otherwise the same session would count twice). to_jsonb: events has no event_id column.
+  if tg_table_name = 'goal_time' and (to_jsonb(new) ->> 'event_id') is not null
+     and (tg_op = 'INSERT' or (to_jsonb(new) ->> 'event_id') is distinct from (to_jsonb(old) ->> 'event_id'))
+     and exists (select 1 from public.events e where e.id = (to_jsonb(new) ->> 'event_id')::uuid and e.source = 'nolio') then
+    raise exception 'Nolio-Trainings zählen automatisch, sobald sie in Nolio erledigt sind.' using errcode = 'insufficient_privilege';
+  end if;
   return new;
 end;
 $$;
