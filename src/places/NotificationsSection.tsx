@@ -59,7 +59,7 @@ export function NotificationsSection({ profile, onProfile }: { profile: Profile;
       )}
       {isIos() && !isStandalone() && (
         <p className="pl-hint">
-          Auf dem iPhone geht das nur, wenn „I am“ auf dem Home-Bildschirm liegt: in Safari auf <strong>Teilen</strong> → <strong>Zum Home-Bildschirm</strong>, dann die App von dort
+          Auf dem iPhone geht das nur, wenn „Bucket List“ auf dem Home-Bildschirm liegt: in Safari auf <strong>Teilen</strong> → <strong>Zum Home-Bildschirm</strong>, dann die App von dort
           öffnen.
         </p>
       )}

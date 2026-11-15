@@ -1,0 +1,191 @@
+/* Leben (level 4, owned by Builder F): life in weeks. Every rule is scoped under .space,
+   so the old screens (flag off) are untouched. The grid is one canvas as wide as the level;
+   when it is taller than the room it scrolls in place, starting with this week in view. */
+
+.space .tl-life .lh-sub { text-wrap: balance; }
+.space .lf-count {
+  display: block;
+  margin-top: 3px;
+  font-size: 0.8125rem;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+}
+
+/* the grid: the level's width; the gutters hold the decade ticks (and the glow room) */
+.space .lf-body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  margin: clamp(10px, 2.4svh, 20px) calc(-1 * var(--gutter)) 0;
+  padding: 0 var(--gutter);
+}
+.space .lf-body.scroll {
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-width: none;
+  -webkit-mask-image: linear-gradient(to bottom, transparent, #000 10px, #000 calc(100% - 28px), transparent);
+  mask-image: linear-gradient(to bottom, transparent, #000 10px, #000 calc(100% - 28px), transparent);
+}
+.space .lf-body.scroll::-webkit-scrollbar { display: none; }
+.space .lf-body.scroll .lf-stage { margin: 10px 0 28px; }
+.space .lf-stage { position: relative; width: 100%; }
+.space .lf-canvas {
+  display: block;
+  touch-action: pan-y;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .space .lf-stage { animation: lf-in 0.7s var(--ease-out) both; }
+}
+@keyframes lf-in { from { opacity: 0; } }
+
+/* every ten years a tick in the gutter; with room (wide screens) the age instead */
+.space .lf-ticks { position: absolute; inset: 0 auto 0 0; pointer-events: none; }
+.space .lf-tick {
+  position: absolute;
+  left: -10px;
+  width: 6px;
+  height: 1px;
+  background: color-mix(in srgb, var(--text) 38%, transparent);
+}
+.space .lf-tick-label { display: none; }
+@media (min-width: 640px) {
+  /* (the level is narrower than the screen here: the gutter grows to hold the ages) */
+  .space .lf-body { margin-left: calc(-1 * var(--gutter) - 24px); padding-left: calc(var(--gutter) + 24px); }
+  .space .lf-tick { left: -32px; width: 26px; height: auto; background: none; }
+  .space .lf-tick-label {
+    display: block;
+    margin-top: -0.45em;
+    font-size: 10px;
+    line-height: 1;
+    text-align: right;
+    padding-right: 4px;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-soft);
+  }
+}
+
+/* this week breathes: a soft halo in its colour of the flow (still under reduced motion) */
+.space .lf-now {
+  position: absolute;
+  width: calc(var(--lf-cell, 6px) * 3.6);
+  height: calc(var(--lf-cell, 6px) * 3.6);
+  border-radius: 50%;
+  background: radial-gradient(circle, var(--lf-now, var(--orb-1)) 0%, color-mix(in srgb, var(--lf-now, var(--orb-1)) 40%, transparent) 34%, transparent 70%);
+  transform: translate(-50%, -50%);
+  opacity: 0.5;
+  pointer-events: none;
+  mix-blend-mode: screen;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .space .tl-life[data-active] .lf-now { animation: lf-breathe 2.8s ease-in-out infinite alternate; }
+}
+@keyframes lf-breathe {
+  from { opacity: 0.28; transform: translate(-50%, -50%) scale(0.78); }
+  to { opacity: 0.72; transform: translate(-50%, -50%) scale(1.12); }
+}
+
+/* a tapped row lights up for a moment on the way to its year */
+.space .lf-band {
+  position: absolute;
+  left: -4px;
+  right: -4px;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--text) 22%, transparent);
+  pointer-events: none;
+  animation: lf-band 0.7s ease-out both;
+}
+@keyframes lf-band { to { opacity: 0; } }
+
+/* the dreams on the grid: for screen readers; while one has the keyboard focus the list shows */
+.space .lf-dreams:not(:focus-within) {
+  position: absolute !important;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.space .lf-dreams:focus-within {
+  position: absolute;
+  z-index: 2;
+  left: var(--gutter);
+  right: var(--gutter);
+  bottom: var(--lvl-content-bottom);
+  padding: 10px 16px 6px;
+  border-radius: 20px;
+  background: color-mix(in srgb, var(--bg-top, #101018) 94%, transparent);
+}
+.space .lf-dreams-label { margin: 0 0 2px; font-size: 11px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: var(--text-soft); }
+.space .lf-dreams ul { list-style: none; margin: 0; padding: 0; }
+.space .lf-dream {
+  width: 100%;
+  min-height: 44px;
+  padding: 6px 0;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font-size: 0.9375rem;
+  font-weight: 600;
+  line-height: 1.3;
+  text-align: left;
+}
+
+/* without a birth year: one question, the year, «Zeigen» */
+.space .lf-ask {
+  margin-top: clamp(18px, 7svh, 64px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+  text-align: center;
+}
+.space .lf-ask-q {
+  margin: 0;
+  max-width: 21ch;
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 23px;
+  line-height: 1.28;
+  color: var(--text);
+  text-wrap: balance;
+}
+.space .lf-ask-row { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 10px; }
+.space .lf-year {
+  width: auto;
+  min-width: 9.5rem;
+  min-height: 48px;
+  padding: 0 18px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--glass-strong);
+  font-size: 1.0625rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+  text-align: center;
+}
+.space .lf-year option { color: #0a0a0f; }
+.space .lf-show { min-height: 48px; }
+.space .lf-ask-hint { margin: -4px 0 0; font-size: 0.8125rem; color: var(--text-soft); }
+@media (max-height: 700px) {
+  .space .lf-ask-q { font-size: 20px; }
+  .space .lf-ask { gap: 14px; }
+}
+
+/* under the question, the empty grid, faint and fading out: what «Zeigen» will fill */
+.space .lf-preview {
+  flex: 1;
+  min-height: 0;
+  margin-top: clamp(20px, 4svh, 36px);
+  overflow: hidden;
+  opacity: 0.75;
+  pointer-events: none;
+  -webkit-mask-image: linear-gradient(to bottom, #000, transparent 88%);
+  mask-image: linear-gradient(to bottom, #000, transparent 88%);
+}
+.space .lf-preview-stage { width: 100%; }
+.space .lf-preview .lf-canvas { cursor: default; }

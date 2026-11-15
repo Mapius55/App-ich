@@ -1,9 +1,18 @@
-// Brand asset generator for "I am".
-// 1. Download Bodoni Moda (OFL) from github.com/google/fonts (ofl/bodonimoda)
-// 2. python outline.py BodoniModa[opsz,wght].ttf "I am" 500 > glyphs.json   (needs fontTools)
-// 3. node make.cjs glyphs.json <out-dir>      → icon.svg, wordmark.svg, banner.svg
-// 4. node render.cjs '[["icon.svg",512,512,"icon-512.png"]]'   (needs Playwright) → PNGs
-// Builds the brush background + "I am" logo as SVG strings.
+// Brand asset generator for "Bucket List": «Bucket» / «List» on two centred lines in Bodoni Moda, on the
+// blue brush background (the same background the "I am" logo had).
+// 1. Bodoni Moda (OFL) from github.com/google/fonts (ofl/bodonimoda/BodoniModa[opsz,wght].ttf). Keep the
+//    font outside the repository; only the outlines below end up in the files.
+// 2. python outline.py BodoniModa[opsz,wght].ttf 650 16 --tracking=85 "Bucket" "List" > glyphs.json
+//    (needs fontTools). Weight 650, optical size 16 and a little tracking (instead of 500 / 96 for the old
+//    one-line logo): sturdier hairlines and letters that stay apart, so both lines remain readable when
+//    the icon is small (checked at 60 px).
+// 3. node make.cjs glyphs.json <out-dir>   → icon.svg, icon-maskable.svg, wordmark.svg, banner.svg
+// 4. node render.cjs '[["icon.svg",512,512,"icon-512.png"],["icon.svg",192,192,"icon-192.png"],
+//      ["icon.svg",180,180,"apple-touch-icon.png"],["icon-maskable.svg",512,512,"icon-maskable-512.png"],
+//      ["banner.svg",1240,840,"banner.png"]]'   (needs Playwright) → PNGs
+//    Check a downscaled render (60 px) before shipping: both lines must stay readable.
+// Files: public/icon.svg, icon-192.png, icon-512.png, icon-maskable-512.png, apple-touch-icon.png;
+// brand/icon.svg, wordmark.svg, banner.svg, banner.png.
 const fs = require('fs');
 const g = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
 
@@ -36,31 +45,59 @@ function brush({ base0, base1, light, mid, shade }, id = 'b', w = 1000, h = 1000
   <rect width="${w}" height="${h}" filter="url(#${id}-grain)" opacity=".13" style="mix-blend-mode:overlay"/>`;
 }
 
-// Swash in font units (baseline y=0, cap height -1500, x-height -920).
-const SWASH = 'M 712 0 C 1500 30, 2450 -260, 3120 -820 C 3560 -1190, 4260 -1420, 4330 -930 C 4390 -500, 4050 -40, 3640 10';
+// ---------- the two-line wordmark ----------
+// Baseline to baseline, in cap heights. Neither word has a descender, so the lines can sit close; the
+// gap between them is LEAD - 1 cap heights (a little more than the old logo's word space).
+const LEAD = 1.42;
 
-function logo(color = '#fff', strokeW = 13) {
-  return { d: g.d, swash: SWASH, color, strokeW, width: g.width };
+/** The lines stacked and centred on their ink, in font units; returns paths plus the block's ink box. */
+function stack() {
+  const cap = g.capHeight || 1500;
+  const lines = g.lines.map((l, i) => {
+    const dx = -(l.x0 + l.x1) / 2; // centre on the ink, not the advance width (optical centring)
+    const dy = i * LEAD * cap;
+    return { d: l.d, dx, dy, x0: l.x0 + dx, x1: l.x1 + dx, y0: l.y0 + dy, y1: l.y1 + dy };
+  });
+  const box = {
+    x0: Math.min(...lines.map((l) => l.x0)),
+    x1: Math.max(...lines.map((l) => l.x1)),
+    y0: Math.min(...lines.map((l) => l.y0)),
+    y1: Math.max(...lines.map((l) => l.y1)),
+  };
+  return { lines, box };
 }
 
-function logoGroup(cx, cy, scale, color = '#fff', stroke = 6.5) {
-  const w = 4400; // including swash
-  const x = cx - (w * scale) / 2 + 40 * scale;
-  const y = cy + (1500 * scale) / 2 - 60 * scale;
-  return `<g transform="translate(${x} ${y}) scale(${scale})">
-    <path d="${g.d}" fill="${color}"/>
-    <path d="${SWASH}" fill="none" stroke="${color}" stroke-width="${stroke}" stroke-linecap="round"/>
+const S = stack();
+
+/** The wordmark scaled so that its widest line is `width` wide, centred on (cx, cy). */
+function logoGroup(cx, cy, width, color = '#fff') {
+  const { lines, box } = S;
+  const scale = width / (box.x1 - box.x0);
+  const midY = (box.y0 + box.y1) / 2;
+  return `<g transform="translate(${r(cx)} ${r(cy - midY * scale)}) scale(${r(scale, 5)})" fill="${color}">
+    ${lines.map((l) => `<path transform="translate(${r(l.dx)} ${r(l.dy)})" d="${l.d}"/>`).join('\n    ')}
   </g>`;
 }
 
+const r = (n, p = 2) => +n.toFixed(p);
+
 const NIGHT = { base0: '#01040f', base1: '#04215c', light: '#4aa6f5', mid: '#1758c6', shade: '#010616' };
 
-const icon = (size) => `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 1000 1000">${brush(NIGHT, 'i')}${logoGroup(500, 515, 0.155, '#fff', 10)}</svg>`;
-const wordmark = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -1560 4440 1700"><path d="${g.d}" fill="currentColor"/><path d="${SWASH}" fill="none" stroke="currentColor" stroke-width="6.5" stroke-linecap="round"/></svg>`;
-const banner = `<svg xmlns="http://www.w3.org/2000/svg" width="1240" height="840" viewBox="0 0 1240 840">${brush(NIGHT, 'w', 1240, 840)}${logoGroup(620, 420, 0.21)}</svg>`;
+// The icon: the widest line ("Bucket") spans 78 % of the tile, a hair below the centre (optical centre
+// of a rounded tile). Maskable (Android): everything inside the safe circle (radius 40 %), so smaller.
+const icon = (size) => `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 1000 1000">${brush(NIGHT, 'i')}${logoGroup(500, 508, 780)}</svg>`;
+const maskable = (size) => `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 1000 1000">${brush(NIGHT, 'm')}${logoGroup(500, 505, 660)}</svg>`;
+
+const pad = 60;
+const wm = { w: S.box.x1 - S.box.x0, h: S.box.y1 - S.box.y0 };
+const wordmark = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${r(S.box.x0 - pad)} ${r(S.box.y0 - pad)} ${r(wm.w + 2 * pad)} ${r(wm.h + 2 * pad)}"><g fill="currentColor">${S.lines
+  .map((l) => `<path transform="translate(${r(l.dx)} ${r(l.dy)})" d="${l.d}"/>`)
+  .join('')}</g></svg>`;
+const banner = `<svg xmlns="http://www.w3.org/2000/svg" width="1240" height="840" viewBox="0 0 1240 840">${brush(NIGHT, 'w', 1240, 840)}${logoGroup(620, 420, 640)}</svg>`;
 
 const out = process.argv[3];
 fs.writeFileSync(out + '/icon.svg', icon(1000));
+fs.writeFileSync(out + '/icon-maskable.svg', maskable(1000));
 fs.writeFileSync(out + '/wordmark.svg', wordmark);
 fs.writeFileSync(out + '/banner.svg', banner);
 module.exports = { brush };

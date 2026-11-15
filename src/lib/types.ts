@@ -16,6 +16,8 @@ export interface Profile {
   notify_evening?: string | null;
   /** when the coach last asked which apps and devices it may read (request_connections), null = never */
   connections_asked_at?: string | null;
+  /** for «Leben» (life in weeks): only the year, null = not given (the coach never asks for it) */
+  birth_year?: number | null;
 }
 
 export interface PushSubscriptionRow {
@@ -25,7 +27,7 @@ export interface PushSubscriptionRow {
   app_url: string;
 }
 
-/** An entry in the calendar "I am". */
+/** An entry in the calendar "Bucket List". */
 export interface CalendarEvent {
   id: string;
   title: string;
@@ -63,10 +65,17 @@ export interface Milestone {
 
 export type GoalStatus = "active" | "done" | "paused" | "dropped";
 
-/** Something to work toward, often with a date (a race, an exam, a project). */
+/**
+ * "dream": a life dream on the Bucket List, ticked off once it came true and kept as a fond memory;
+ * "goal": something concrete to work toward (a race, an exam, a project).
+ */
+export type GoalKind = "dream" | "goal";
+
+/** Something to work toward, often with a date (a race, an exam, a project), or a life dream. */
 export interface Goal {
   id: string;
   title: string;
+  kind: GoalKind;
   why: string | null;
   target_date: string | null; // YYYY-MM-DD
   status: GoalStatus;
@@ -85,9 +94,20 @@ export interface Goal {
   time: { logged_minutes: number; block_minutes: number };
   /** which Nolio trainings count toward it (sport ids, names or slugs), null = not chosen */
   sports?: string[] | null;
+  /**
+   * when it was reached, for a dream: when it came true (ISO). Follows the status like the database
+   * trigger: set when it becomes done (unless given), kept while done, null otherwise.
+   */
+  done_at: string | null;
+  /** how it was, in her words (a fulfilled dream), at most 1000 characters */
+  memory: string | null;
+  /** when the coach last brought the dream up (its reminders; the server's clock), null = never */
+  reminded_at?: string | null;
 }
 
-export type GoalInput = Pick<Goal, "title"> & Partial<Pick<Goal, "why" | "target_date" | "status" | "effort_hours" | "weekly_hours" | "prior_hours" | "sports">>;
+/** done_at only together with status done: when it was reached, if not now (null = now). */
+export type GoalInput = Pick<Goal, "title"> &
+  Partial<Pick<Goal, "why" | "target_date" | "status" | "effort_hours" | "weekly_hours" | "prior_hours" | "sports" | "kind" | "memory" | "done_at">>;
 
 /** A piece of time that went into a goal. */
 export interface GoalTime {
@@ -172,7 +192,7 @@ export type CoachEvent =
   | { type: "event_created"; event: CalendarEvent }
   | { type: "event_updated"; event: CalendarEvent }
   | { type: "event_deleted"; id: string; title: string }
-  | { type: "goal_saved"; goal: Goal; created?: boolean } // created (created: true) or changed; milestones and time included
+  | { type: "goal_saved"; goal: Goal; created?: boolean; fulfilled?: boolean } // created (created: true) or changed; milestones and time included; fulfilled: this call made a dream come true
   | { type: "time_logged"; goal_id: string; title: string; minutes: number }
   | { type: "goal_deleted"; id: string; title: string }
   | { type: "habit_saved"; habit: Habit }
@@ -326,6 +346,8 @@ export interface Backend {
   pushPublicKey(): Promise<string | null>;
   savePushSubscription(s: PushSubscriptionRow): Promise<void>;
   deletePushSubscription(endpoint: string): Promise<void>;
+  /** whether this device's subscription (endpoint) is stored for the account logged in now */
+  ownsPushSubscription(endpoint: string): Promise<boolean>;
   sendTestPush(): Promise<number>;
 
   /** Voice (ElevenLabs on the server): is it set up, speak a text, transcribe a recording. */

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Sets up a fresh Supabase project for "I am" through the Supabase Management API.
+# Sets up a fresh Supabase project for "Bucket List" through the Supabase Management API.
 #   SUPABASE_ACCESS_TOKEN=sbp_… ./scripts/setup-supabase.sh <project-ref>
 # Does: login without e-mail confirmation, database schema (all migrations),
 # server functions, a secret for scheduled notifications, and the schedule
@@ -62,6 +62,8 @@ for fn in coach account calendar push voice; do
 done
 
 echo "5/5 Zeitplan: Morgenfrage und Abendrückblick (alle 15 Minuten)"
+# The job keeps its old name 'i-am-push' (from when the app was called "I am"): the Nolio and WHOOP
+# migrations look it up by that name.
 if [ -n "$CRON_SECRET" ]; then
   sql <<SQL
 create extension if not exists pg_cron;

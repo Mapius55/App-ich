@@ -15,19 +15,24 @@ function openDetail(d: NonNullable<SpaceState["detail"]>, ref: string): string {
     const local = dayOf(new Date(e.starts_at));
     return `Eintrag „${e.title}“ [${e.id}] am ${daySubline(local, ref)}, ${e.all_day ? "ganztags" : timeHM(e.starts_at)}`;
   }
-  if (d.kind === "goal") return d.goal ? `Ziel „${d.goal.title}“ [${d.goal.id}]` : "neues Ziel";
+  if (d.kind === "goal") {
+    const dream = d.goal ? d.goal.kind === "dream" : !!d.dream;
+    if (!d.goal) return dream ? "neuer Traum" : "neues Ziel";
+    return `${dream ? "Traum" : "Ziel"} „${d.goal.title}“ [${d.goal.id}]${dream && d.goal.status === "done" ? " (erfüllt)" : ""}`;
+  }
   return d.habit ? `Gewohnheit „${d.habit.title}“ [${d.habit.id}]` : "neue Gewohnheit";
 }
 
 /**
  * "Jetzt (Startseite mit dem Kreis)" · "Tag: Montag, 16. November 2026" ·
  * "Woche: 16.–22. November 2026 (KW 47)" · "Jahr 2026, nur Ziel „Halbmarathon Zürich“" ·
- * "Ziele" · "Du (was ich über dich weiss, Verbindungen, Einstellungen)",
+ * "Leben in Wochen (90 Jahre, jede Woche ein Punkt)" ·
+ * "Bucket List (rechts vom Kreis: Träume, Ziele, Gewohnheiten)" · "Du (was ich über dich weiss, Verbindungen, Einstellungen)",
  * plus " · offen: …" while a detail is open.
  */
 export function describeView(s: Pick<SpaceState, "place" | "level" | "anchor" | "yearGoal" | "detail">, goalTitle: (id: string) => string | null): string {
   let view: string;
-  if (s.place === "ziele") view = "Ziele";
+  if (s.place === "ziele") view = "Bucket List (rechts vom Kreis: Träume, Ziele, Gewohnheiten)";
   else if (s.place === "du") view = "Du (was ich über dich weiss, Verbindungen, Einstellungen)";
   else if (s.level === 1) view = `Tag: ${fullDay(s.anchor)}`;
   else if (s.level === 2) {
@@ -37,6 +42,7 @@ export function describeView(s: Pick<SpaceState, "place" | "level" | "anchor" | 
   } else if (s.level === 3) {
     const title = s.yearGoal ? goalTitle(s.yearGoal) : null;
     view = `Jahr ${year(s.anchor)}${title ? `, nur Ziel „${title}“` : ""}`;
-  } else view = "Jetzt (Startseite mit dem Kreis)";
+  } else if (s.level === 4) view = "Leben in Wochen (90 Jahre, jede Woche ein Punkt)";
+  else view = "Jetzt (Startseite mit dem Kreis)";
   return s.detail ? `${view} · offen: ${openDetail(s.detail, s.anchor)}` : view;
 }

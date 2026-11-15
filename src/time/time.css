@@ -527,6 +527,94 @@ html[data-tour="2"] .space .lvl-next { opacity: 0; visibility: hidden; }
 .space .yr-legend-sep { padding: 0 2px; }
 .space .tl-year.month-open .yr-legend { visibility: hidden; }
 
+/* Jahr, gently in the year (Bucket List round, owned by Builder E). The colour flow is the
+   circle's palette (--bl-flow / --bl-glow from places.css, built from --orb-*). */
+.space .yr-pass {
+  flex: none;
+  min-height: 22px; /* kept for every year, so the months don't jump when paging */
+  margin-top: 6px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 2px 10px;
+}
+.space .yr-pass-bar {
+  flex: 0 1 120px;
+  height: 4px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text) 12%, transparent);
+}
+.space .yr-pass-bar > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background-image: var(--bl-flow);
+  box-shadow: 0 0 8px var(--bl-glow);
+}
+.space .yr-pass-text { font-size: 0.8125rem; line-height: 1.35; color: var(--text-soft); text-align: center; }
+
+/* months, legend and the year's dreams and goals: scroll in place only when they don't fit */
+.space .yr-body { flex: 1; min-height: 0; margin: 0 -8px; padding: 0 8px; }
+.space .yr-body.scroll {
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-width: none;
+  -webkit-mask-image: linear-gradient(to bottom, transparent, #000 10px, #000 calc(100% - 28px), transparent);
+  mask-image: linear-gradient(to bottom, transparent, #000 10px, #000 calc(100% - 28px), transparent);
+}
+.space .yr-body.scroll::-webkit-scrollbar { display: none; }
+.space .yr-body-inner { display: flex; flex-direction: column; }
+.space .yr-body.scroll .yr-body-inner { padding-bottom: 26px; }
+
+/* «Noch offen in 2026» and «Erfüllt in 2026»: side by side when both are there */
+.space .yr-more {
+  flex: none;
+  margin-top: 16px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 150px), 1fr));
+  gap: 6px 20px;
+}
+.space .tl-year.month-open .yr-more { visibility: hidden; }
+.space .yr-sec { min-width: 0; display: flex; flex-direction: column; }
+.space .yr-sec-head { display: flex; align-items: baseline; gap: 8px; margin: 0 0 2px; }
+.space .yr-sec-label { min-width: 0; margin: 0; font-size: 11px; font-weight: 600; line-height: 1.3; letter-spacing: 0.14em; text-transform: uppercase; color: var(--text-soft); }
+/* «+2»: the items that don't fit, opened in place (a 44 px hit box around a small label) */
+.space .yr-sec-more {
+  position: relative;
+  flex: none;
+  margin-left: auto;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  line-height: 1.1;
+}
+.space .yr-sec-more::after { content: ""; position: absolute; inset: -15px -12px; }
+.space .yr-sec-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.space .yr-sec-list.two { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 20px; }
+.space .yr-item {
+  max-width: 100%;
+  min-height: 44px;
+  padding: 6px 0;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font-size: 0.9375rem;
+  font-weight: 600;
+  line-height: 1.3;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+.space .yr-item.done { filter: drop-shadow(0 0 8px var(--bl-glow)); }
+/* short screens (iPhone SE): four months a row, so the year, its legend and what is still
+   open in it fit without scrolling (the cells keep their size) */
+@media (max-height: 700px) and (min-width: 360px) {
+  .space .yr-months.year-grid { grid-template-columns: repeat(4, max-content); }
+}
+
 /* a month opened in place */
 .space .mo { position: absolute; top: 0; left: 0; right: 0; transform-origin: 0 0; }
 .space .mo-wd,

@@ -7,6 +7,8 @@ import { eventWhen, minutesLabel, shortDay } from "../lib/dates";
 import { dayOf, perWeekLabel } from "../lib/plan";
 import { isAudioUnlocked, listenOnce, Speaker, splitSentences, unlockAudio, type ListenHandle } from "../lib/voice";
 import * as coachBus from "../space/coachBus";
+import { dreamWhen } from "../places/bucket";
+import { requestWash } from "../places/fulfilled";
 import { targetOf, type Target } from "../space/state";
 
 // The conversation as pure voice: the coach speaks (no text on screen), you
@@ -33,11 +35,20 @@ interface Toast {
 // right after (e.g. its steps being added) stay quiet.
 const RECENT = 2 * 60 * 1000;
 const QUIET = 15 * 1000;
-function goalToast(e: { goal: Goal; created?: boolean }, seen: Map<string, number>): Omit<Toast, "id"> | null {
+export function goalToast(e: { goal: Goal; created?: boolean; fulfilled?: boolean }, seen: Map<string, number>, now = Date.now()): Omit<Toast, "id"> | null {
   const { goal } = e;
-  const now = Date.now();
+  // a dream that came true in this call (the server says so: with done_date its done_at may lie days
+  // back), else one done a moment ago: «Erfüllt» once (the Bucket List washes it in the colour flow)
+  const fulfilled = `erfuellt:${goal.id}`;
+  const justDone = !!e.fulfilled || (!!goal.done_at && Math.abs(now - Date.parse(goal.done_at)) < RECENT);
+  if (goal.kind === "dream" && goal.status === "done" && justDone && !seen.has(fulfilled)) {
+    seen.set(fulfilled, now);
+    seen.set(goal.id, now);
+    return { label: "Erfüllt", title: goal.title, icon: "check" };
+  }
   if (e.created && !seen.has(goal.id)) {
     seen.set(goal.id, now);
+    if (goal.kind === "dream") return { label: "Auf der Bucket List", title: goal.title, when: dreamWhen(goal.target_date) ?? undefined, icon: "goal" };
     return { label: "Ziel", title: goal.title, when: goal.target_date ? shortDay(goal.target_date) : undefined, icon: "goal" };
   }
   const ticked = goal.milestones.find((m) => m.done_at && now - new Date(m.done_at).getTime() < RECENT && !seen.has(m.id));
@@ -48,6 +59,7 @@ function goalToast(e: { goal: Goal; created?: boolean }, seen: Map<string, numbe
   }
   if (now - (seen.get(goal.id) ?? 0) < QUIET) return null;
   seen.set(goal.id, now);
+  if (goal.kind === "dream" && goal.status === "done" && goal.memory) return { label: "Erinnerung", title: goal.title, icon: "check" };
   return { label: "Plan aktualisiert", title: goal.title, icon: "goal" };
 }
 
@@ -226,13 +238,15 @@ export function VoiceConversation({
           } else if (e.type === "error") {
             setError(e.message);
           } else if (e.type === "event_created" || e.type === "event_updated") {
-            toast({ label: e.type === "event_created" ? "Im Kalender „I am“" : "Termin geändert", title: e.event.title, when: eventWhen(e.event), target: targetOf(e, dayOfIso) ?? undefined });
+            toast({ label: e.type === "event_created" ? "Im Kalender „Bucket List“" : "Termin geändert", title: e.event.title, when: eventWhen(e.event), target: targetOf(e, dayOfIso) ?? undefined });
             pulseOrb(0.5);
             onEventRef.current(e);
           } else if (e.type === "event_deleted") {
             toast({ label: "Aus dem Kalender entfernt", title: e.title });
             onEventRef.current(e);
           } else if (e.type === "goal_saved") {
+            // before the plan data changes: the Bucket List washes it once, also when it is in view already
+            if (e.fulfilled && e.goal.kind === "dream" && e.goal.status === "done") requestWash(e.goal.id);
             const t = goalToast(e, toasted.current);
             if (t) toast({ ...t, target: targetOf(e, dayOfIso) ?? undefined });
             pulseOrb(0.4);

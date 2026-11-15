@@ -6,7 +6,8 @@ const TARGETS: { label: string; place: Place; level?: Level }[] = [
   { label: "Heute", place: "jetzt", level: 1 },
   { label: "Woche", place: "jetzt", level: 2 },
   { label: "Jahr", place: "jetzt", level: 3 },
-  { label: "Ziele", place: "ziele" },
+  { label: "Leben", place: "jetzt", level: 4 },
+  { label: "Bucket List", place: "ziele" },
   { label: "Du", place: "du" },
 ];
 

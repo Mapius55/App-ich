@@ -1,4 +1,4 @@
-/* I am · visual language
+/* Bucket List · visual language
    Almost-black ground, light that flows through today's colours (SkyBackground),
    a portal into depth, bold sans titles with small capsule labels, the coach
    speaking in Bodoni Moda, and round buttons at the bottom.
@@ -476,6 +476,7 @@ input[type="time"] { background: var(--glass); border: 1px solid var(--line); bo
 .settings { padding-bottom: calc(env(safe-area-inset-bottom) + 36px); }
 .settings .title { margin-top: 26px; animation: rise 0.8s var(--ease-out) both; }
 .settings-section { margin-top: 18px; }
+.settings-value { flex: 1; align-self: center; font-size: 1.0625rem; font-weight: 600; font-variant-numeric: tabular-nums; }
 .settings-section:nth-of-type(2) { animation-delay: 0.06s; }
 .settings-section:nth-of-type(3) { animation-delay: 0.12s; }
 .settings-section:nth-of-type(4) { animation-delay: 0.18s; }

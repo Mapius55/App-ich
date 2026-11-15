@@ -7,7 +7,7 @@
     <meta name="color-scheme" content="dark" />
     <meta name="robots" content="noindex" />
     <link rel="icon" href="icon.svg" type="image/svg+xml" />
-    <title>Datenschutz · I am</title>
+    <title>Datenschutz · Bucket List</title>
     <style>
       :root {
         --bg-top: #05060a;
@@ -117,7 +117,7 @@
     <main>
       <a class="back" href="./">← Zur App</a>
 
-      <span class="label">I am</span>
+      <span class="label">Bucket List</span>
       <h1>Datenschutz</h1>
       <p class="lead">Was die App speichert, wozu, wer es sieht und wie du es wieder löschst.</p>
       <p class="meta">Stand: November 2026</p>
@@ -136,7 +136,7 @@
         <span class="label">Verantwortlich</span>
         <h2>Wer hinter der App steht</h2>
         <p>
-          „I am“ ist eine kleine, private App. Verantwortlich ist die Person, die sie betreibt und dir den Zugang gegeben hat.
+          „Bucket List“ ist eine kleine, private App. Verantwortlich ist die Person, die sie betreibt und dir den Zugang gegeben hat.
           Fragen zum Datenschutz, Wünsche nach Auskunft oder Löschung richtest du direkt an sie.
         </p>
       </section>
@@ -148,7 +148,8 @@
         <h3>Dein Konto</h3>
         <p>
           Benutzername und Passwort (das Passwort nur als verschlüsselter Prüfwert, nie im Klartext), dein Name, falls du ihn angibst,
-          deine Zeitzone und die Zeiten, zu denen du Nachrichten vom Coach möchtest.
+          dein Geburtsjahr, falls du es angibst (nur das Jahr, für dein Leben in Wochen), deine Zeitzone und die Zeiten, zu denen du
+          Nachrichten vom Coach möchtest.
         </p>
 
         <h3>Gespräche und was der Coach sich merkt</h3>
@@ -158,9 +159,10 @@
           welche Apps und Geräte du nutzt, damit er nicht nochmals fragt.
         </p>
 
-        <h3>Ziele und Kalender</h3>
+        <h3>Bucket List, Ziele und Kalender</h3>
         <p>
-          Ziele, Etappen, Gewohnheiten, die Zeit, die du in deine Ziele steckst, und deine Kalendereinträge.
+          Die Träume auf deiner Bucket List, wann sie in Erfüllung gingen und was du davon erzählt hast, wann der Coach dich zuletzt an
+          einen Traum erinnert hat, dazu Ziele, Etappen, Gewohnheiten, die Zeit, die du in deine Ziele steckst, und deine Kalendereinträge.
           Für das Kalender-Abo auf dem Handy gibt es einen privaten Link, den du in der App erneuern kannst. Die App merkt sich, wann dein
           Kalender ihn zuletzt abgerufen hat, damit sie und der Coach wissen, ob das Abo läuft.
         </p>
@@ -171,7 +173,10 @@
         </p>
 
         <h3>Benachrichtigungen</h3>
-        <p>Pro Gerät, auf dem du Nachrichten erlaubst, eine technische Adresse, die dein Browser dafür vergibt.</p>
+        <p>
+          Pro Gerät, auf dem du Nachrichten erlaubst, eine technische Adresse, die dein Browser dafür vergibt. Meldest du dich ab oder schaltest
+          du sie auf einem Gerät aus, löscht die App diese Adresse.
+        </p>
 
         <h3>Aus Verbindungen</h3>
         <div class="card">
@@ -217,7 +222,7 @@
         <h2>Wofür die Daten da sind</h2>
         <ul>
           <li>damit der Coach dich kennt und dich im Alltag begleiten kann,</li>
-          <li>für Erinnerungen, Kalender, Ziele und Gewohnheiten,</li>
+          <li>für Erinnerungen, Kalender, deine Bucket List, Ziele und Gewohnheiten,</li>
           <li>für die Farben der App (Sonnenstand, Wetter, Jahreszeit).</li>
         </ul>
         <p>
@@ -232,8 +237,8 @@
         <p>
           Die Antworten des Coaches schreibt <strong>Claude</strong>, eine KI von Anthropic mit Sitz in den USA. Für jede Antwort schickt
           der Server die Angaben, die für das Gespräch nötig sind: das Gespräch des Tages (zu Beginn eines Tages auch das Ende des Gesprächs
-          von gestern), deine Erinnerungen und die Zusammenfassung über dich, Stimmung und Fokus, kommende Termine, Ziele und Gewohnheiten
-          (auch die Zeit aus Nolio), welche Verbindungen eingerichtet sind, was du gerade in der App ansiehst, Tageszeit, Ortsname und Wetter.
+          von gestern), deine Erinnerungen und die Zusammenfassung über dich, Stimmung und Fokus, kommende Termine, deine Bucket List, Ziele und Gewohnheiten
+          (auch die Zeit aus Nolio), dein Geburtsjahr, falls du es angegeben hast, welche Verbindungen eingerichtet sind, was du gerade in der App ansiehst, Tageszeit, Ortsname und Wetter.
           Mit Nolio kommen die erledigten Trainings der letzten Woche dazu: Tag, Sportart, Dauer und Distanz, bei Geräten von Zepp oder
           Huawei nur Dauer und Distanz, nie Name, Belastung oder Empfinden. Trainings, die über Strava oder WHOOP zu Nolio kamen, sieht der
           Coach nie. Die Daten werden dafür in die USA übermittelt. Laut den Geschäftsbedingungen von Anthropic für diesen Zugang werden sie
@@ -323,6 +328,11 @@
             (ohne Zugangsschlüssel), den WHOOP-Tageswerten und den Nolio-Trainings.
           </li>
           <li>
+            <strong>Geburtsjahr:</strong> <span class="path">Du → Einstellungen → Geburtsjahr</span> (oder im Menü unter
+            <span class="path">Einstellungen</span>) änderst oder entfernst du es. Du kannst auch dem Coach sagen, dass er es vergessen soll.
+            Die Erinnerung an einen erfüllten Traum änderst oder löschst du im Traum selbst.
+          </li>
+          <li>
             <strong>WHOOP trennen:</strong> <span class="path">Du → Verbindungen → WHOOP trennen</span>. Die App widerruft den Zugriff bei
             WHOOP und löscht alle WHOOP-Daten. Die Erlaubnis für den Coach kannst du dort auch einzeln ausschalten.
           </li>
@@ -350,7 +360,7 @@
 
       <footer>
         <p>Ändert sich etwas Wesentliches, steht es hier, mit neuem Datum.</p>
-        <p>WHOOP ist eine Marke von WHOOP, Inc. „I am“ ist ein unabhängiges Projekt und nicht mit WHOOP verbunden.</p>
+        <p>WHOOP ist eine Marke von WHOOP, Inc. „Bucket List“ ist ein unabhängiges Projekt und nicht mit WHOOP verbunden.</p>
       </footer>
     </main>
   </body>

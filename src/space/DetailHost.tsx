@@ -114,6 +114,7 @@ function GoalHost({ d, origin, goals, onRequestClose, after }: { d: Extract<Deta
     <GoalDetail
       goal={current ?? d.goal}
       focusEffort={d.focusEffort}
+      dream={d.dream}
       origin={origin}
       onRequestClose={onRequestClose}
       onChanged={onChanged}

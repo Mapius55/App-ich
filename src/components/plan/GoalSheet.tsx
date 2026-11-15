@@ -1,9 +1,13 @@
-import { useContext, useEffect, useId, useRef, useState } from "react";
+import { useContext, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { backend } from "../../lib/backend";
 import { dayOf, durationLabel, goalEffort, hoursLabel } from "../../lib/plan";
 import { shortDay } from "../../lib/dates";
-import type { Goal, GoalStatus } from "../../lib/types";
+import type { Goal, GoalKind, GoalStatus } from "../../lib/types";
+import { unlockAudio } from "../../lib/voice";
+import { fulfilledDay, fulfilledLabel, tellText } from "../../places/bucket";
+import { markWashed, WASH_MS } from "../../places/fulfilled";
 import { closeDecision } from "../../space/closeDecision";
+import * as coachBus from "../../space/coachBus";
 import { ConfirmDelete as ConfirmInline } from "../../space/ConfirmDelete";
 import { SpaceContext, type CloseVia } from "../../space/state";
 import { Unfold, useUnfold, useUnfoldClose } from "../../space/Unfold";
@@ -15,6 +19,19 @@ export const GOAL_STATUS: { key: GoalStatus; label: string }[] = [
   { key: "paused", label: "Pausiert" },
   { key: "done", label: "Erreicht" },
   { key: "dropped", label: "Aufgegeben" },
+];
+/** a dream in the detail: fulfilling it is its own action («Erfüllt»), letting go is gentle */
+const DREAM_STATUS: { key: GoalStatus; label: string }[] = [
+  { key: "active", label: "Aktiv" },
+  { key: "paused", label: "Pausiert" },
+  { key: "dropped", label: "Losgelassen" },
+];
+/** a dream in the old sheet (flag off): all four, done reads «Erfüllt» */
+const DREAM_STATUS_SHEET: { key: GoalStatus; label: string }[] = [
+  { key: "active", label: "Aktiv" },
+  { key: "paused", label: "Pausiert" },
+  { key: "done", label: "Erfüllt" },
+  { key: "dropped", label: "Losgelassen" },
 ];
 
 interface Draft {
@@ -54,6 +71,10 @@ export interface GoalFormProps {
   goal: Goal | null; // null = new goal
   /** opened from "Aufwand schätzen": start in the effort fields */
   focusEffort?: boolean;
+  /** a new one starts on the Bucket List (kind dream) */
+  dream?: boolean;
+  /** the toggle «Auf der Bucket List» changed (the detail's kind pill follows) */
+  onKind?: (dream: boolean) => void;
   /** "sheet": the old bottom sheet (flag off); "detail": inside an Unfold */
   variant: "sheet" | "detail";
   /** sheet only: closes the sheet */
@@ -67,10 +88,23 @@ export interface GoalFormProps {
 }
 
 /** The goal form body: shared by the old sheet and the Unfold detail. */
-export function GoalForm({ goal, focusEffort, variant, close, onChanged, onDirty, gone }: GoalFormProps) {
+export function GoalForm({ goal, focusEffort, dream: newDream, onKind, variant, close, onChanged, onDirty, gone }: GoalFormProps) {
   const detail = variant === "detail";
   const space = useContext(SpaceContext);
   const unfold = useUnfold();
+  const [kind, setKindState] = useState<GoalKind>(goal ? (goal.kind ?? "goal") : newDream ? "dream" : "goal");
+  const isDream = kind === "dream";
+  const setKind = (k: GoalKind) => {
+    setKindState(k);
+    onKind?.(k === "dream");
+  };
+  const [memory, setMemory] = useState(goal?.memory ?? "");
+  // «Erfüllt» pressed here: the colour-flow wash runs once over the item, then «Wie war es?»
+  const [washing, setWashing] = useState(false);
+  const washTimer = useRef(0);
+  const fulfilledHere = useRef(false);
+  useEffect(() => () => clearTimeout(washTimer.current), []);
+  const tellRef = useRef<HTMLButtonElement>(null);
   const [title, setTitle] = useState(goal?.title ?? "");
   const [target, setTarget] = useState(goal?.target_date ?? "");
   const [why, setWhy] = useState(goal?.why ?? "");
@@ -80,8 +114,10 @@ export function GoalForm({ goal, focusEffort, variant, close, onChanged, onDirty
     weekly: hoursText(goal?.weekly_hours),
     prior: hoursText(goal?.prior_hours),
   });
+  const [effortShown, setEffortShown] = useState(() => !!focusEffort || Object.values(hours).some((v) => v !== ""));
   const hintId = useId();
   const statusId = useId();
+  const kindId = useId();
   // a reached or dropped goal opens with its status first: setting it back is the likely reason to open it
   const finished = goal?.status === "done" || goal?.status === "dropped";
   const [steps, setSteps] = useState<Draft[]>(() =>
@@ -92,7 +128,7 @@ export function GoalForm({ goal, focusEffort, variant, close, onChanged, onDirty
   const [asking, setAsking] = useState(false);
 
   // detail: the values as loaded, to tell local edits apart
-  const values = JSON.stringify([title, target, why, status, hours, steps.filter((x) => !x.removed).map((x) => [x.id ?? "", x.title])]);
+  const values = JSON.stringify([kind, title, target, why, status, memory, hours, steps.filter((x) => !x.removed).map((x) => [x.id ?? "", x.title])]);
   const loaded = useRef(values);
   const dirty = values !== loaded.current;
   useEffect(() => onDirty?.(dirty), [dirty, onDirty]);
@@ -119,7 +155,7 @@ export function GoalForm({ goal, focusEffort, variant, close, onChanged, onDirty
 
   /** what is missing or wrong, else null */
   const problem = (): string | null => {
-    if (!title.trim()) return "Wie heisst dein Ziel?";
+    if (!title.trim()) return isDream ? "Wie heisst dein Traum?" : "Wie heisst dein Ziel?";
     for (const f of HOURS_FIELDS) {
       const p = hoursProblem(f.key, parsed[f.key]);
       if (p) return p;
@@ -131,11 +167,13 @@ export function GoalForm({ goal, focusEffort, variant, close, onChanged, onDirty
   const store = async (): Promise<Goal> => {
     const input = {
       title: title.trim(),
+      kind,
       target_date: target || null,
       why: why.trim() || null,
       effort_hours: parsed.effort || null,
       weekly_hours: parsed.weekly || null,
       prior_hours: parsed.prior ?? 0,
+      memory: memory.trim() || null,
     };
     if (!goal) {
       const ms = steps.filter((s) => !s.removed && s.title.trim()).map((s) => ({ title: s.title.trim(), due_date: null }));
@@ -181,6 +219,8 @@ export function GoalForm({ goal, focusEffort, variant, close, onChanged, onDirty
     try {
       const saved = await store();
       release.current = true;
+      // the wash already ran here: the Bucket List doesn't wash it a second time
+      if (saved.kind === "dream" && saved.status === "done" && fulfilledHere.current) markWashed(saved.id);
       onChanged(saved);
       return true;
     } catch (e) {
@@ -213,11 +253,39 @@ export function GoalForm({ goal, focusEffort, variant, close, onChanged, onDirty
     if (await commit()) unfold?.requestClose("done");
   };
 
+  // «Erfüllt»: done (stored on close, like every edit here), the wash (none under reduced
+  // motion), then «Wie war es? Erzähl es mir.» takes the focus
+  const fulfil = () => {
+    setStatus("done");
+    fulfilledHere.current = true;
+    if (!space?.reduced) {
+      setWashing(true);
+      clearTimeout(washTimer.current);
+      washTimer.current = window.setTimeout(() => setWashing(false), WASH_MS);
+    }
+    requestAnimationFrame(() => tellRef.current?.focus({ preventScroll: true }));
+  };
+  // «Wieder offen»: back on the list as an open dream
+  const reopen = () => {
+    setStatus("active");
+    fulfilledHere.current = false;
+    setWashing(false);
+  };
+  // «Wie war es? Erzähl es mir.»: store it, close, and the coach asks by voice
+  const tell = () => {
+    void unlockAudio(); // inside the tap (iPhone)
+    const text = tellText(title || goal?.title || "");
+    void (unfold ? unfold.requestClose("done") : Promise.resolve(true)).then((closed) => {
+      if (closed) coachBus.ask(text);
+    });
+  };
+
+  const statusOptions = isDream ? (detail ? DREAM_STATUS : DREAM_STATUS_SHEET) : GOAL_STATUS;
   const statusField = goal && (
     <div className="sheet-field">
       <span id={statusId}>Status</span>
-      <div className="segmented four" role="radiogroup" aria-labelledby={statusId}>
-        {GOAL_STATUS.map((s) => (
+      <div className={`segmented ${statusOptions.length === 3 ? "three" : "four"}`} role="radiogroup" aria-labelledby={statusId}>
+        {statusOptions.map((s) => (
           <button key={s.key} type="button" role="radio" aria-checked={status === s.key} className={status === s.key ? "on" : ""} onClick={() => setStatus(s.key)}>
             {s.label}
           </button>
@@ -226,24 +294,91 @@ export function GoalForm({ goal, focusEffort, variant, close, onChanged, onDirty
     </div>
   );
 
+  const kindField = (
+    <label className="toggle-row sheet-toggle uf-kind">
+      <span id={kindId}>Auf der Bucket List</span>
+      <input type="checkbox" className="switch" role="switch" checked={isDream} onChange={(e) => setKind(e.target.checked ? "dream" : "goal")} aria-labelledby={kindId} />
+    </label>
+  );
+
+  const memoryField = (
+    <label className="sheet-field">
+      <span>Erinnerung</span>
+      <textarea value={memory} onChange={(e) => setMemory(e.target.value)} rows={3} maxLength={1000} placeholder="Wie war es?" />
+    </label>
+  );
+
+  // a dream in the detail: «Erfüllt» while it is open, the fulfilled block once it came true
+  const doneDream = isDream && status === "done";
+  const fulfilledAt = goal?.status === "done" && goal.done_at ? goal : { done_at: new Date().toISOString(), updated_at: new Date().toISOString() };
+  const dreamTop =
+    detail && isDream && goal ? (
+      doneDream ? (
+        <div className="uf-fulfilled">
+          <p className={`uf-fulfilled-date${washing ? " bl-wash" : ""}`} role="status">
+            <span className="bl-flow">{fulfilledLabel(fulfilledAt, true)}</span>
+          </p>
+          {!goal.memory && space && (
+            <button ref={tellRef} type="button" className="uf-link uf-tell" onClick={tell}>
+              Wie war es? Erzähl es mir.
+            </button>
+          )}
+          {memoryField}
+          <button type="button" className="btn quiet uf-reopen" onClick={reopen}>
+            Wieder offen
+          </button>
+        </div>
+      ) : status !== "dropped" ? (
+        <button type="button" className="uf-fulfil" onClick={fulfil}>
+          <span className="uf-fulfil-mark" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M5 12.5l4.2 4.2L19 7" />
+            </svg>
+          </span>
+          <span className="bl-flow">Erfüllt</span>
+        </button>
+      ) : null
+    ) : null;
+
+  // «Im Jahr ansehen»: a goal opens this year filtered to its time; a dream opens the year it came
+  // true or is planned for (no filter: a dream rarely has logged time), else its time if it has
+  // some, else nothing
+  const yearLink = ((): { label: string; go: { day?: string; yearGoal: string | null } } | null => {
+    if (!goal) return null;
+    const timed = goal.time.logged_minutes + goal.time.block_minutes > 0;
+    if (!isDream) return { label: "Im Jahr ansehen", go: { yearGoal: goal.id } };
+    const day = doneDream ? fulfilledDay(fulfilledAt) : target || null;
+    const y = day ? Number(day.slice(0, 4)) : null;
+    if (day && y !== null && y <= Number(dayOf().slice(0, 4)) + 1) return { label: `Im Jahr ${y} ansehen`, go: { day, yearGoal: null } };
+    if (timed) return { label: "Im Jahr ansehen", go: { yearGoal: goal.id } };
+    return null;
+  })();
+
   const setStep = (key: string, patch: Partial<Draft>) => setSteps((xs) => xs.map((x) => (x.key === key ? { ...x, ...patch } : x)));
 
-  const titleInput = (
+  const titleInput = detail ? (
+    // a dream's name is often a whole sentence: in the detail it wraps (one line, no Enter)
+    <TitleArea
+      value={title}
+      onChange={setTitle}
+      placeholder={isDream ? "z.B. Polarlichter sehen" : "z.B. Halbmarathon"}
+      label={isDream ? "Was möchtest du erleben?" : "Worauf arbeitest du hin?"}
+      autoFocus={!goal}
+    />
+  ) : (
     <input
-      className={detail ? "uf-title" : "plain-input"}
+      className="plain-input"
       value={title}
       onChange={(e) => setTitle(e.target.value)}
-      placeholder="z.B. Halbmarathon"
+      placeholder={isDream ? "z.B. Polarlichter sehen" : "z.B. Halbmarathon"}
       maxLength={200}
-      aria-label={detail ? "Worauf arbeitest du hin?" : undefined}
-      enterKeyHint={detail ? "done" : undefined}
       data-autofocus={goal ? undefined : true}
     />
   );
 
   const targetField = (
     <label className="sheet-field">
-      <span>Bis wann? (optional)</span>
+      <span>{isDream ? "Wann? (optional)" : "Bis wann? (optional)"}</span>
       <span className="row">
         <input type="date" value={target} onChange={(e) => setTarget(e.target.value)} />
         {target && (
@@ -255,39 +390,47 @@ export function GoalForm({ goal, focusEffort, variant, close, onChanged, onDirty
     </label>
   );
 
+  // a dream rarely needs hours: in the detail its effort fields show once there are some (or on request)
+  const showEffort = !isDream || effortShown || !detail;
   const rest = (
     <>
-      <fieldset className="sheet-field effort-fields" aria-describedby={hintId}>
-        <legend>Aufwand (optional)</legend>
-        <div className="effort-box">
-          {HOURS_FIELDS.map((f, i) => (
-            <label key={f.key} className="effort-row">
-              <span>{f.label}</span>
-              <input
-                type="text"
-                inputMode="decimal"
-                autoComplete="off"
-                enterKeyHint={i < 2 ? "next" : "done"}
-                value={hours[f.key]}
-                onChange={(e) => setHours((h) => ({ ...h, [f.key]: e.target.value }))}
-                placeholder={f.placeholder}
-                aria-invalid={!!hoursProblem(f.key, parsed[f.key])}
-                data-autofocus={focusEffort && i === 0 ? true : undefined}
-              />
-            </label>
-          ))}
-        </div>
-        <p id={hintId} className="sheet-hint">
-          {effortHint(effort, target, tracked)}
-        </p>
-      </fieldset>
+      {showEffort ? (
+        <fieldset className="sheet-field effort-fields" aria-describedby={hintId}>
+          <legend>Aufwand (optional)</legend>
+          <div className="effort-box">
+            {HOURS_FIELDS.map((f, i) => (
+              <label key={f.key} className="effort-row">
+                <span>{f.label}</span>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  autoComplete="off"
+                  enterKeyHint={i < 2 ? "next" : "done"}
+                  value={hours[f.key]}
+                  onChange={(e) => setHours((h) => ({ ...h, [f.key]: e.target.value }))}
+                  placeholder={f.placeholder}
+                  aria-invalid={!!hoursProblem(f.key, parsed[f.key])}
+                  data-autofocus={focusEffort && i === 0 ? true : undefined}
+                />
+              </label>
+            ))}
+          </div>
+          <p id={hintId} className="sheet-hint">
+            {effortHint(effort, target, tracked)}
+          </p>
+        </fieldset>
+      ) : (
+        <button type="button" className="uf-link uf-effort" onClick={() => setEffortShown(true)}>
+          Aufwand schätzen
+        </button>
+      )}
 
       <label className="sheet-field">
         <span>Warum ist es dir wichtig? (optional)</span>
         <textarea value={why} onChange={(e) => setWhy(e.target.value)} rows={2} maxLength={1000} />
       </label>
 
-      {!finished && statusField}
+      {!finished && !(detail && isDream && status === "done") && statusField}
 
       <div className="sheet-field">
         <span>Etappen</span>
@@ -331,11 +474,13 @@ export function GoalForm({ goal, focusEffort, variant, close, onChanged, onDirty
         {finished && statusField}
 
         <label className="sheet-field">
-          <span>Worauf arbeitest du hin?</span>
+          <span>{isDream ? "Was möchtest du erleben?" : "Worauf arbeitest du hin?"}</span>
           {titleInput}
         </label>
 
+        {kindField}
         {targetField}
+        {isDream && status === "done" && memoryField}
         {rest}
 
         <div className="sheet-actions">
@@ -347,7 +492,7 @@ export function GoalForm({ goal, focusEffort, variant, close, onChanged, onDirty
           {goal && (
             <ConfirmDelete
               label="Löschen"
-              question="Ziel mit allen Etappen löschen?"
+              question={isDream ? "Traum mit allen Etappen löschen?" : "Ziel mit allen Etappen löschen?"}
               onConfirm={async () => {
                 try {
                   await backend.deleteGoal(goal.id);
@@ -384,12 +529,14 @@ export function GoalForm({ goal, focusEffort, variant, close, onChanged, onDirty
         {titleInput}
       </div>
       <div className="unfold-body sheet-form">
-        {finished && statusField}
+        {dreamTop}
+        {kindField}
+        {finished && !doneDream && statusField}
         {targetField}
         {rest}
-        {detail && space && goal && (
-          <button type="button" className="uf-link" onClick={() => space.goLevel(3, { yearGoal: goal.id })}>
-            Im Jahr ansehen
+        {detail && space && goal && yearLink && (
+          <button type="button" className="uf-link" onClick={() => space.goLevel(3, yearLink.go)}>
+            {yearLink.label}
           </button>
         )}
         <div className="uf-actions">
@@ -422,7 +569,7 @@ export function GoalForm({ goal, focusEffort, variant, close, onChanged, onDirty
               {goal && (
                 <ConfirmInline
                   label="Löschen"
-                  question="Ziel mit allen Etappen löschen?"
+                  question={isDream ? "Traum mit allen Etappen löschen?" : "Ziel mit allen Etappen löschen?"}
                   onConfirm={async () => {
                     try {
                       await backend.deleteGoal(goal.id);
@@ -461,7 +608,7 @@ interface Props {
 /** the old bottom sheet (flag off) */
 export function GoalSheet({ goal, focusEffort, onClose, onChanged }: Props) {
   return (
-    <Sheet title={goal ? "Ziel" : "Neues Ziel"} onClose={onClose}>
+    <Sheet title={goal ? (goal.kind === "dream" ? "Traum" : "Ziel") : "Neues Ziel"} onClose={onClose}>
       {(close) => <GoalForm goal={goal} focusEffort={focusEffort} variant="sheet" close={close} onChanged={() => onChanged()} />}
     </Sheet>
   );
@@ -470,6 +617,8 @@ export function GoalSheet({ goal, focusEffort, onClose, onChanged }: Props) {
 export interface GoalDetailProps {
   goal: Goal | null;
   focusEffort?: boolean;
+  /** a new one starts on the Bucket List */
+  dream?: boolean;
   origin: HTMLElement | null;
   onRequestClose(via: CloseVia): Promise<boolean>;
   onChanged: (saved?: Goal) => void;
@@ -480,10 +629,13 @@ export interface GoalDetailProps {
 }
 
 /** the goal as an Unfold (flag on) */
-export function GoalDetail({ goal, focusEffort, origin, onRequestClose, onChanged, onDirty, gone, version }: GoalDetailProps) {
+export function GoalDetail({ goal, focusEffort, dream: newDream, origin, onRequestClose, onChanged, onDirty, gone, version }: GoalDetailProps) {
+  // the kind pill follows the toggle «Auf der Bucket List»
+  const [dream, setDream] = useState(goal ? goal.kind === "dream" : !!newDream);
+  const label = dream ? (goal ? "Traum" : "Neuer Traum") : goal ? "Ziel" : "Neues Ziel";
   return (
-    <Unfold kindLabel={goal ? "Ziel" : "Neues Ziel"} origin={origin} onRequestClose={onRequestClose}>
-      <GoalForm key={version} goal={goal} focusEffort={focusEffort} variant="detail" onChanged={onChanged} onDirty={onDirty} gone={gone} />
+    <Unfold kindLabel={label} origin={origin} onRequestClose={onRequestClose}>
+      <GoalForm key={version} goal={goal} focusEffort={focusEffort} dream={newDream} onKind={setDream} variant="detail" onChanged={onChanged} onDirty={onDirty} gone={gone} />
     </Unfold>
   );
 }
@@ -505,4 +657,54 @@ function effortHint(e: ReturnType<typeof goalEffort>, target: string, tracked: n
   if (e.weeksToFinish !== null && e.available !== null)
     return `Noch etwa ${hoursLabel(e.remaining ?? 0)} Std. Mit ${hoursLabel(e.available)} Std pro Woche sind das ca. ${durationLabel(e.weeksToFinish)}.`;
   return `Noch etwa ${hoursLabel(e.remaining ?? 0)} Std.${sofar}`;
+}
+
+/** the detail's big title as a textarea that grows with its text: a long dream wraps instead of
+ * being cut. Enter doesn't break the line (it finishes, like the one-line field did). */
+function TitleArea({ value, onChange, placeholder, label, autoFocus }: { value: string; onChange(v: string): void; placeholder: string; label: string; autoFocus: boolean }) {
+  const ref = useRef<HTMLTextAreaElement>(null);
+  const fit = () => {
+    const el = ref.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  };
+  useLayoutEffect(fit, [value]);
+  // a new width (rotation, the font arriving) wraps it anew; outside the observer's
+  // callback, so changing the height never loops
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    let w = el.clientWidth;
+    let raf = 0;
+    const ro = new ResizeObserver(() => {
+      if (el.clientWidth === w) return;
+      w = el.clientWidth;
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(fit);
+    });
+    ro.observe(el);
+    void document.fonts?.ready.then(() => fit());
+    return () => (ro.disconnect(), cancelAnimationFrame(raf));
+  }, []);
+  return (
+    <textarea
+      ref={ref}
+      className="uf-title"
+      rows={1}
+      value={value}
+      onChange={(e) => onChange(e.target.value.replace(/\s*\n\s*/g, " "))}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" && !e.nativeEvent.isComposing) {
+          e.preventDefault();
+          e.currentTarget.blur();
+        }
+      }}
+      placeholder={placeholder}
+      maxLength={200}
+      aria-label={label}
+      enterKeyHint="done"
+      data-autofocus={autoFocus ? true : undefined}
+    />
+  );
 }

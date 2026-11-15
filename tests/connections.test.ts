@@ -92,7 +92,7 @@ describe("whoopReturn: capture at page load", () => {
   const fakeWindow = (hash: string) => {
     const calls: string[] = [];
     const win = {
-      location: { hash, pathname: "/App-ich/", search: "?space=1" },
+      location: { hash, pathname: "/bucket-list/", search: "?space=1" },
       history: { state: null, replaceState: (_s: unknown, _t: string, url: string) => calls.push(url) },
     } as unknown as Window;
     return { win, calls };
@@ -106,7 +106,7 @@ describe("whoopReturn: capture at page load", () => {
   it("stores the return and removes the query, keeping #du/verbindungen", () => {
     const { win, calls } = fakeWindow(`#du/verbindungen?whoop=confirm&code=${CODE}`);
     expect(captureWhoopReturn(win)).toBe(true);
-    expect(calls).toEqual(["/App-ich/?space=1#du/verbindungen"]);
+    expect(calls).toEqual(["/bucket-list/?space=1#du/verbindungen"]);
     expect(peekWhoopReturn()?.code).toBe(CODE);
     expect(takeWhoopReturn()?.result).toBe("confirm");
     expect(peekWhoopReturn()).toBeNull(); // used once
@@ -115,7 +115,7 @@ describe("whoopReturn: capture at page load", () => {
     setWhoopFrom("onboarding");
     const { win, calls } = fakeWindow("#du/verbindungen?whoop=denied");
     captureWhoopReturn(win);
-    expect(calls).toEqual(["/App-ich/?space=1"]);
+    expect(calls).toEqual(["/bucket-list/?space=1"]);
     expect(peekWhoopReturn()?.result).toBe("denied");
   });
   it("leaves other hashes alone", () => {

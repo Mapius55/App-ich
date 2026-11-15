@@ -48,6 +48,7 @@ import {
   type WhoopSleep,
   type WhoopWorkout,
 } from "../supabase/functions/_shared/whoop";
+import { allowedReturnTo, appUrlAllowlist, configuredAppUrl, DEFAULT_APP_URL, fallbackAppUrl, KNOWN_APP_URLS } from "../supabase/functions/_shared/app_url";
 
 // ---------- fixtures, shaped like the WHOOP v2 schemas (made-up ids and values, no real data) ----------
 
@@ -435,6 +436,86 @@ describe("OAuth", () => {
     expect(extractUserId('{"user_id": 9007199254740993, "email": "x@example.org"}')).toBe("9007199254740993");
     expect(extractUserId('{"user_id":10129}')).toBe("10129");
     expect(extractUserId('{"id":1}')).toBeNull();
+  });
+});
+
+// ---------- where the callback sends the browser back (return_to) ----------
+
+describe("app return address (exact allowlist)", () => {
+  const OLD = "https://mapius55.github.io/App-ich/";
+  const NEW = "https://mapius55.github.io/bucket-list/";
+  const list = appUrlAllowlist(undefined);
+
+  it("knows both addresses of the app and falls back to the new one", () => {
+    expect(KNOWN_APP_URLS).toEqual([OLD, NEW]);
+    expect(DEFAULT_APP_URL).toBe(NEW);
+    expect(list).toEqual([OLD, NEW]);
+    expect(fallbackAppUrl(undefined)).toBe(NEW);
+    expect(fallbackAppUrl("")).toBe(NEW);
+  });
+
+  it("accepts exactly the old and the new address, as the app sends them", () => {
+    expect(allowedReturnTo(OLD, list)).toBe(OLD);
+    expect(allowedReturnTo(NEW, list)).toBe(NEW);
+    // what the app computes at both paths: new URL(import.meta.env.BASE_URL, location.origin).href
+    for (const base of ["/App-ich/", "/bucket-list/"]) expect(allowedReturnTo(new URL(base, "https://mapius55.github.io").href, list)).toBe(new URL(base, "https://mapius55.github.io").href);
+  });
+
+  it("refuses prefix tricks and extra path, query or hash", () => {
+    for (const bad of [
+      "https://mapius55.github.io/bucket-list",
+      "https://mapius55.github.io/bucket-list/x",
+      "https://mapius55.github.io/bucket-list/../evil/",
+      "https://mapius55.github.io/bucket-list/?next=https://evil.example/",
+      "https://mapius55.github.io/bucket-list/#du",
+      "https://mapius55.github.io/bucket-list//",
+      "https://mapius55.github.io/App-ich/x",
+      "https://mapius55.github.io/App-ichx/",
+      "https://mapius55.github.io/",
+      "https://mapius55.github.io/bucket-list/ ",
+      " https://mapius55.github.io/bucket-list/",
+      "https://mapius55.github.io/Bucket-List/",
+      "https://mapius55.github.io/app-ich/",
+    ])
+      expect(allowedReturnTo(bad, list), bad).toBeNull();
+  });
+
+  it("refuses other hosts, user info, ports and http", () => {
+    for (const bad of [
+      "http://mapius55.github.io/bucket-list/",
+      "https://evil.example/bucket-list/",
+      "https://mapius55.github.io.evil.example/bucket-list/",
+      "https://evil.github.io/bucket-list/",
+      "https://MAPIUS55.github.io/bucket-list/",
+      "https://mapius55.github.io:443/bucket-list/",
+      "https://mapius55.github.io:8443/bucket-list/",
+      "https://user@mapius55.github.io/bucket-list/",
+      "https://mapius55.github.io@evil.example/bucket-list/",
+      "//mapius55.github.io/bucket-list/",
+      "/bucket-list/",
+      "javascript:alert(1)//https://mapius55.github.io/bucket-list/",
+    ])
+      expect(allowedReturnTo(bad, list), bad).toBeNull();
+  });
+
+  it("refuses anything that is not a string", () => {
+    for (const bad of [undefined, null, 0, true, {}, [NEW], { href: NEW }, ""]) expect(allowedReturnTo(bad, list)).toBeNull();
+    expect(allowedReturnTo(NEW + "a".repeat(200), [NEW + "a".repeat(200)])).toBeNull(); // too long, even if listed
+  });
+
+  it("adds WHOOP_APP_URL to the list (and as the fallback) only when it is an https address", () => {
+    const own = "https://coach.example.org/app/";
+    expect(appUrlAllowlist(own)).toEqual([own, OLD, NEW]);
+    expect(fallbackAppUrl(own)).toBe(own);
+    expect(allowedReturnTo(own, appUrlAllowlist(own))).toBe(own);
+    expect(allowedReturnTo(own + "x", appUrlAllowlist(own))).toBeNull();
+    expect(appUrlAllowlist(NEW)).toEqual([NEW, OLD]); // no duplicates
+    expect(configuredAppUrl("  " + own + "  ")).toBe(own);
+    for (const bad of ["http://coach.example.org/", "coach.example.org/", "https://", "https://a b/", "ftp://x/", "https://" + "a".repeat(200)]) {
+      expect(configuredAppUrl(bad), bad).toBeNull();
+      expect(appUrlAllowlist(bad)).toEqual([OLD, NEW]);
+      expect(fallbackAppUrl(bad)).toBe(NEW);
+    }
   });
 });
 

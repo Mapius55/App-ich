@@ -93,7 +93,8 @@ export function NowLevel({ profile, palette, weather, focus, onSlot }: NowLevelP
   const onSlotRef = useRef(onSlot);
   onSlotRef.current = onSlot;
   const temp = weather ? Math.round(weather.temperature) : null;
-  const phasePill = online ? `${palette.phase}${temp !== null ? ` · ${temp}°` : ""}` : `Offline · ${palette.phase}`;
+  // the phase name gives way first (ellipsis); the temperature, or «Offline», always stays
+  const phaseFix = online ? (temp !== null ? `· ${temp}°` : null) : "Offline ·";
   const tourHere = tour !== null && tour !== 2 && level === 0 && place === "jetzt";
 
   // the orb slot: an empty box; its largest square (max 300) is where the circle sits
@@ -167,11 +168,13 @@ export function NowLevel({ profile, palette, weather, focus, onSlot }: NowLevelP
             aria-label={`Farben heute: ${palette.phase}${temp !== null ? `, ${temp} Grad` : ""}`}
           >
             <span className="pill">
-              <span className="now-phase-text">{phasePill}</span>
+              {!online && <span className="now-phase-fix">{phaseFix}</span>}
+              <span className="now-phase-text">{palette.phase}</span>
+              {online && phaseFix && <span className="now-phase-fix">{phaseFix}</span>}
             </span>
           </button>
-          <button type="button" className="now-pill now-side" onClick={() => go("ziele")} aria-label="Zu deinen Zielen">
-            <span className="pill">Ziele ›</span>
+          <button type="button" className="now-pill now-side" onClick={() => go("ziele")} aria-label="Zur Bucket List">
+            <span className="pill">Bucket List ›</span>
           </button>
         </div>
 

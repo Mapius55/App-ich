@@ -7,6 +7,7 @@ import { ConfirmDelete as ConfirmInline } from "../../space/ConfirmDelete";
 import type { CloseVia } from "../../space/state";
 import { Unfold, useUnfold, useUnfoldClose } from "../../space/Unfold";
 import { ConfirmDelete, Sheet } from "./Sheet";
+import { GoalLinkField } from "./GoalLinkField";
 
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
@@ -36,8 +37,6 @@ export function HabitForm({ habit, goals, variant, close, onChanged, onDirty, go
   const [error, setError] = useState<string | null>(null);
   const [asking, setAsking] = useState(false);
   const freqId = useId();
-  // dropped goals stay hidden, unless this habit belongs to one (so it can be seen and unlinked)
-  const goalOptions = goals.filter((g) => g.status !== "dropped" || g.id === habit?.goal_id);
 
   // detail: the values as loaded, to tell local edits apart
   const values = JSON.stringify([title, perWeek, goalId]);
@@ -156,19 +155,7 @@ export function HabitForm({ habit, goals, variant, close, onChanged, onDirty, go
         </div>
       </div>
 
-      {goalOptions.length > 0 && (
-        <label className="sheet-field">
-          <span>Gehört zu Ziel</span>
-          <select value={goalId} onChange={(e) => setGoalId(e.target.value)}>
-            <option value="">Kein Ziel</option>
-            {goalOptions.map((g) => (
-              <option key={g.id} value={g.id}>
-                {g.title}
-              </option>
-            ))}
-          </select>
-        </label>
-      )}
+      <GoalLinkField goals={goals} current={habit?.goal_id} value={goalId} onChange={setGoalId} />
     </>
   );
 

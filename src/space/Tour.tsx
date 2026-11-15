@@ -16,7 +16,7 @@ interface Step {
 const STEPS: Record<TourStep, Step> = {
   1: {
     serif: "Unter dem Kreis liegt deine Zeit.",
-    sans: "Wisch nach oben oder tipp auf die Zeile unter dem Kreis. Zuerst kommt dein Tag, dann die Woche, dann das Jahr.",
+    sans: "Wisch nach oben oder tipp auf die Zeile unter dem Kreis. Zuerst kommt dein Tag, dann die Woche, dann das Jahr. Ganz unten dein Leben in Wochen.",
     glyph: "↑",
   },
   2: {
@@ -25,8 +25,8 @@ const STEPS: Record<TourStep, Step> = {
     glyph: "↔",
   },
   3: {
-    serif: "Rechts deine Ziele, links du.",
-    sans: "Wisch hier beim Kreis zur Seite oder tipp oben auf «Ziele» oder «Du». Bei «Du» findest du, was ich über dich weiss, deine Verbindungen und deine Einstellungen.",
+    serif: "Rechts vom Kreis deine Bucket List, links du.",
+    sans: "Wisch hier beim Kreis zur Seite oder tipp oben auf «Bucket List» oder «Du». Bei «Du» findest du, was ich über dich weiss, deine Verbindungen und deine Einstellungen.",
     glyph: "↔",
   },
   4: {

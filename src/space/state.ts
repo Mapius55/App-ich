@@ -5,7 +5,7 @@ import type { CalendarEvent, CoachEvent, Goal, Habit } from "../lib/types";
 import { addDays, daysBetween, weekStart } from "../lib/plan";
 
 export type Place = "du" | "jetzt" | "ziele";
-export type Level = 0 | 1 | 2 | 3; // 0 Jetzt, 1 Tag, 2 Woche, 3 Jahr
+export type Level = 0 | 1 | 2 | 3 | 4; // 0 Jetzt, 1 Tag, 2 Woche, 3 Jahr, 4 Leben (life in weeks)
 export type TourStep = 1 | 2 | 3 | 4;
 export type DuSection = "memories" | "body" | "connections" | "notifications" | "settings";
 export type AddKey = "tag" | "woche" | "ziele" | "du";
@@ -13,7 +13,7 @@ export type CloseVia = "done" | "escape" | "backdrop" | "pull" | "nav";
 
 export type Detail =
   | { kind: "event"; event: CalendarEvent | null; day: string; time?: string } // time "HH:MM" preset for a new entry
-  | { kind: "goal"; goal: Goal | null; focusEffort?: boolean }
+  | { kind: "goal"; goal: Goal | null; focusEffort?: boolean; dream?: boolean } // dream: a new one starts on the Bucket List
   | { kind: "habit"; habit: Habit | null };
 
 export type Target =
@@ -100,13 +100,14 @@ export function sameDayInYear(day: string, year: number): string {
   return validDay(`${y}-${md}`) ? `${y}-${md}` : `${y}-02-28`;
 }
 
-/** "#tag/2026-11-15", "#woche/2026-11-16" (Monday), "#jahr/2026", "#ziele", "#du", "#du/verbindungen", "" for Jetzt */
+/** "#tag/2026-11-15", "#woche/2026-11-16" (Monday), "#jahr/2026", "#leben", "#ziele", "#du", "#du/verbindungen", "" for Jetzt */
 export function toHash(s: Pick<SpaceState, "place" | "level" | "anchor" | "duSection">): string {
   if (s.place === "ziele") return "#ziele";
   if (s.place === "du") return s.duSection ? `#du/${DU_SLUGS[s.duSection]}` : "#du";
   if (s.level === 1) return `#tag/${s.anchor}`;
   if (s.level === 2) return `#woche/${weekStart(s.anchor)}`;
   if (s.level === 3) return `#jahr/${s.anchor.slice(0, 4)}`;
+  if (s.level === 4) return "#leben"; // one life: no anchor
   return "";
 }
 
@@ -125,8 +126,9 @@ export function fromHash(hash: string, today: string): Pick<SpaceState, "place" 
   }
   const at = (place: Place, level: Level, anchor = today, duSection: DuSection | null = null) => ({ place, level, anchor, duSection });
   if (h === "" || h === "jetzt") return at("jetzt", 0);
-  if (h === "ziele") return at("ziele", 0);
+  if (h === "ziele" || h === "bucket") return at("ziele", 0); // the Bucket List keeps "#ziele"; "#bucket" is an alias
   if (h === "du") return at("du", 0);
+  if (h === "leben") return at("jetzt", 4);
   const [head, arg, ...rest] = h.split("/");
   if (rest.length || arg === undefined) return null;
   if (head === "du") {

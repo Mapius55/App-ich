@@ -72,6 +72,9 @@ describe("hash routing", () => {
       expect(fromHash(toHash(at("du", 0, TODAY, s)), TODAY)).toEqual(at("du", 0, TODAY, s));
     }
     expect(fromHash("#Ziele", TODAY)).toEqual(at("ziele", 0));
+    // the Bucket List keeps "#ziele"; "#bucket" is an alias
+    expect(fromHash("#bucket", TODAY)).toEqual(at("ziele", 0));
+    expect(fromHash("#Bucket?x=1", TODAY)).toEqual(at("ziele", 0));
   });
 
   it("a query after the place is ignored (it belongs to another module, e.g. the WHOOP return)", () => {
@@ -147,7 +150,7 @@ describe("describeView", () => {
     expect(v({ level: 3 })).toBe("Jahr 2026");
     expect(v({ level: 3, yearGoal: "g1" })).toBe("Jahr 2026, nur Ziel „Halbmarathon Zürich“");
     expect(v({ level: 3, yearGoal: "gone" })).toBe("Jahr 2026");
-    expect(v({ place: "ziele", level: 2 })).toBe("Ziele");
+    expect(v({ place: "ziele", level: 2 })).toBe("Bucket List (rechts vom Kreis: Träume, Ziele, Gewohnheiten)");
     expect(v({ place: "du" })).toBe("Du (was ich über dich weiss, Verbindungen, Einstellungen)");
   });
 
@@ -163,10 +166,15 @@ describe("describeView", () => {
       "Tag: Samstag, 14. November 2026 · offen: neuer Eintrag am Montag, 16. November, 14:00",
     );
     expect(v({ level: 1, detail: { kind: "event", event: null, day: "2027-01-04" } })).toBe("Tag: Samstag, 14. November 2026 · offen: neuer Eintrag am Montag, 4. Januar 2027");
-    expect(v({ place: "ziele", detail: { kind: "goal", goal } })).toBe("Ziele · offen: Ziel „Halbmarathon Zürich“ [g1]");
-    expect(v({ place: "ziele", detail: { kind: "goal", goal: null } })).toBe("Ziele · offen: neues Ziel");
-    expect(v({ place: "ziele", detail: { kind: "habit", habit } })).toBe("Ziele · offen: Gewohnheit „Laufen“ [h1]");
-    expect(v({ place: "ziele", detail: { kind: "habit", habit: null } })).toBe("Ziele · offen: neue Gewohnheit");
+    expect(v({ place: "ziele", detail: { kind: "goal", goal } })).toBe("Bucket List (rechts vom Kreis: Träume, Ziele, Gewohnheiten) · offen: Ziel „Halbmarathon Zürich“ [g1]");
+    expect(v({ place: "ziele", detail: { kind: "goal", goal: null } })).toBe("Bucket List (rechts vom Kreis: Träume, Ziele, Gewohnheiten) · offen: neues Ziel");
+    expect(v({ place: "ziele", detail: { kind: "habit", habit } })).toBe("Bucket List (rechts vom Kreis: Träume, Ziele, Gewohnheiten) · offen: Gewohnheit „Laufen“ [h1]");
+    expect(v({ place: "ziele", detail: { kind: "habit", habit: null } })).toBe("Bucket List (rechts vom Kreis: Träume, Ziele, Gewohnheiten) · offen: neue Gewohnheit");
+    // dreams (Bucket List round): a new one, an open one, a fulfilled one
+    const dream = { id: "d1", title: "Polarlichter sehen", kind: "dream", status: "active" } as Goal;
+    expect(v({ place: "ziele", detail: { kind: "goal", goal: null, dream: true } })).toBe("Bucket List (rechts vom Kreis: Träume, Ziele, Gewohnheiten) · offen: neuer Traum");
+    expect(v({ place: "ziele", detail: { kind: "goal", goal: dream } })).toBe("Bucket List (rechts vom Kreis: Träume, Ziele, Gewohnheiten) · offen: Traum „Polarlichter sehen“ [d1]");
+    expect(v({ place: "ziele", detail: { kind: "goal", goal: { ...dream, status: "done" } } })).toBe("Bucket List (rechts vom Kreis: Träume, Ziele, Gewohnheiten) · offen: Traum „Polarlichter sehen“ [d1] (erfüllt)");
     expect(localDay(event().starts_at)).toBe(TODAY);
   });
 });

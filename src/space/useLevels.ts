@@ -1,20 +1,22 @@
-// The time column is the document scroller (D2): four 100svh sections with
+// The time column is the document scroller (D2): five 100svh sections with
 // mandatory snap. Per frame only `onFrame(p)` runs (imperative writes, no React
 // state); React state changes only on settle (scrollend, else SETTLE_IDLE idle).
 import { useCallback, useEffect, useRef, useState } from "react";
 import { SETTLE_IDLE } from "./gestures";
 import type { Level } from "./state";
 
-const clampLevel = (n: number): Level => Math.max(0, Math.min(3, n)) as Level;
+export const LAST_LEVEL: Level = 4; // Leben
+const clampLevel = (n: number): Level => Math.max(0, Math.min(LAST_LEVEL, n)) as Level;
+const LEVELS: Level[] = [0, 1, 2, 3, 4];
 
 export interface Levels {
-  /** ref callbacks for the four sections */
+  /** ref callbacks for the five sections */
   sectionRef: (level: Level) => (el: HTMLElement | null) => void;
-  /** Tag mounts after the first paint, Woche once p passed 0.3, Jahr once p passed 1.3 (applied on settle) */
-  mounted: { day: boolean; week: boolean; year: boolean };
+  /** Tag mounts after the first paint, Woche once p passed 0.3, Jahr once p passed 1.3, Leben once p passed 2.3 (applied on settle) */
+  mounted: { day: boolean; week: boolean; year: boolean; life: boolean };
   /** scroll to a level; resolves on settle */
   scrollToLevel: (level: Level, behavior: ScrollBehavior) => Promise<void>;
-  /** the current progress 0..3 (scrollY / section height) */
+  /** the current progress 0..4 (scrollY / section height) */
   progress: () => number;
   /** the section element of a level */
   section: (level: Level) => HTMLElement | null;
@@ -31,9 +33,9 @@ export function useLevels(o: {
       (e.g. a drag that chained from a fixed layer). */
   hold?: () => { level: Level; snap: boolean } | null;
 }): Levels {
-  const sections = useRef<(HTMLElement | null)[]>([null, null, null, null]);
-  const refs = useRef(([0, 1, 2, 3] as Level[]).map((l) => (el: HTMLElement | null) => void (sections.current[l] = el)));
-  const [mounted, setMounted] = useState({ day: o.initial >= 1, week: o.initial >= 1, year: o.initial >= 2 });
+  const sections = useRef<(HTMLElement | null)[]>(LEVELS.map(() => null));
+  const refs = useRef(LEVELS.map((l) => (el: HTMLElement | null) => void (sections.current[l] = el)));
+  const [mounted, setMounted] = useState({ day: o.initial >= 1, week: o.initial >= 1, year: o.initial >= 2, life: o.initial >= 3 });
   const mountedRef = useRef(mounted);
   mountedRef.current = mounted;
   const cb = useRef(o);
@@ -46,8 +48,8 @@ export function useLevels(o: {
 
   const mountUpTo = useCallback((p: number) => {
     const m = mountedRef.current;
-    if ((p > 0.3 && !m.week) || (p > 1.3 && !m.year) || (p > 0 && !m.day)) {
-      const next = { day: true, week: m.week || p > 0.3, year: m.year || p > 1.3 };
+    if ((p > 0.3 && !m.week) || (p > 1.3 && !m.year) || (p > 2.3 && !m.life) || (p > 0 && !m.day)) {
+      const next = { day: true, week: m.week || p > 0.3, year: m.year || p > 1.3, life: m.life || p > 2.3 };
       mountedRef.current = next;
       setMounted(next);
     }

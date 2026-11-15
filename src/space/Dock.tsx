@@ -5,7 +5,7 @@ import type { AddKey } from "./state";
 const ADD_LABEL: Record<AddKey, string> = {
   tag: "Eintrag hinzufügen",
   woche: "Eintrag hinzufügen",
-  ziele: "Ziel hinzufügen",
+  ziele: "Auf die Bucket List",
   du: "Etwas über dich notieren",
 };
 

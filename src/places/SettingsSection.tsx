@@ -7,6 +7,7 @@ import { disablePush } from "../lib/push";
 import { requestCoords, type Coords } from "../lib/location";
 import type { Profile } from "../lib/types";
 import { ConfirmDelete } from "../space/ConfirmDelete";
+import { BirthYearSetting } from "./BirthYearSetting";
 import { useSpace } from "../space/state";
 
 export function SettingsSection({
@@ -45,7 +46,7 @@ export function SettingsSection({
       const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }));
       const a = document.createElement("a");
       a.href = url;
-      a.download = `i-am-daten-${new Date().toISOString().slice(0, 10)}.json`;
+      a.download = `bucket-list-daten-${new Date().toISOString().slice(0, 10)}.json`;
       a.click();
       setTimeout(() => URL.revokeObjectURL(url), 2000);
     });
@@ -81,6 +82,8 @@ export function SettingsSection({
         </form>
         <p className="pl-hint">So spricht dich der Coach an. Angemeldet bist du als „{profile.username}“.</p>
       </section>
+
+      <BirthYearSetting profile={profile} onProfile={onProfile} />
 
       <section className="du-set" aria-labelledby="du-set-place">
         <h4 id="du-set-place" className="pl-label">

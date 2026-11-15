@@ -4,6 +4,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { backend } from "../lib/backend";
 import type { Coords } from "../lib/location";
+import { signOutDevice } from "../lib/push";
 import type { Palette } from "../lib/palette";
 import type { Memory, Profile } from "../lib/types";
 import { useSpace, type DuSection } from "../space/state";
@@ -147,7 +148,7 @@ export function YouPlace({ titleId, active, profile, palette, hasCoords, onProfi
             ))}
           </span>
         </p>
-        <button type="button" className="pl-quiet du-signout" onClick={() => backend.signOut()}>
+        <button type="button" className="pl-quiet du-signout" onClick={() => void signOutDevice()}>
           Abmelden
         </button>
       </footer>

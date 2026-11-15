@@ -23,15 +23,23 @@ export function priorProblem(prior: number | null | undefined, effort: number | 
 /** Days ahead from which a goal without milestones should get some (six weeks). */
 export const MILESTONE_HINT_DAYS = 42;
 
+/** After a dream came true: the one question, and where the answer goes. */
+export const DREAM_ASK_HOW = "Frag ein einziges Mal „Wie war es?“ und speichere ihre Antwort mit update_goal memory, kurz und in ihren Worten.";
+
 /**
  * Hints for the coach in the answer of create_goal / update_goal: a missing target date, and
- * milestones for a goal more than six weeks away (or without a date) that has none yet.
+ * milestones for a goal more than six weeks away (or without a date) that has none yet. A dream needs
+ * neither (it may simply wait on the Bucket List); a fulfilled one without a memory gets the question.
  */
 export function goalHints(
-  g: { status?: string | null; target_date: string | null; milestones?: unknown[] | null },
+  g: { kind?: string | null; status?: string | null; target_date: string | null; milestones?: unknown[] | null; memory?: string | null },
   today: string,
 ): { hinweis?: string; naechster_schritt?: string } {
   const out: { hinweis?: string; naechster_schritt?: string } = {};
+  if (g.kind === "dream") {
+    if (g.status === "done" && !g.memory?.trim()) out.naechster_schritt = DREAM_ASK_HOW;
+    return out;
+  }
   const active = !g.status || g.status === "active";
   if (!g.target_date && active) out.hinweis = "Zieldatum fehlt: Näherungsdatum setzen oder fragen";
   const far = !g.target_date || daysBetween(today, g.target_date) > MILESTONE_HINT_DAYS;
@@ -69,3 +77,18 @@ export const WHOOP_MEMORY_REFUSAL =
 
 /** What the coach gets instead of an earlier reply of its own that used WHOOP values, while it may not see them. */
 export const WHOOP_HIDDEN_REPLY = "(Diese frühere Antwort enthielt Werte von WHOOP. Du darfst sie gerade nicht sehen.)";
+
+/** The birth year the coach may save (update_profile): a whole year from 1900 up to this year. Null when fine. */
+export function birthYearProblem(v: unknown, today: string): string | null {
+  const year = Number(today.slice(0, 4));
+  if (typeof v !== "number" || !Number.isInteger(v)) return "birth_year muss ein Jahr sein, z.B. 1994";
+  if (v < 1900 || v > year) return `birth_year: ein Jahr von 1900 bis ${year}`;
+  return null;
+}
+
+/** When a dream came true (done_date): a day up to today. Null when fine. */
+export function doneDateProblem(day: string, today: string): string | null {
+  if (day > today) return "done_date liegt in der Zukunft";
+  if (day < "1900-01-01") return "done_date: kein Tag vor 1900";
+  return null;
+}

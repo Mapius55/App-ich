@@ -26,7 +26,7 @@ self.addEventListener("push", (event) => {
     msg = { body: event.data?.text() };
   }
   event.waitUntil(
-    self.registration.showNotification(msg.title ?? "I am", {
+    self.registration.showNotification(msg.title ?? "Bucket List", {
       body: msg.body ?? "Wie geht es dir?",
       icon: "icon-192.png",
       badge: "icon-192.png",

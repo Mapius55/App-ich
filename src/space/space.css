@@ -143,7 +143,17 @@ html.space-on #root { height: auto; }
 .space .now-phase { flex: 0 1 auto; min-width: 0; }
 .space .now-phase .pill { max-width: 100%; color: var(--text-soft); }
 .space .now-phase[aria-expanded="true"] .pill { color: var(--text); border-color: var(--line-strong); }
+.space .now-phase .pill { gap: 0.28em; }
 .space .now-phase-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.space .now-phase-fix { flex: none; white-space: nowrap; }
+/* iPhone 13 and SE: the three pills sit a little closer, so «Sonnenuntergang · 12°» fits next to «Bucket List ›» */
+@media (max-width: 400px) {
+  .space .now-pills { gap: 6px; }
+  .space .now-pill .pill { padding: 0 11px; }
+}
+@media (max-width: 380px) {
+  .space .now-pill .pill { font-size: 14px; }
+}
 
 /* Farben heute, in place under the pills (grid-rows 0fr → 1fr) */
 .space .now-colors { display: grid; grid-template-rows: 0fr; width: 100%; transition: grid-template-rows 320ms var(--ease-out), opacity 240ms ease; opacity: 0; }

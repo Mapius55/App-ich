@@ -36,27 +36,44 @@ const USERNAME_DOMAIN = import.meta.env.VITE_USERNAME_EMAIL_DOMAIN || "nutzer.ap
 const toEmail = (username: string) => `${normaliseUsername(username)}@${USERNAME_DOMAIN}`;
 
 // A goal row as PostgREST returns it, with its embedded milestones. Postgres numeric
-// can come back as a string, so the hours are converted.
+// can come back as a string, so the hours are converted. kind, done_at, memory and reminded_at
+// come with the Bucket List migration (missing before it: then it is a goal).
 type Numeric = number | string | null;
-type GoalRow = Omit<Goal, "milestones" | "time" | "effort_hours" | "weekly_hours" | "prior_hours"> & {
+type GoalRow = Omit<Goal, "milestones" | "time" | "effort_hours" | "weekly_hours" | "prior_hours" | "kind" | "done_at" | "memory"> & {
   milestones?: Milestone[] | null;
   effort_hours: Numeric;
   weekly_hours: Numeric;
   prior_hours: Numeric;
+  kind?: Goal["kind"] | null;
+  done_at?: string | null;
+  memory?: string | null;
 };
 type GoalMinutes = Goal["time"];
 const NO_TIME: GoalMinutes = { logged_minutes: 0, block_minutes: 0 };
 const toNumber = (v: Numeric | undefined): number | null => (v === null || v === undefined || v === "" ? null : Number(v));
 const toGoal = (row: GoalRow, time: GoalMinutes = NO_TIME): Goal => ({
   ...row,
+  kind: row.kind === "dream" ? "dream" : "goal",
+  done_at: row.done_at ?? null,
+  memory: row.memory ?? null,
+  reminded_at: row.reminded_at ?? null,
   effort_hours: toNumber(row.effort_hours),
   weekly_hours: toNumber(row.weekly_hours),
   prior_hours: toNumber(row.prior_hours) ?? 0,
   milestones: [...(row.milestones ?? [])].sort((a, b) => a.position - b.position),
   time: { ...time },
 });
-/** prior_hours is "not null default 0": an emptied field means 0. */
-const goalRow = <T extends Partial<GoalInput>>(g: T): T => ((g.prior_hours as number | null | undefined) === null ? { ...g, prior_hours: 0 } : g);
+/**
+ * prior_hours is "not null default 0": an emptied field means 0. An emptied memory means none.
+ * done_at needs no care here: the trigger goals_done_at sets it when the status becomes done and
+ * clears it otherwise.
+ */
+const goalRow = <T extends Partial<GoalInput>>(g: T): T => {
+  let out = g;
+  if ((g.prior_hours as number | null | undefined) === null) out = { ...out, prior_hours: 0 };
+  if (typeof g.memory === "string" && !g.memory.trim()) out = { ...out, memory: null };
+  return out;
+};
 
 /** Splits ids for .in() filters, so the request URL stays short. */
 function chunks<T>(items: T[], size = 100): T[][] {
@@ -488,7 +505,10 @@ export class SupabaseBackend implements Backend {
   }
 
   async whoopStart(): Promise<{ url: string }> {
-    const j = await this.connJson<{ url?: unknown; reason?: unknown }>("whoop", { method: "POST", body: JSON.stringify({ action: "start" }) }, "WHOOP");
+    // the app's own address (…/App-ich/ or …/bucket-list/): the server sends the browser back there if it is
+    // exactly on its allowlist (supabase/functions/_shared/app_url.ts)
+    const return_to = typeof location === "undefined" ? undefined : new URL(import.meta.env.BASE_URL, location.origin).href;
+    const j = await this.connJson<{ url?: unknown; reason?: unknown }>("whoop", { method: "POST", body: JSON.stringify({ action: "start", return_to }) }, "WHOOP");
     if (typeof j.url !== "string" || !/^https:\/\//.test(j.url)) throw new Error("WHOOP ist noch nicht eingerichtet.");
     return { url: j.url };
   }
@@ -568,6 +588,13 @@ export class SupabaseBackend implements Backend {
   async deletePushSubscription(endpoint: string) {
     const { error } = await this.sb.from("push_subscriptions").delete().eq("endpoint", endpoint);
     if (error) throw error;
+  }
+
+  async ownsPushSubscription(endpoint: string) {
+    // RLS shows only her own rows: a row means this subscription is hers
+    const { data, error } = await this.sb.from("push_subscriptions").select("endpoint").eq("endpoint", endpoint).maybeSingle();
+    if (error) throw error;
+    return !!data;
   }
 
   async sendTestPush(): Promise<number> {

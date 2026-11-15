@@ -20,6 +20,8 @@ import {
   type ContextGoal,
 } from "./prompt.ts";
 import {
+  birthYearProblem,
+  doneDateProblem,
   goalHints,
   NOLIO_EDIT_REFUSAL,
   NOLIO_TIME_REFUSAL,
@@ -32,7 +34,7 @@ import {
 } from "./rules.ts";
 import { zonedToUtc } from "../_shared/ics.ts";
 import { trainingsForCoach } from "../_shared/nolio.ts";
-import { addDays, daysBetween, goalEffort, habitStreak, habitWeek, streakLabel, weekStart } from "../_shared/plan.ts";
+import { addDays, daysBetween, goalEffort, habitStreak, habitWeek, NUDGE_LONG_DAYS, streakLabel, weekStart } from "../_shared/plan.ts";
 import { spokenStream, stripEmoji } from "../_shared/spoken.ts";
 import { whoopForCoach } from "../_shared/whoop.ts";
 
@@ -52,6 +54,8 @@ const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const HEX_RE = /^#[0-9a-fA-F]{6}$/;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const GOAL_STATUS = ["active", "done", "paused", "dropped"] as const;
+const GOAL_KINDS = ["goal", "dream"] as const;
+const MEMORY_MAX = 1000;
 const EVENT_KINDS = ["termin", "block"] as const;
 const MAX_MILESTONES = 12;
 const DEFAULT_TZ = "Europe/Zurich";
@@ -179,10 +183,14 @@ const TOOLS: Anthropic.Beta.BetaTool[] = [
   },
   {
     name: "update_profile",
-    description: "Aktualisiert den Namen, mit dem du die Person ansprichst, oder ihren Wohnort.",
+    description: "Aktualisiert den Namen, mit dem du die Person ansprichst, ihren Wohnort oder ihr Geburtsjahr (nur, wenn sie es selbst nennt).",
     input_schema: {
       type: "object",
-      properties: { display_name: { type: "string" }, location_name: { type: "string" } },
+      properties: {
+        display_name: { type: "string" },
+        location_name: { type: "string" },
+        birth_year: { type: ["integer", "null"], minimum: 1900, maximum: 2100, description: "Nur das Jahr, z.B. 1994. Für „Leben“ in der App; nie danach fragen. null entfernt es." },
+      },
       additionalProperties: false,
     },
     eager_input_streaming: true,
@@ -190,7 +198,7 @@ const TOOLS: Anthropic.Beta.BetaTool[] = [
   {
     name: "create_event",
     description:
-      "Trägt einen Eintrag direkt in den Kalender „I am“ auf dem iPhone der Person ein: einen Termin (Rennen, Arbeitsschicht, Vorlesung, Training, Treffen, Prüfung …) oder einen gemeinsam geplanten Block. Zeiten in der lokalen Zeit der Person.",
+      "Trägt einen Eintrag direkt in den Kalender „Bucket List“ auf dem iPhone der Person ein: einen Termin (Rennen, Arbeitsschicht, Vorlesung, Training, Treffen, Prüfung …) oder einen gemeinsam geplanten Block. Zeiten in der lokalen Zeit der Person.",
     input_schema: {
       type: "object",
       properties: {
@@ -209,7 +217,7 @@ const TOOLS: Anthropic.Beta.BetaTool[] = [
           enum: [...EVENT_KINDS],
           description: "termin (Standard): ein Termin der Person. block: Zeit, die ihr gemeinsam geplant habt, z.B. Fokuszeit oder ein Training für ein Ziel.",
         },
-        goal_id: { type: "string", description: "Optional: das Ziel, dem der Eintrag dient (id aus dem Kontext)." },
+        goal_id: { type: "string", description: "Optional: das Ziel oder der Traum, dem der Eintrag dient (id aus dem Kontext)." },
       },
       required: ["title", "start"],
       additionalProperties: false,
@@ -219,7 +227,7 @@ const TOOLS: Anthropic.Beta.BetaTool[] = [
   {
     name: "update_event",
     description:
-      "Ändert einen Eintrag im Kalender „I am“ (id aus dem Kontext), z.B. um einen Block zu verschieben. Einträge vom Trainer (Nolio) nicht: bei denen nur reminder_minutes.",
+      "Ändert einen Eintrag im Kalender „Bucket List“ (id aus dem Kontext), z.B. um einen Block zu verschieben. Einträge vom Trainer (Nolio) nicht: bei denen nur reminder_minutes.",
     input_schema: {
       type: "object",
       properties: {
@@ -241,18 +249,23 @@ const TOOLS: Anthropic.Beta.BetaTool[] = [
   {
     name: "delete_event",
     description:
-      "Löscht einen Eintrag aus dem Kalender „I am“, z.B. wenn ein Termin abgesagt wurde oder ein Block nicht mehr passt. Nie einen Eintrag vom Trainer (Nolio).",
+      "Löscht einen Eintrag aus dem Kalender „Bucket List“, z.B. wenn ein Termin abgesagt wurde oder ein Block nicht mehr passt. Nie einen Eintrag vom Trainer (Nolio).",
     input_schema: { type: "object", properties: { id: { type: "string" } }, required: ["id"], additionalProperties: false },
     eager_input_streaming: true,
   },
   {
     name: "create_goal",
     description:
-      "Legt ein Ziel an (die Person sieht es bei ihren Zielen): etwas Konkretes, auf das die Person hinarbeitet (Rennen, Prüfung, Projekt), mit Datum, auch ungefähr. Die Antwort enthält die Aufwand-Zeile mit der Machbarkeit.",
+      "Legt ein Ziel an (die Person sieht es bei ihren Zielen): etwas Konkretes, auf das die Person hinarbeitet (Rennen, Prüfung, Projekt), mit Datum, auch ungefähr. Mit kind dream einen Traum für ihre Bucket List: etwas, das sie in ihrem Leben einmal erleben möchte, ein Datum nur, wenn sie eines nennt. Bei Zielen enthält die Antwort die Aufwand-Zeile mit der Machbarkeit.",
     input_schema: {
       type: "object",
       properties: {
-        title: { type: "string", description: "Kurz, z.B. „Halbmarathon Zürich“." },
+        title: { type: "string", description: "Kurz, z.B. „Halbmarathon Zürich“ oder „Polarlichter sehen“." },
+        kind: {
+          type: "string",
+          enum: [...GOAL_KINDS],
+          description: "goal (Standard): ein konkretes Ziel. dream: ein Lebenstraum für die Bucket List, ohne Rückfrage, sobald sie so einen Wunsch nennt.",
+        },
         why: { type: "string", description: "Warum es ihr wichtig ist, in ihren Worten. Nur, wenn sie es gesagt hat." },
         target_date: {
           type: "string",
@@ -260,9 +273,12 @@ const TOOLS: Anthropic.Beta.BetaTool[] = [
         },
         status: {
           type: "string",
-          enum: ["active", "paused"],
-          description: "active (Standard). paused für ein Traumziel, das mit ihrer Zeit oder ihrem Stand klar unerreichbar wirkt, bis ihr ehrlich darüber gesprochen habt.",
+          enum: ["active", "paused", "done"],
+          description:
+            "active (Standard). paused für ein zu grosses Ziel, das mit ihrer Zeit oder ihrem Stand klar unerreichbar wirkt, bis ihr ehrlich darüber gesprochen habt. done nur für einen Traum, der sich schon erfüllt hat.",
         },
+        done_date: { type: "string", description: "YYYY-MM-DD, nur mit status done: wann sich der Traum erfüllt hat (ungefähr genügt)." },
+        memory: { type: "string", description: "Nur bei einem erfüllten Traum: wie es war, kurz und in ihren Worten." },
         effort_hours: {
           type: "number",
           minimum: 0,
@@ -296,12 +312,17 @@ const TOOLS: Anthropic.Beta.BetaTool[] = [
   },
   {
     name: "update_goal",
-    description: "Ändert ein Ziel (id aus dem Kontext) oder setzt seinen Status: done (erreicht), paused, dropped (aufgegeben) oder wieder active.",
+    description:
+      "Ändert ein Ziel oder einen Traum (id aus dem Kontext) oder setzt den Status: done (erreicht, ein Traum hat sich erfüllt), paused, dropped (aufgegeben) oder wieder active.",
     input_schema: {
       type: "object",
       properties: {
         id: { type: "string" },
         title: { type: "string" },
+        kind: { type: "string", enum: [...GOAL_KINDS], description: "goal oder dream (auf der Bucket List)." },
+        done_date: { type: "string", description: "YYYY-MM-DD, mit status done: wann es sich erfüllt hat, wenn nicht heute (ungefähr genügt)." },
+        memory: { type: "string", description: "Wie es war (erfüllter Traum), kurz und in ihren Worten; leer entfernt es." },
+        reminded: { type: "boolean", description: "true, nachdem du sie an diesen Traum erinnert hast (liegt lange, guter Zeitpunkt, passende Jahreszeit)." },
         why: { type: "string", description: "Leer, um es zu entfernen." },
         target_date: { type: "string", description: "YYYY-MM-DD oder leer, um das Datum zu entfernen." },
         status: { type: "string", enum: [...GOAL_STATUS] },
@@ -506,6 +527,18 @@ const optHours = (v: unknown, max: number, field: string, clearable: boolean): n
   }
   return Math.round(num(v, 0, max, field) * 10) / 10;
 };
+/**
+ * done_date (when a dream came true, if not today) → done_at, noon of that day in her time zone.
+ * Only with status done; without done_date the database sets now() (trigger goals_done_at).
+ */
+function doneAtOf(v: unknown, status: string, today: string, tz: string): string | undefined {
+  const day = optDate(v, "done_date");
+  if (!day) return undefined;
+  if (status !== "done") throw new ToolInputError("done_date nur zusammen mit status done");
+  const problem = doneDateProblem(day, today);
+  if (problem) throw new ToolInputError(problem);
+  return zonedToUtc(`${day}T12:00`, tz);
+}
 // The owner-check triggers report a missing or someone else's goal as foreign_key_violation.
 const missingGoal = (error: { code?: string }) => (error.code === "23503" ? new ToolInputError("Ziel nicht gefunden") : error);
 
@@ -529,6 +562,10 @@ const toGoal = (row: Row, time: GoalTimeSum = NO_TIME) => ({
   ...row,
   id: String(row.id),
   title: String(row.title),
+  // before the Bucket List migration every row is a goal
+  kind: row.kind === "dream" ? ("dream" as const) : ("goal" as const),
+  done_at: (row.done_at as string | null | undefined) ?? null,
+  memory: (row.memory as string | null | undefined) ?? null,
   target_date: (row.target_date as string | null) ?? null,
   effort_hours: numOrNull(row.effort_hours),
   weekly_hours: numOrNull(row.weekly_hours),
@@ -539,6 +576,43 @@ const toGoal = (row: Row, time: GoalTimeSum = NO_TIME) => ({
 
 const toTime = (r: Row | null | undefined): GoalTimeSum =>
   r ? { logged_minutes: Number(r.logged_minutes) || 0, block_minutes: Number(r.block_minutes) || 0 } : NO_TIME;
+
+/** What the coach's context reads of a goal; the Bucket List columns apart (they come with its migration). */
+// (a milestone's updated_at: planning steps for a dream counts as activity for «liegt lange»; it is set on insert too)
+const GOAL_COLS = "id, title, why, target_date, status, effort_hours, weekly_hours, prior_hours, milestones(id, title, due_date, done_at, position, updated_at)";
+const BUCKET_COLS = "kind, done_at, memory, reminded_at, created_at, updated_at";
+
+type DreamActivity = { lastTimeDay: string | null; lastBlockDay: string | null };
+
+/**
+ * For the reminders («liegt lange»: nothing for 60 days): per open dream the newest day with logged time
+ * and the newest calendar block (a planned one too), both only from the last 60 days on. Only enriches
+ * the context: on an error the dream simply counts by its own last change.
+ */
+async function dreamActivity(sb: SupabaseClient, ids: string[], today: string, tz: string): Promise<Map<string, DreamActivity>> {
+  const out = new Map<string, DreamActivity>();
+  if (!ids.length) return out;
+  const since = addDays(today, -NUDGE_LONG_DAYS);
+  const [time, blocks] = await Promise.all([
+    soft<{ goal_id: string; day: string }[]>(sb.from("goal_time").select("goal_id, day").in("goal_id", ids).gte("day", since).order("day", { ascending: false }).limit(500), [], "dream time"),
+    soft<{ goal_id: string; starts_at: string }[]>(
+      sb.from("events").select("goal_id, starts_at").in("goal_id", ids).eq("kind", "block").gte("starts_at", zonedToUtc(since, tz)).order("starts_at", { ascending: false }).limit(500),
+      [],
+      "dream blocks",
+    ),
+  ]);
+  const get = (id: string) => out.get(id) ?? out.set(id, { lastTimeDay: null, lastBlockDay: null }).get(id)!;
+  for (const t of time) {
+    const a = get(String(t.goal_id));
+    if (!a.lastTimeDay || t.day > a.lastTimeDay) a.lastTimeDay = String(t.day);
+  }
+  for (const b of blocks) {
+    const a = get(String(b.goal_id));
+    const d = localDay(b.starts_at, tz);
+    if (!a.lastBlockDay || d > a.lastBlockDay) a.lastBlockDay = d;
+  }
+  return out;
+}
 
 async function goalTime(sb: SupabaseClient, id: string): Promise<GoalTimeSum> {
   const { data, error } = await sb.from("goal_minutes").select("logged_minutes, block_minutes").eq("goal_id", id).maybeSingle();
@@ -649,9 +723,17 @@ async function runTool(
       return JSON.stringify({ ok: true });
     }
     case "update_profile": {
-      const patch: Record<string, string> = {};
+      const patch: Record<string, string | number | null> = {};
       if (input.display_name !== undefined) patch.display_name = str(input.display_name, 60, "display_name");
       if (input.location_name !== undefined) patch.location_name = str(input.location_name, 80, "location_name");
+      // she wants it gone («Vergiss mein Geburtsjahr»): null removes it
+      if (input.birth_year === null) patch.birth_year = null;
+      else if (input.birth_year !== undefined) {
+        // only the year, for «Leben»; saved when she says it, never asked for
+        const problem = birthYearProblem(input.birth_year, day);
+        if (problem) throw new ToolInputError(problem);
+        patch.birth_year = input.birth_year as number;
+      }
       if (!Object.keys(patch).length) throw new ToolInputError("nichts zu ändern");
       const { error } = await sb.from("profiles").update(patch).eq("id", userId);
       if (error) throw error;
@@ -740,14 +822,19 @@ async function runTool(
     }
     case "create_goal": {
       const title = str(input.title, 200, "title");
+      const kind = input.kind === undefined ? "goal" : oneOf(input.kind, GOAL_KINDS, "kind");
       const why = optText(input.why, 1000, "why") ?? null;
       const target_date = optDate(input.target_date, "target_date") ?? null;
+      const memory = optText(input.memory, MEMORY_MAX, "memory") ?? null;
       const effort = {
         effort_hours: optHours(input.effort_hours, 100000, "effort_hours", true) ?? null,
         weekly_hours: optHours(input.weekly_hours, 168, "weekly_hours", true) ?? null,
         prior_hours: optHours(input.prior_hours, 100000, "prior_hours", true) ?? 0,
       };
-      const status = input.status === undefined ? "active" : oneOf(input.status, ["active", "paused"] as const, "status");
+      const status = input.status === undefined ? "active" : oneOf(input.status, ["active", "paused", "done"] as const, "status");
+      // a dream she already lived goes on the list fulfilled; a goal is created to work toward
+      if (status === "done" && kind !== "dream") throw new ToolInputError("status done nur für einen Traum, der sich schon erfüllt hat (kind dream)");
+      const doneAt = doneAtOf(input.done_date, status, day, ctx.tz);
       const prior = priorProblem(effort.prior_hours, effort.effort_hours, input.prior_bestaetigt === true);
       if (prior) throw new ToolInputError(prior);
       if (input.milestones !== undefined && !Array.isArray(input.milestones)) throw new ToolInputError("milestones muss eine Liste sein");
@@ -757,7 +844,12 @@ async function runTool(
         const o = (m && typeof m === "object" ? m : {}) as Row;
         return { title: str(o.title, 200, `milestones[${i}].title`), due_date: optDate(o.due_date, `milestones[${i}].due_date`) ?? null, position: i };
       });
-      const { data: goal, error } = await sb.from("goals").insert({ user_id: userId, title, why, target_date, status, ...effort, source: "coach" }).select().single();
+      const row: Row = { user_id: userId, title, why, target_date, status, ...effort, source: "coach" };
+      // only with the Bucket List migration's columns: a goal without them saves as before
+      if (kind === "dream") row.kind = kind;
+      if (memory !== null) row.memory = memory;
+      if (doneAt) row.done_at = doneAt;
+      const { data: goal, error } = await sb.from("goals").insert(row).select().single();
       if (error) throw error;
       let milestones: Row[] = [];
       if (steps.length) {
@@ -774,14 +866,16 @@ async function runTool(
       }
       // A new goal has no time yet.
       const saved = toGoal({ ...goal, milestones });
-      send({ type: "goal_saved", goal: saved, created: true });
-      // the effort line computed here, so the coach never does the sums itself
+      // a dream she already lived: the app shows «Erfüllt» and washes it in the colour flow
+      send({ type: "goal_saved", goal: saved, created: true, ...(saved.kind === "dream" && status === "done" ? { fulfilled: true } : {}) });
+      // the effort line computed here, so the coach never does the sums itself (a dream needs one only with an estimate)
       return JSON.stringify({
         ok: true,
         id: goal.id,
+        kind: saved.kind,
         status,
         milestones: saved.milestones.map((m) => ({ id: m.id, title: m.title })),
-        aufwand: effortLine(saved, day),
+        ...(saved.kind !== "dream" || saved.effort_hours ? { aufwand: effortLine(saved, day) } : {}),
         ...goalHints(saved, day),
       });
     }
@@ -794,6 +888,23 @@ async function runTool(
       const target = optDate(input.target_date, "target_date");
       if (target !== undefined) patch.target_date = target;
       if (input.status !== undefined) patch.status = oneOf(input.status, GOAL_STATUS, "status");
+      if (input.kind !== undefined) patch.kind = oneOf(input.kind, GOAL_KINDS, "kind");
+      const memory = optText(input.memory, MEMORY_MAX, "memory");
+      if (memory !== undefined) patch.memory = memory;
+      // the coach mentioned the dream: the database sets reminded_at to its own now() (trigger goals_reminded_at),
+      // and keeps updated_at, so «liegt lange» doesn't restart because of the reminder itself
+      if (input.reminded !== undefined && bool(input.reminded, "reminded")) patch.reminded_at = new Date().toISOString();
+      if (input.done_date !== undefined) {
+        // with status done in this call, or on a goal that is done already (the date is corrected)
+        let status = patch.status as string | undefined;
+        if (status === undefined) {
+          const cur = await sb.from("goals").select("status").eq("id", id).maybeSingle();
+          if (cur.error) throw cur.error;
+          if (!cur.data) throw new ToolInputError("Ziel nicht gefunden");
+          status = String(cur.data.status);
+        }
+        patch.done_at = doneAtOf(input.done_date, status, day, ctx.tz);
+      }
       const effortHours = optHours(input.effort_hours, 100000, "effort_hours", true);
       if (effortHours !== undefined) patch.effort_hours = effortHours;
       const weeklyHours = optHours(input.weekly_hours, 168, "weekly_hours", true);
@@ -801,6 +912,15 @@ async function runTool(
       const priorHours = optHours(input.prior_hours, 100000, "prior_hours", true);
       if (priorHours !== undefined) patch.prior_hours = priorHours ?? 0;
       if (!Object.keys(patch).length) throw new ToolInputError("nichts zu ändern");
+      // did this call fulfil it? (the app's «Erfüllt» and wash don't depend on how old done_at is:
+      // with done_date it is noon of that day, hours or days ago)
+      let wasDone = true;
+      if (patch.status === "done") {
+        const cur = await sb.from("goals").select("status").eq("id", id).maybeSingle();
+        if (cur.error) throw cur.error;
+        if (!cur.data) throw new ToolInputError("Ziel nicht gefunden");
+        wasDone = cur.data.status === "done";
+      }
       if (priorHours && input.prior_bestaetigt !== true) {
         // compared with the estimate as it will be after this change
         let estimate = effortHours;
@@ -820,9 +940,14 @@ async function runTool(
       if (error) throw error;
       if (!data) throw new ToolInputError("Ziel nicht gefunden");
       const goal = toGoal(data, time);
-      send({ type: "goal_saved", goal });
-      // Where the effort stands now, e.g. after she said how much time she has per week.
-      return JSON.stringify({ ok: true, aufwand: effortLine(goal, day), ...goalHints(goal, day) });
+      send({ type: "goal_saved", goal, ...(!wasDone && data.status === "done" && goal.kind === "dream" ? { fulfilled: true } : {}) });
+      // Where the effort stands now, e.g. after she said how much time she has per week (dreams: only with an estimate).
+      return JSON.stringify({
+        ok: true,
+        ...(goal.kind !== "dream" || goal.effort_hours ? { aufwand: effortLine(goal, day) } : {}),
+        ...goalHints(goal, day),
+        ...(patch.reminded_at ? { notiert: "Erinnert. Heute keinen weiteren Traum ansprechen." } : {}),
+      });
     }
     case "delete_goal": {
       const id = uuid(input.id, "id");
@@ -1000,7 +1125,8 @@ async function runTool(
           remaining_hours: e.remaining,
           needed_per_week: e.neededPerWeek,
           feasibility: e.feasibility,
-          aufwand: effortLine(goal, day),
+          // a dream without an estimate gets no «Aufwand noch nicht geschätzt» to fill in (as create/update_goal)
+          ...(goal.kind !== "dream" || goal.effort_hours ? { aufwand: effortLine(goal, day) } : {}),
           ...(hint ? { hint } : {}),
         });
       } catch (err) {
@@ -1123,6 +1249,15 @@ async function converse({ sb, userId, body, send }: { sb: SupabaseClient; userId
   const yesterdayThread = mode === "checkin" && DATE_RE.test(thread) ? addDays(thread, -1) : null;
   const owner = nolioOwner(userId);
   type Msg = { id?: number | string; role: string; content: string };
+  // active and paused goals and dreams; bucket = false: without the Bucket List columns (before its migration)
+  const openGoals = (bucket = true) =>
+    sb
+      .from("goals")
+      .select<string, Row>(bucket ? `${GOAL_COLS}, ${BUCKET_COLS}` : GOAL_COLS)
+      .in("status", ["active", "paused"])
+      .order("target_date", { ascending: true, nullsFirst: false })
+      .order("created_at")
+      .limit(40);
 
   const [
     profileRes,
@@ -1140,6 +1275,8 @@ async function converse({ sb, userId, body, send }: { sb: SupabaseClient; userId
     nolioSync,
     nolioRows,
     whoopMarkedRows,
+    fulfilledRows,
+    birthYear,
   ] = await Promise.all([
     sb.from("profiles").select("display_name, location_name, summary, nature_palette").eq("id", userId).single(),
     sb.from("memories").select("id, category, event_date, content, source").order("created_at", { ascending: true }).limit(400),
@@ -1172,20 +1309,23 @@ async function converse({ sb, userId, body, send }: { sb: SupabaseClient; userId
       .lte("ends_at", iso(now))
       .order("starts_at")
       .limit(30),
-    // Goals with the time that went into them (the view goal_minutes), fetched right after.
-    sb
-      .from("goals")
-      .select("id, title, why, target_date, status, effort_hours, weekly_hours, prior_hours, milestones(id, title, due_date, done_at, position)")
-      .in("status", ["active", "paused"])
-      .order("target_date", { ascending: true, nullsFirst: false })
-      .order("created_at")
-      .limit(30)
+    // Goals and open dreams with the time that went into them (the view goal_minutes), fetched right
+    // after, and for open dreams what happened lately (for the reminders «liegt lange»).
+    openGoals()
+      // before the Bucket List migration (42703: no such column)
+      .then((res) => (res.error?.code === "42703" || res.error?.code === "PGRST204" ? openGoals(false) : res))
       .then(async (res) => {
-        const ids = (res.data ?? []).map((g) => String(g.id));
-        if (res.error || !ids.length) return { ...res, time: new Map<string, GoalTimeSum>() };
-        const t = await sb.from("goal_minutes").select("goal_id, logged_minutes, block_minutes").in("goal_id", ids);
+        const rows = res.data ?? [];
+        const ids = rows.map((g) => String(g.id));
+        // tidying needs no reminders
+        const dreams = mode === "tidy" ? [] : rows.filter((g) => g.kind === "dream" && g.status === "active").map((g) => String(g.id));
+        if (res.error || !ids.length) return { ...res, time: new Map<string, GoalTimeSum>(), activity: new Map<string, DreamActivity>() };
+        const [t, activity] = await Promise.all([
+          sb.from("goal_minutes").select("goal_id, logged_minutes, block_minutes").in("goal_id", ids),
+          dreamActivity(sb, dreams, context.day, tz),
+        ]);
         if (t.error) console.error(t.error);
-        return { ...res, time: new Map((t.data ?? []).map((r) => [String(r.goal_id), toTime(r)])) };
+        return { ...res, time: new Map((t.data ?? []).map((r) => [String(r.goal_id), toTime(r)])), activity };
       }),
     // The filter on habit_logs.day limits the embedded logs, not the habits.
     sb
@@ -1241,11 +1381,24 @@ async function converse({ sb, userId, body, send }: { sb: SupabaseClient; userId
           [],
           "whoop_marked",
         ),
+    // Fulfilled dreams, the newest first (the Bucket List keeps them as memories)
+    mode === "tidy"
+      ? Promise.resolve([] as Row[])
+      : soft<Row[]>(
+          sb.from("goals").select<string, Row>(`${GOAL_COLS}, ${BUCKET_COLS}`).eq("kind", "dream").eq("status", "done").order("done_at", { ascending: false }).limit(20),
+          [],
+          "fulfilled dreams",
+        ),
+    // Only a fact for questions about «Leben»; its own query, so a missing column never breaks the profile.
+    soft<{ birth_year?: number | null } | null>(sb.from("profiles").select("birth_year").eq("id", userId).maybeSingle(), null, "birth_year"),
   ]);
   if (profileRes.error) throw profileRes.error;
   // The rest only enriches the context: the coach still talks without it.
   for (const r of [memoriesRes, daysRes, termineRes, blocksRes, pastBlocksRes, goalsRes, habitsRes]) if (r.error) console.error(r.error);
-  const goals = (goalsRes.data ?? []).map((g) => toGoal(g, goalsRes.time.get(String(g.id))));
+  const goals = (goalsRes.data ?? []).map((g) => ({
+    ...toGoal(g, goalsRes.time.get(String(g.id))),
+    activity: goalsRes.activity.get(String(g.id)),
+  }));
   const goalIds = new Set(goals.map((g) => g.id));
   const events = [...(termineRes.data ?? []), ...(blocksRes.data ?? [])].sort((a, b) => Date.parse(a.starts_at) - Date.parse(b.starts_at));
   // Not answered yet and for a goal in the context: the coach may ask once whether it happened.
@@ -1318,7 +1471,7 @@ async function converse({ sb, userId, body, send }: { sb: SupabaseClient; userId
       text: contextBlock({
         ...context,
         timezone: tz,
-        profile: profileRes.data,
+        profile: { ...profileRes.data, birth_year: typeof birthYear?.birth_year === "number" ? birthYear.birth_year : null },
         memories: memoriesRes.data ?? [],
         recentDays,
         today,
@@ -1327,7 +1480,8 @@ async function converse({ sb, userId, body, send }: { sb: SupabaseClient; userId
         connections,
         trainings: trainingsForCoach(nolioRows),
         whoop: whoopLine,
-        goals: goals as unknown as ContextGoal[], // the select above has every field
+        // the selects above have every field; fulfilled dreams after the open goals and dreams
+        goals: [...goals, ...fulfilledRows.map((g) => toGoal(g))] as unknown as ContextGoal[],
         habits: (habitsRes.data ?? []).map(({ habit_logs, ...h }) => ({
           ...h,
           done_days: ((habit_logs as { day: string }[] | null) ?? []).map((l) => l.day).sort(),

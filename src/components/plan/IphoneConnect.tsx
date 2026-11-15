@@ -31,11 +31,11 @@ export function IphoneConnect({ initiallyOpen = false, variant = "card" }: { ini
     try {
       const events = await backend.listEvents();
       const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-      const ics = buildIcs(events, { name: "I am", timezone: tz });
+      const ics = buildIcs(events, { name: "Bucket List", timezone: tz });
       const url = URL.createObjectURL(new Blob([ics], { type: "text/calendar" }));
       const a = document.createElement("a");
       a.href = url;
-      a.download = "i-am.ics";
+      a.download = "bucket-list.ics";
       a.click();
       setTimeout(() => URL.revokeObjectURL(url), 2000);
     } catch (e) {
@@ -45,7 +45,7 @@ export function IphoneConnect({ initiallyOpen = false, variant = "card" }: { ini
 
   const content = (
     <>
-      <p className="hint">Alles aus deinem Plan erscheint dann im iPhone-Kalender „I am“, mit Erinnerung.</p>
+      <p className="hint">Alles aus deinem Plan erscheint dann im iPhone-Kalender „Bucket List“, mit Erinnerung.</p>
       {error && <p className="form-error">{error}</p>}
       {link === undefined && !error && <p className="hint">Einen Moment …</p>}
       {link && (

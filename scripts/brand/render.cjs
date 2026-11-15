@@ -1,3 +1,5 @@
+// Renders the brand SVGs to PNGs in Chromium (Playwright), see make.cjs:
+//   node render.cjs '[["icon.svg",512,512,"icon-512.png"], ...]'   ([svg, width, height, png] each)
 const { chromium } = require('playwright');
 const fs = require('fs');
 (async () => {

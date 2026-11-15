@@ -17,6 +17,7 @@ import { Space } from "./space/Space";
 import { spaceEnabled, tourSeen } from "./space/flags";
 import { planData, resetPlanData } from "./space/data";
 import { markFresh } from "./space/fresh";
+import { resubscribePushIfNeeded, signOutDevice } from "./lib/push";
 
 // Screen changes zoom through the portal (View Transitions API, where the
 // browser has it; elsewhere screens simply fade in via CSS).
@@ -79,6 +80,8 @@ export default function App() {
         // keep the time zone current, so notifications arrive at your local time
         const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
         if (p.timezone !== tz) backend.updateProfile({ timezone: tz }).catch(() => {});
+        // after the move to a new address the new service worker has no push subscription: renew it silently
+        void resubscribePushIfNeeded(p);
         if (!storedCoords() && p.lat != null && p.lon != null) {
           const c = { lat: p.lat, lon: p.lon };
           storeCoords(c);
@@ -180,7 +183,7 @@ export default function App() {
     return (
       <main className="screen center">
         <p className="form-error">{loadError}</p>
-        <button className="btn ghost" onClick={() => backend.signOut()}>
+        <button className="btn ghost" onClick={() => void signOutDevice()}>
           Abmelden
         </button>
       </main>
@@ -255,7 +258,7 @@ export default function App() {
       kickoff={kickoff}
       onKickoffSent={() => setKickoff(null)}
       eventsVersion={eventsVersion}
-      onSignOut={() => backend.signOut()}
+      onSignOut={() => void signOutDevice()}
     />
   );
   }

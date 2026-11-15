@@ -107,6 +107,22 @@ describe("supabase backend: WHOOP start and Nolio", () => {
     await expect(be().whoopStart()).rejects.toThrow();
   });
 
+  it("sends the app's own address as return_to (BASE_URL on this origin), so WHOOP brings the browser back here", async () => {
+    replies["whoop:start"] = { status: 200, body: { url: "https://api.prod.whoop.com/oauth/oauth2/auth?x=1" } };
+    vi.stubGlobal("location", { origin: "https://mapius55.github.io" });
+    try {
+      for (const base of ["/bucket-list/", "/App-ich/"]) {
+        vi.stubEnv("BASE_URL", base);
+        calls.length = 0;
+        await be().whoopStart();
+        const body = JSON.parse(calls.find((c) => c.url.endsWith("/functions/v1/whoop"))!.body!) as { action: string; return_to: string };
+        expect(body).toEqual({ action: "start", return_to: `https://mapius55.github.io${base}` });
+      }
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it("Nolio: null when not deployed, 'not available' for everyone but the owner", async () => {
     expect(await be().nolioStatus()).toBeNull();
     replies["nolio?action=status"] = { status: 200, body: { available: false, connected: false, last_sync_at: null, last_error: null, running: false, counts: null } };

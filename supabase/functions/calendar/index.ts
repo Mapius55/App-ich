@@ -1,4 +1,4 @@
-// Supabase Edge Function: the "I am" calendar as an iCalendar feed.
+// Supabase Edge Function: the "Bucket List" calendar as an iCalendar feed.
 // The iPhone subscribes to  webcal://<project>.supabase.co/functions/v1/calendar?token=…
 // Calendar apps can't log in, so a private random token in the link
 // identifies the person (renewable in the app). Deploy with --no-verify-jwt.
@@ -42,10 +42,10 @@ Deno.serve(async (req) => {
   if (touched.error) console.error("calendar_fetched_at:", touched.error.code ?? "error");
 
   const tz = new URL(req.url).searchParams.get("tz") ?? "Europe/Zurich";
-  return new Response(buildIcs(events ?? [], { name: "I am", timezone: tz }), {
+  return new Response(buildIcs(events ?? [], { name: "Bucket List", timezone: tz }), {
     headers: {
       "Content-Type": "text/calendar; charset=utf-8",
-      "Content-Disposition": 'inline; filename="i-am.ics"',
+      "Content-Disposition": 'inline; filename="bucket-list.ics"',
       "Cache-Control": "no-cache",
     },
   });

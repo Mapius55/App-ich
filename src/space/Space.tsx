@@ -1,4 +1,4 @@
-// The space: one T-shaped place. The time column (Jetzt, Tag, Woche, Jahr) is the
+// The space: one T-shaped place. The time column (Jetzt, Tag, Woche, Jahr, Leben) is the
 // document scroller; Du and Ziele are fixed layers left and right of Jetzt, moved by
 // one custom pointer pager that is live only at Jetzt (and on the sides). The circle
 // lives in a fixed layer and docks at the top as you leave Jetzt.
@@ -21,6 +21,7 @@ import { VoiceConversation } from "../components/VoiceConversation";
 import { DayLevel } from "../time/DayLevel";
 import { WeekLevel } from "../time/WeekLevel";
 import { YearLevel } from "../time/YearLevel";
+import { LifeLevel } from "../time/LifeLevel";
 import { GoalsPlace } from "../places/GoalsPlace";
 import { YouPlace } from "../places/YouPlace";
 import * as coachBus from "./coachBus";
@@ -36,7 +37,7 @@ import { SkipNav } from "./SkipNav";
 import { easeOut, settleMs } from "./swipeMath";
 import { TourCaption } from "./Tour";
 import { useKeyboardInset } from "./useKeyboardInset";
-import { useLevels } from "./useLevels";
+import { LAST_LEVEL, useLevels } from "./useLevels";
 import { useSwipeX } from "./useSwipeX";
 import {
   SpaceContext,
@@ -70,7 +71,7 @@ export interface SpaceProps {
   startTour: boolean;
 }
 
-export const TITLE_IDS = { tag: "lvl-tag-title", woche: "lvl-woche-title", jahr: "lvl-jahr-title", ziele: "place-ziele-title", du: "place-du-title" } as const;
+export const TITLE_IDS = { tag: "lvl-tag-title", woche: "lvl-woche-title", jahr: "lvl-jahr-title", leben: "lvl-leben-title", ziele: "place-ziele-title", du: "place-du-title" } as const;
 
 const FLASH_MS = 1600;
 const GO_MS = 420; // a pill / key / button move between places (--t-normal)
@@ -108,18 +109,19 @@ function addKeyOf(s: Pick<SpaceState, "place" | "level">): AddKey | null {
 }
 
 function announcement(s: Pick<SpaceState, "place" | "level" | "anchor" | "today">): string {
-  if (s.place === "ziele") return "Ziele";
+  if (s.place === "ziele") return "Bucket List";
   if (s.place === "du") return "Du";
   if (s.level === 1) return `Tag, ${daySubline(s.anchor, s.today)}`;
   if (s.level === 2) return `Woche, ${weekRange(s.anchor).replace(/\s?–\s?/, " bis ")}`;
   if (s.level === 3) return `Jahr ${s.anchor.slice(0, 4)}`;
+  if (s.level === 4) return "Leben in Wochen";
   return "Jetzt";
 }
 
 /** the heading programmatic and keyboard navigation moves focus to */
 function headingOf(s: Pick<SpaceState, "place" | "level">): HTMLElement | null {
   const id =
-    s.place === "ziele" ? TITLE_IDS.ziele : s.place === "du" ? TITLE_IDS.du : s.level === 1 ? TITLE_IDS.tag : s.level === 2 ? TITLE_IDS.woche : s.level === 3 ? TITLE_IDS.jahr : NOW_TITLE_ID;
+    s.place === "ziele" ? TITLE_IDS.ziele : s.place === "du" ? TITLE_IDS.du : s.level === 1 ? TITLE_IDS.tag : s.level === 2 ? TITLE_IDS.woche : s.level === 3 ? TITLE_IDS.jahr : s.level === 4 ? TITLE_IDS.leben : NOW_TITLE_ID;
   return document.getElementById(id);
 }
 
@@ -168,10 +170,10 @@ export function Space(props: SpaceProps) {
   const timeRef = useRef<HTMLElement>(null);
   const duRef = useRef<HTMLElement>(null);
   const zieleRef = useRef<HTMLElement>(null);
-  const inners = useRef<(HTMLDivElement | null)[]>([null, null, null, null]);
-  const innerRefs = useRef([0, 1, 2, 3].map((k) => (el: HTMLDivElement | null) => void (inners.current[k] = el)));
+  const inners = useRef<(HTMLDivElement | null)[]>([null, null, null, null, null]);
+  const innerRefs = useRef([0, 1, 2, 3, 4].map((k) => (el: HTMLDivElement | null) => void (inners.current[k] = el)));
   const motion = useRef({ p: initial.s?.place === "jetzt" ? (initial.s.level as number) : 0, x: -POS[initial.s?.place ?? "jetzt"] * pageWidth(), pagerStyled: false, anim: 0, dragBase: 0 });
-  const lastLevelCss = useRef<string[]>(["", "", "", ""]);
+  const lastLevelCss = useRef<string[]>(["", "", "", "", ""]);
   // a programmatic move in flight (the 1 s anchor reset at Jetzt must not fire half way;
   // the hidden time column may scroll while a side is shown)
   const navigating = useRef(0);
@@ -181,7 +183,7 @@ export function Space(props: SpaceProps) {
   // depth cue (D24) and Jetzt's fade/lift: one write per section, only when it changes
   const paintLevels = useCallback((p: number, d: number) => {
     const red = stateRef.current.reduced;
-    for (let k = 0; k < 4; k++) {
+    for (let k = 0; k <= LAST_LEVEL; k++) {
       const el = inners.current[k];
       if (!el) continue;
       const t = p - k;
@@ -707,7 +709,7 @@ export function Space(props: SpaceProps) {
           handled();
           // on a side the keys scroll the side, never the hidden time column
           if (side) side.scrollBy({ top: (down ? 1 : -1) * (e.key.startsWith("Page") ? side.clientHeight * 0.85 : 80), behavior: s.reduced ? "auto" : "smooth" });
-          else goLevel(Math.max(0, Math.min(3, s.level + (down ? 1 : -1))) as Level);
+          else goLevel(Math.max(0, Math.min(LAST_LEVEL, s.level + (down ? 1 : -1))) as Level);
           break;
         }
         case "Home":
@@ -725,7 +727,8 @@ export function Space(props: SpaceProps) {
           if (s.place !== "jetzt") {
             if ((s.place === "du" && dir === 1) || (s.place === "ziele" && dir === -1)) go("jetzt");
           } else if (s.level === 0) go(dir === 1 ? "ziele" : "du");
-          else setAnchorState(stepAnchor(s.anchor, s.level, dir));
+          else if (s.level < LAST_LEVEL) setAnchorState(stepAnchor(s.anchor, s.level, dir));
+          // Leben: one life, no paging (the keys do nothing there)
           break;
         }
       }
@@ -841,6 +844,11 @@ export function Space(props: SpaceProps) {
           <section ref={levels.sectionRef(3)} className="lvl" data-level={3} aria-current={atLevel(3) || undefined} aria-labelledby={TITLE_IDS.jahr}>
             <div ref={innerRefs.current[3]} className="lvl-inner">
               {levels.mounted.year && <YearLevel titleId={TITLE_IDS.jahr} active={atLevel(3)} />}
+            </div>
+          </section>
+          <section ref={levels.sectionRef(4)} className="lvl" data-level={4} aria-current={atLevel(4) || undefined} aria-labelledby={TITLE_IDS.leben}>
+            <div ref={innerRefs.current[4]} className="lvl-inner">
+              {levels.mounted.life && <LifeLevel titleId={TITLE_IDS.leben} active={atLevel(4)} profile={profile} colors={palette.orb} onProfile={onProfile} />}
             </div>
           </section>
         </main>

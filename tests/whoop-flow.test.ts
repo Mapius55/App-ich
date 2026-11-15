@@ -292,8 +292,8 @@ const post = async (user: string, body: unknown) => {
 const statusOf = async (user: string) =>
   (await (await server.handleApp(new Request(`${BASE}/whoop?action=status`, { headers: { Authorization: `Bearer jwt-${user}` } }))).json()) as Record<string, unknown>;
 /** "start" in the app, then the browser at WHOOP (whoever it belongs to) and back through the callback. */
-async function linkVia(starter: string, whoopUser: string, opts: { deny?: boolean } = {}) {
-  const { url } = (await post(starter, { action: "start" })) as { url: string };
+async function linkVia(starter: string, whoopUser: string, opts: { deny?: boolean; returnTo?: unknown } = {}) {
+  const { url } = (await post(starter, { action: "start", ...("returnTo" in opts ? { return_to: opts.returnTo } : {}) })) as { url: string };
   const state = new URL(url).searchParams.get("state")!;
   const authCode = `auth-${Math.random().toString(36).slice(2)}`;
   grantFor[authCode] = whoopUser;
@@ -437,6 +437,74 @@ describe("WHOOP link: the callback never connects, the app confirms", () => {
     const bad = await server.handleCallback(new Request(`${BASE}/whoop-callback?code=abc&state=nope`));
     expect(bad.headers.get("Location")).toBe(`${APP}#du/verbindungen?whoop=error`);
     expect(conn("anna")).toBeNull();
+  });
+});
+
+describe("WHOOP link: back to the app address that started it (return_to, exact allowlist)", () => {
+  const OLD = "https://mapius55.github.io/App-ich/";
+  const NEW = "https://mapius55.github.io/bucket-list/";
+
+  it("goes back to the address the app sent, at both paths, and keeps it with the state", async () => {
+    for (const app of [NEW, OLD]) {
+      reset();
+      for (const u of ["anna"]) db.profiles.push({ id: u, timezone: "Europe/Zurich" });
+      await post("anna", { action: "start", return_to: app });
+      expect(db.whoop_oauth_states).toHaveLength(1);
+      expect(db.whoop_oauth_states[0]).toMatchObject({ user_id: "anna", return_to: app });
+      reset();
+      for (const u of ["anna"]) db.profiles.push({ id: u, timezone: "Europe/Zurich" });
+      const back = await linkVia("anna", "10129", { returnTo: app });
+      expect(back.location.startsWith(`${app}#du/verbindungen?whoop=confirm&code=`)).toBe(true);
+      expect(db.whoop_oauth_states).toHaveLength(0); // single use
+      expect(await post("anna", { action: "confirm", code: back.code })).toMatchObject({ ok: true, connected: true });
+    }
+  });
+
+  it("declined at WHOOP or account taken: still back to the address that started it", async () => {
+    expect((await linkVia("anna", "10129", { deny: true, returnTo: NEW })).location).toBe(`${NEW}#du/verbindungen?whoop=denied`);
+    const own = await linkVia("ben", "20001", { returnTo: OLD });
+    await post("ben", { action: "confirm", code: own.code });
+    expect((await linkVia("eve", "20001", { returnTo: NEW })).location).toBe(`${NEW}#du/verbindungen?whoop=taken`);
+  });
+
+  it("never stores or follows an address that is not exactly allowed: the fallback instead", async () => {
+    for (const bad of [
+      "https://evil.example/",
+      "http://mapius55.github.io/bucket-list/",
+      "https://mapius55.github.io/bucket-list/x",
+      "https://mapius55.github.io/bucket-list",
+      "https://mapius55.github.io/bucket-list/?a=1",
+      "https://mapius55.github.io.evil.example/bucket-list/",
+      42,
+      null,
+    ]) {
+      await post("anna", { action: "start", return_to: bad });
+      expect(db.whoop_oauth_states[0].return_to, String(bad)).toBeNull();
+      const back = await linkVia("anna", "10129", { returnTo: bad });
+      expect(back.location.startsWith(`${APP}#du/verbindungen?whoop=confirm&code=`), String(bad)).toBe(true); // WHOOP_APP_URL
+    }
+  });
+
+  it("without WHOOP_APP_URL the fallback is the new address /bucket-list/", async () => {
+    delete env.WHOOP_APP_URL;
+    expect((await linkVia("anna", "10129")).location.startsWith(`${NEW}#du/verbindungen?whoop=confirm&code=`)).toBe(true);
+    const bad = await server.handleCallback(new Request(`${BASE}/whoop-callback?code=abc&state=nope`));
+    expect(bad.headers.get("Location")).toBe(`${NEW}#du/verbindungen?whoop=error`);
+    // an unknown (or already used) state: nothing to read return_to from
+    const unknown = await server.handleCallback(new Request(`${BASE}/whoop-callback?code=abc&state=AAAAAAAA`));
+    expect(unknown.headers.get("Location")).toBe(`${NEW}#du/verbindungen?whoop=error`);
+  });
+
+  it("WHOOP_APP_URL is allowed too; a stored address that is no longer allowed is not followed", async () => {
+    env.WHOOP_APP_URL = "https://coach.example.org/app/";
+    const own = await linkVia("anna", "10129", { returnTo: "https://coach.example.org/app/" });
+    expect(own.location.startsWith("https://coach.example.org/app/#du/verbindungen?whoop=confirm&code=")).toBe(true);
+    // a row changed behind the function's back (or an allowlist that shrank): checked again on the way out
+    const { url } = (await post("ben", { action: "start", return_to: NEW })) as { url: string };
+    const state = new URL(url).searchParams.get("state")!;
+    db.whoop_oauth_states.find((r) => r.state === state)!.return_to = "https://evil.example/";
+    const res = await server.handleCallback(new Request(`${BASE}/whoop-callback?error=access_denied&state=${state}`));
+    expect(res.headers.get("Location")).toBe("https://coach.example.org/app/#du/verbindungen?whoop=denied");
   });
 });
 

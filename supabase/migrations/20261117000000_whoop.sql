@@ -165,9 +165,13 @@ revoke execute on function public.whoop_claim_refresh(uuid, integer) from public
 grant execute on function public.whoop_claim_refresh(uuid, integer) to service_role;
 
 -- ---------- OAuth state (exactly 8 URL-safe characters, single use, valid 10 minutes) ----------
+-- return_to: the app address the callback sends the browser back to (the app moves from /App-ich/ to
+-- /bucket-list/). The function stores it only when it is exactly on its allowlist (_shared/app_url.ts);
+-- null means the fallback (WHOOP_APP_URL, else https://mapius55.github.io/bucket-list/).
 create table public.whoop_oauth_states (
   state text primary key check (state ~ '^[A-Za-z0-9_-]{8}$'),
   user_id uuid not null references auth.users (id) on delete cascade,
+  return_to text check (return_to is null or (length(return_to) <= 200 and return_to ~ '^https://[^[:space:]#]+$')),
   created_at timestamptz not null default now()
 );
 create index whoop_oauth_states_user_idx on public.whoop_oauth_states (user_id);

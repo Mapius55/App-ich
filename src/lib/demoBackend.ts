@@ -12,6 +12,7 @@ import type {
   EventInput,
   Goal,
   GoalInput,
+  GoalKind,
   GoalTime,
   Habit,
   HabitInput,
@@ -50,6 +51,8 @@ interface DemoUser {
   whoop_days?: WhoopDay[];
   /** like nolio_sync */
   nolio?: { last_sync_at: string | null };
+  /** created or brought up to date since the Bucket List: the demo dreams are in, or never were needed */
+  bucket?: boolean;
 }
 interface DemoWhoop {
   status: "connected" | "pending";
@@ -254,6 +257,67 @@ export function recogniseDemoTime<G extends Pick<Goal, "title" | "status">>(text
   return goal ? { goal, ...spent } : null;
 }
 
+// A life wish goes on the Bucket List: "Ich möchte einmal Polarlichter sehen", "Ich will irgendwann
+// nach Japan", "Mein Traum ist es, …", "Ich möchte mit 40 einen Marathon laufen". "ich möchte/will"
+// alone is everyday speech: only with a word for "some day in my life" is it a dream.
+const DREAM_LEAD =
+  /^\s*(?:(ich\s+(?:möchte|moechte|will|würde\s+(?:so\s+)?gerne?|wuerde\s+(?:so\s+)?gerne?))|(mein\s+(?:grosser\s+|großer\s+|grösster\s+)?(?:lebens)?traum\s+(?:ist|wäre|waere)(?:\s+es)?|ich\s+träume\s+davon|ich\s+traeume\s+davon|auf\s+(?:meine|die)\s+bucket\s*list(?:\s+(?:kommt|gehört|gehoert))?))[\s,:]+/i;
+const DREAM_SOMEDAY = /\b(?:einmal|irgendwann|eines\s+tages|im\s+leben|mit\s+\d{2})(?![a-zäöü\d])/i;
+// "ich möchte heute einmal früh schlafen" is no dream
+const DREAM_EVERYDAY = /\b(?:heute|morgen|übermorgen|gleich|jetzt|kurz|nachher|später|diese[nrs]?\s+woche|dieses\s+wochenende|am\s+wochenende)\b/i;
+const DREAM_FILL = /^(?:(?:einmal|irgendwann|eines\s+tages|im\s+leben|unbedingt|so\s+gerne?|gerne?|noch|mal|auch|es)\b[\s,]*)+/i;
+
+/** A life wish in a message (a dream for the Bucket List), or null. Title without the lead-in; a month or day as target_date. */
+export function parseDemoDream(text: string, now = new Date()): { title: string; target_date: string | null } | null {
+  const lead = DREAM_LEAD.exec(text);
+  if (!lead || /\?\s*$/.test(text)) return null;
+  let rest = text.slice(lead[0].length);
+  if (/^(?:nicht|kein|nie)\b/i.test(rest) || DREAM_EVERYDAY.test(rest)) return null;
+  if (lead[1] && !DREAM_SOMEDAY.test(rest)) return null;
+  if (parseDemoEvent(text, now)) return null; // a dated appointment belongs in the calendar
+  const found = parseDemoDate(rest, now, ["day", "month"]);
+  if (found) rest = `${rest.slice(0, found.index).replace(DATE_WORDS, "")} ${rest.slice(found.index + found.length)}`;
+  let title = rest.split(/[.!;](?:\s|$)/)[0].replace(/\s+/g, " ").replace(/^[\s,:–-]+|[\s,:–-]+$/g, "");
+  // "Mein Traum ist es, einmal Polarlichter zu sehen" → "Polarlichter sehen"
+  title = title.replace(DREAM_FILL, "").replace(/\s+(?:einmal|irgendwann)\b/gi, "").replace(/\s+zu\s+([a-zäöü]+)$/i, " $1").slice(0, 120).trim();
+  if (title.length < 3 || /^(?:das|dies|es|so)$/i.test(title)) return null;
+  return { title: title[0].toUpperCase() + title.slice(1), target_date: found ? dayOf(found.date) : null };
+}
+
+// words that say a dream came true ("Ich habe die Polarlichter gesehen", "Mein Traum hat sich erfüllt")
+const FULFILLED = new Set(["erfüllt", "erfuellt", "geklappt", "geschafft", "gesehen", "erlebt", "gemacht", "war", "waren", "endlich", "übernachtet", "gefahren", "gereist"]);
+// title words that don't tell dreams apart
+const DREAM_STOP = new Set([...TITLE_STOP, "sehen", "erleben", "einmal", "über", "nach", "reise", "reisen", "fahren", "machen", "dem", "den", "der", "die", "das", "mit"]);
+
+/**
+ * The dream a message says came true: an open (or just fulfilled) dream whose title words are in it,
+ * with a word like "erfüllt", "gesehen" or "war". "Mein Traum hat sich erfüllt" means the only open one.
+ */
+export function recogniseDemoFulfilled<G extends Pick<Goal, "title" | "status" | "kind">>(text: string, dreams: G[]): G | null {
+  const w = words(text);
+  if (/\?\s*$/.test(text) || !w.some((x) => FULFILLED.has(x) || PAST.test(x)) || w.some((x) => NOT_DONE.has(x))) return null;
+  const set = new Set(w);
+  const candidates = dreams.filter((d) => d.kind === "dream" && d.status !== "dropped");
+  // the names and nouns of a title (capitalised: "Polarlichter", "Velo", "Gotthard"), so "Ich war heute
+  // laufen" never fulfils "Mit 40 einen Marathon laufen"
+  const keys = (title: string) => title.split(/\s+/).filter((t) => /^[A-ZÄÖÜ]/.test(t)).flatMap(words).filter((x) => x.length >= 4 && !DREAM_STOP.has(x));
+  const score = (d: G) => keys(d.title).filter((x) => set.has(x)).length;
+  let best: G | null = null;
+  for (const d of candidates) if (score(d) > (best ? score(best) : 0)) best = d;
+  if (best) return best;
+  const open = candidates.filter((d) => d.status === "active" || d.status === "paused");
+  return set.has("traum") && (set.has("erfüllt") || set.has("erfuellt")) && open.length === 1 ? open[0] : null;
+}
+
+/** How it was, kept short and in her words: the first sentences up to about 300 characters. */
+export function demoMemory(text: string): string {
+  const flat = text.replace(/\s+/g, " ").trim();
+  if (flat.length <= 300) return flat;
+  const cut = flat.slice(0, 300);
+  const end = Math.max(cut.lastIndexOf(". "), cut.lastIndexOf("! "));
+  return end > 60 ? cut.slice(0, end + 1) : `${cut.slice(0, 299).trimEnd()}…`;
+}
+
 /** Hours or minutes as the coach says them: "45 Min", "1.5 Std". */
 export function minutesLabel(min: number): string {
   return min < 60 ? `${min} Min` : `${hoursLabel(min / 60)} Std`;
@@ -356,6 +420,63 @@ function cleanSports(v: string[] | null | undefined): string[] | null {
   if (out.length > 30) throw new Error("Höchstens 30 Sportarten.");
   return out.length ? out : null;
 }
+
+// Like the checks on goals.kind and goals.memory (at most 1000 characters; empty means none).
+function goalKind(v: GoalKind | null | undefined): GoalKind {
+  if (v === undefined || v === null) return "goal";
+  if (v !== "dream" && v !== "goal") throw new Error("Ein Eintrag ist ein Traum oder ein Ziel.");
+  return v;
+}
+function goalMemory(v: string | null | undefined): string | null {
+  if (v === undefined || v === null || !String(v).trim()) return null;
+  if (String(v).length > 1000) throw new Error("Die Erinnerung ist zu lang (höchstens 1000 Zeichen).");
+  return String(v);
+}
+/** Like the trigger goals_done_at: a done goal keeps (or gets) its date, any other has none. */
+function followDone(status: Goal["status"], doneAt: string | null | undefined): string | null {
+  return status === "done" ? (doneAt ?? now()) : null;
+}
+
+// Like the check on profiles.birth_year.
+function checkBirthYear(v: unknown) {
+  if (v === undefined || v === null) return;
+  if (typeof v !== "number" || !Number.isInteger(v) || v < 1900 || v > 2100) throw new Error("Bitte ein Geburtsjahr zwischen 1900 und 2100.");
+}
+
+// ---------- the Bucket List in the demo ----------
+
+/** Demo users stored before the Bucket List get this birth year and these dreams, once (DemoOptions.bucket). */
+export const DEMO_BIRTH_YEAR = 1994;
+const demoDream = (id: string, title: string, o: Partial<StoredGoal> & { created_at: string }): StoredGoal => ({
+  id,
+  title,
+  kind: "dream",
+  why: null,
+  target_date: null,
+  status: "active",
+  source: "person",
+  updated_at: o.done_at ?? o.created_at,
+  effort_hours: null,
+  weekly_hours: null,
+  prior_hours: 0,
+  sports: null,
+  done_at: null,
+  memory: null,
+  reminded_at: null,
+  milestones: [],
+  ...o,
+});
+export const DEMO_DREAMS: readonly StoredGoal[] = [
+  demoDream("5d0c2a8e-1f1b-4c7a-9a51-0d3b7e2f6a01", "Polarlichter sehen", { target_date: "2027-02-28", source: "coach", created_at: "2026-06-10T19:20:00.000Z" }),
+  demoDream("5d0c2a8e-1f1b-4c7a-9a51-0d3b7e2f6a02", "Kirschblüte in Japan erleben", { created_at: "2026-03-02T20:05:00.000Z" }),
+  demoDream("5d0c2a8e-1f1b-4c7a-9a51-0d3b7e2f6a03", "Einmal in der Hörnlihütte am Matterhorn übernachten", {
+    status: "done",
+    created_at: "2025-05-20T18:40:00.000Z",
+    done_at: "2025-08-16T04:40:00.000Z",
+    memory: "Sonnenaufgang über den Wolken, kalt und still.",
+  }),
+  demoDream("5d0c2a8e-1f1b-4c7a-9a51-0d3b7e2f6a04", "Mit dem Velo über den Gotthard", { status: "done", created_at: "2025-11-02T09:15:00.000Z", done_at: "2026-06-21T14:10:00.000Z" }),
+];
 
 // Like the owner-check triggers in the database: links only to one's own goals.
 function checkGoal(u: DemoUser, goalId: string | null | undefined) {
@@ -487,6 +608,11 @@ export interface DemoOptions {
   connections?: boolean;
   /** with connections: this account is the owner of the app's Nolio (default). False: Nolio is "Bald verfügbar", as for every other member. */
   nolioOwner?: boolean;
+  /**
+   * Demo users stored before the Bucket List get its demo data once: DEMO_DREAMS and the birth year
+   * DEMO_BIRTH_YEAR (the browser preview and the UI tests turn it on; new accounts start empty).
+   */
+  bucket?: boolean;
 }
 
 export class DemoBackend implements Backend {
@@ -494,10 +620,12 @@ export class DemoBackend implements Backend {
   private listeners = new Set<(id: string | null) => void>();
   private readonly connections: boolean;
   private readonly nolioOwner: boolean;
+  private readonly bucket: boolean;
 
   constructor(opts: DemoOptions = {}) {
     this.connections = opts.connections ?? false;
     this.nolioOwner = this.connections && opts.nolioOwner !== false;
+    this.bucket = opts.bucket ?? false;
   }
 
   private load(): Record<string, DemoUser> {
@@ -510,9 +638,26 @@ export class DemoBackend implements Backend {
     // Demo users stored before the calendar or the plan existed lack these fields.
     for (const u of Object.values(users)) {
       u.events = (u.events ?? []).map((e) => ({ ...e, kind: e.kind ?? "termin", goal_id: e.goal_id ?? null }));
-      u.goals = (u.goals ?? []).map((g) => ({ ...g, effort_hours: g.effort_hours ?? null, weekly_hours: g.weekly_hours ?? null, prior_hours: g.prior_hours ?? 0 }));
+      u.goals = (u.goals ?? []).map((g) => ({
+        ...g,
+        effort_hours: g.effort_hours ?? null,
+        weekly_hours: g.weekly_hours ?? null,
+        prior_hours: g.prior_hours ?? 0,
+        // like the Bucket List migration: everything so far is a goal; reached ones get their last change as the date
+        kind: g.kind ?? "goal",
+        done_at: g.done_at === undefined ? (g.status === "done" ? g.updated_at : null) : g.done_at,
+        memory: g.memory ?? null,
+        reminded_at: g.reminded_at ?? null,
+      }));
       u.goal_time ??= [];
       u.habits ??= [];
+      if (this.bucket && !u.bucket) {
+        // fixed ids and dates, so reading again before anything is saved gives the same dreams
+        const have = new Set(u.goals.map((g) => g.id));
+        for (const d of DEMO_DREAMS) if (!have.has(d.id)) u.goals.push({ ...d, milestones: [] });
+        if (u.profile.birth_year === undefined) u.profile.birth_year = DEMO_BIRTH_YEAR;
+        u.bucket = true;
+      }
     }
     return users;
   }
@@ -570,6 +715,7 @@ export class DemoBackend implements Backend {
       goals: [],
       goal_time: [],
       habits: [],
+      bucket: true, // a new account starts with an empty Bucket List
     };
     this.save(users);
     localStorage.setItem(SESSION, u);
@@ -593,6 +739,7 @@ export class DemoBackend implements Backend {
     return this.user().profile;
   }
   async updateProfile(patch: Partial<Profile>) {
+    checkBirthYear(patch.birth_year);
     this.mutate((u) => Object.assign(u.profile, patch));
   }
   async listMemories() {
@@ -678,12 +825,14 @@ export class DemoBackend implements Backend {
   async addGoal(g: GoalInput, milestones: Pick<Milestone, "title" | "due_date">[] = [], source: Goal["source"] = "person"): Promise<Goal> {
     const id = uuid();
     const t = now();
+    const status = g.status ?? "active";
     const goal: StoredGoal = {
       id,
       title: g.title,
+      kind: goalKind(g.kind),
       why: g.why ?? null,
       target_date: g.target_date ?? null,
-      status: g.status ?? "active",
+      status,
       source,
       created_at: t,
       updated_at: t,
@@ -692,6 +841,9 @@ export class DemoBackend implements Backend {
       prior_hours: 0,
       sports: cleanSports(g.sports),
       ...effortFields(g),
+      done_at: followDone(status, g.done_at),
+      memory: goalMemory(g.memory),
+      reminded_at: null,
       milestones: milestones.map((m, i) => ({ id: uuid(), goal_id: id, title: m.title, due_date: m.due_date ?? null, done_at: null, position: i })),
     };
     let out!: Goal;
@@ -707,9 +859,14 @@ export class DemoBackend implements Backend {
       const g = u.goals.find((x) => x.id === id);
       if (!g) throw new Error("Dieses Ziel gibt es nicht mehr.");
       // only the goal's own fields (a whole Goal passed as patch must not store its time)
-      const { title, why, target_date, status } = patch;
-      Object.assign(g, defined({ title, why, target_date, status }), effortFields(patch), { updated_at: now() });
+      const { title, why, target_date, status, done_at } = patch;
+      const kind = patch.kind === undefined ? undefined : goalKind(patch.kind);
+      const memory = patch.memory === undefined ? undefined : goalMemory(patch.memory);
+      Object.assign(g, defined({ title, why, target_date, status, kind }), effortFields(patch), { updated_at: now() });
+      if (memory !== undefined) g.memory = memory;
       if (patch.sports !== undefined) g.sports = cleanSports(patch.sports);
+      // like the trigger goals_done_at: set when it becomes done (unless given), kept while done, else cleared
+      g.done_at = followDone(g.status, done_at !== undefined ? done_at : g.done_at);
       out = presenter(u)(g);
     });
     return out;
@@ -1037,6 +1194,9 @@ export class DemoBackend implements Backend {
   }
   async savePushSubscription() {}
   async deletePushSubscription() {}
+  async ownsPushSubscription() {
+    return false;
+  }
   async sendTestPush() {
     return 0;
   }
@@ -1107,6 +1267,46 @@ export class DemoBackend implements Backend {
     }
   }
 
+  /**
+   * The demo coach and the Bucket List, like the real coach's rules: the answer to «Wie war es?» is kept
+   * as the dream's memory (update_goal memory), a dream that came true is ticked off (status done) and
+   * asked about once, a life wish goes on the list without asking (create_goal kind dream). Null when the
+   * message is about none of these.
+   */
+  private async demoDreamTurn(req: CoachRequest, history: ChatMessage[], onEvent: (e: CoachEvent) => void): Promise<{ note: string; reply: string } | null> {
+    const text = req.message!;
+    const dreams = this.user().goals.filter((g) => g.kind === "dream");
+    // just fulfilled (the last two days), no memory yet: the one «Wie war es?» was about, or the one in view
+    const recent = dreams
+      .filter((d) => d.status === "done" && !d.memory && d.done_at && Date.now() - Date.parse(d.done_at) < 2 * 86400_000)
+      .sort((a, b) => (b.done_at ?? "").localeCompare(a.done_at ?? ""));
+    const lastReply = [...history].reverse().find((m) => m.role === "assistant")?.content ?? "";
+    const inView = req.context.view ? recent.find((d) => req.context.view!.includes(d.title)) : undefined;
+    const asked = /Wie war es\?\s*$/.test(lastReply) ? recent[0] : undefined;
+    const target = inView ?? asked;
+    if (target && !/\?\s*$/.test(text) && !recogniseDemoFulfilled(text, dreams.filter((d) => d.id !== target.id))) {
+      const saved = await this.updateGoal(target.id, { memory: demoMemory(text) });
+      onEvent({ type: "goal_saved", goal: saved });
+      return { note: "", reply: `Danke, das bewahre ich bei „${saved.title}“ auf.` };
+    }
+    const fulfilled = recogniseDemoFulfilled(text, dreams);
+    if (fulfilled) {
+      if (fulfilled.status !== "done") {
+        const saved = await this.updateGoal(fulfilled.id, { status: "done" });
+        onEvent({ type: "goal_saved", goal: saved, fulfilled: true });
+      }
+      if (fulfilled.memory) return { note: "", reply: `Wie schön. „${fulfilled.title}“ bleibt eine schöne Erinnerung auf deiner Bucket List.` };
+      return { note: `Wie schön, „${fulfilled.title}“ hat sich erfüllt. `, reply: "Wie war es?" };
+    }
+    const wish = parseDemoDream(text);
+    if (!wish) return null;
+    const known = dreams.find((d) => d.title.toLowerCase() === wish.title.toLowerCase() && d.status !== "dropped");
+    if (known) return { note: `„${known.title}“ steht schon auf deiner Bucket List. `, reply: "Magst du einen ersten Schritt dazu planen?" };
+    const dream = await this.addGoal({ ...wish, kind: "dream" }, [], "coach");
+    onEvent({ type: "goal_saved", goal: dream, created: true });
+    return { note: `„${dream.title}“ steht jetzt auf deiner Bucket List. `, reply: "Was reizt dich daran am meisten?" };
+  }
+
   async coach(req: CoachRequest, onEvent: (e: CoachEvent) => void) {
     await sleep(500);
     const thread = req.thread;
@@ -1119,16 +1319,20 @@ export class DemoBackend implements Backend {
     let calendarNote = "";
     let habitNote = "";
     let timeNote = "";
+    // The Bucket List: the answer to "Wie war es?" becomes the dream's memory; a dream that came true
+    // is ticked off; a life wish goes on the list. Each of these is the whole turn.
+    const dreamTurn = req.message ? await this.demoDreamTurn(req, history, onEvent) : null;
+    if (dreamTurn) goalNote = dreamTurn.note;
     // the demo makes no effort estimate; the real coach does
-    const goalFound = req.message ? parseDemoGoal(req.message) : null;
+    const goalFound = req.message && !dreamTurn ? parseDemoGoal(req.message) : null;
     const goal = goalFound ? await this.addGoal(goalFound, [], "coach") : null;
     if (goal) {
       onEvent({ type: "goal_saved", goal, created: true });
       goalNote = `Schön, „${goal.title}“ ist jetzt dein Ziel. Du findest es bei deinen Zielen. `;
     }
     // "heute 1,5 Stunden trainiert": time for a goal (a report, so no appointment from it)
-    const spent = req.message && !goal ? recogniseDemoTime(req.message, await this.listGoals()) : null;
-    const parsed = req.message && !spent ? parseDemoEvent(req.message) : null;
+    const spent = req.message && !goal && !dreamTurn ? recogniseDemoTime(req.message, (await this.listGoals()).filter((g) => g.kind !== "dream")) : null;
+    const parsed = req.message && !spent && !dreamTurn ? parseDemoEvent(req.message) : null;
     if (parsed) {
       const ev = await this.addEvent(
         {
@@ -1145,9 +1349,9 @@ export class DemoBackend implements Backend {
         "coach",
       );
       onEvent({ type: "event_created", event: ev });
-      calendarNote = `Ich habe „${ev.title}“ in deinen Kalender „I am“ eingetragen. `;
+      calendarNote = `Ich habe „${ev.title}“ in deinen Kalender „Bucket List“ eingetragen. `;
     }
-    const habitsDone = req.message && !goal ? recogniseDemoHabits(req.message, this.user().habits) : [];
+    const habitsDone = req.message && !goal && !dreamTurn ? recogniseDemoHabits(req.message, this.user().habits) : [];
     for (const h of habitsDone) {
       await this.setHabitDone(h.id, req.context.day, true);
       onEvent({ type: "habit_logged", habit_id: h.id, title: h.title, day: req.context.day, done: true });
@@ -1215,6 +1419,8 @@ export class DemoBackend implements Backend {
           reply = `${greet}, ${name}.${this.nolioOwner ? ASK_CONNECTIONS : ASK_WHOOP}`;
           onEvent({ type: "request_connections" });
         }
+      } else if (dreamTurn) {
+        reply = dreamTurn.reply;
       } else if (goal) {
         reply = "Was wäre ein erster kleiner Schritt dahin?";
       } else if (/\b(tag|woche)\b.*\bplanen\b/i.test(req.message)) {

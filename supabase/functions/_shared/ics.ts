@@ -1,4 +1,4 @@
-// iCalendar (RFC 5545) writer for the "I am" calendar. Shared by the
+// iCalendar (RFC 5545) writer for the "Bucket List" calendar. Shared by the
 // calendar feed (Supabase function) and the app (demo download).
 
 export interface IcsEvent {
@@ -61,15 +61,16 @@ export function buildIcs(events: IcsEvent[], opts: { name?: string; timezone?: s
   const lines = [
     "BEGIN:VCALENDAR",
     "VERSION:2.0",
-    "PRODID:-//I am//Coach//DE",
+    "PRODID:-//Bucket List//Coach//DE",
     "CALSCALE:GREGORIAN",
     "METHOD:PUBLISH",
-    `X-WR-CALNAME:${escape(opts.name ?? "I am")}`,
+    `X-WR-CALNAME:${escape(opts.name ?? "Bucket List")}`,
     `X-WR-TIMEZONE:${tz}`,
     "REFRESH-INTERVAL;VALUE=DURATION:PT15M",
     "X-PUBLISHED-TTL:PT15M",
   ];
   for (const e of events) {
+    // UID domain "@i-am" stays as it was: changing it would duplicate every event in subscribed calendars.
     lines.push("BEGIN:VEVENT", `UID:${e.id}@i-am`, `DTSTAMP:${e.updated_at ? utcStamp(e.updated_at) : now}`, `SEQUENCE:${e.sequence ?? 0}`);
     if (e.all_day) {
       const d = dateIn(e.starts_at, tz);

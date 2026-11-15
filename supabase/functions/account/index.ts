@@ -1,8 +1,10 @@
 // Supabase Edge Function: your own account.
 //   POST {action:"export"} (login) → everything stored about you as JSON, read with your login (Row Level
-//                                    Security): profile, memories, conversations, days, calendar, goals,
-//                                    habits, push subscriptions, and from the connections: the connection
-//                                    rows (never tokens), WHOOP daily summaries and the Nolio data.
+//                                    Security): profile (with the birth year), memories, conversations, days,
+//                                    calendar, goals and the dreams of the Bucket List (kind, done_at, memory,
+//                                    reminded_at: every column, "*"), habits, push subscriptions, and from the
+//                                    connections: the connection rows (never tokens), WHOOP daily summaries
+//                                    and the Nolio data.
 //   POST {action:"delete"} (login) → first ends the WHOOP access at WHOOP (as far as possible), then deletes
 //                                    the account. All tables reference auth.users with ON DELETE CASCADE, so
 //                                    removing the auth user removes every row of the person.
@@ -22,7 +24,10 @@ const json = (data: unknown, status = 200) =>
 const PAGE = 1000; // PostgREST hands out at most this many rows per request
 const MAX_ROWS = 200_000;
 
-/** [table, columns, order]: what the export reads. Explicit columns where a table has server-only ones. */
+/**
+ * [table, columns, order]: what the export reads. Explicit columns where a table has server-only ones.
+ * goals and profiles stay "*", so new columns (the Bucket List's kind, done_at, memory, birth_year) are in.
+ */
 const TABLES: [string, string, string[]][] = [
   ["memories", "*", ["id"]],
   ["events", "*", ["id"]],

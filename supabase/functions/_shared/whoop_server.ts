@@ -1,7 +1,10 @@
 // WHOOP connection (API v2) for every member: OAuth, daily summaries (at most 14 days), webhooks.
 // Shared by three Edge Functions, each deployed with --no-verify-jwt (every caller is checked here):
 //   whoop           GET  ?action=status (login)         → connection, consent, last sync, the last 14 daily summaries
-//                   POST {action:"start"} (login)       → {url}: WHOOP's consent page (state valid 10 minutes)
+//                   POST {action:"start", return_to?} (login) → {url}: WHOOP's consent page (state valid
+//                                                         10 minutes); return_to, the app's own address, is kept
+//                                                         with the state only if it is exactly on the allowlist
+//                                                         (_shared/app_url.ts)
 //                   POST {action:"confirm", code} (login) → confirms the pending link of THIS person (CSRF fix),
 //                                                         starts the first 14 days and answers like ?action=status;
 //                                                         {ok:false, reason:"mismatch"|"expired"|"taken"} otherwise
@@ -11,16 +14,19 @@
 //                   POST {action:"disconnect"} (login)  → revoke at WHOOP, then delete tokens, days and connection
 //   whoop-callback  GET from WHOOP (?code&state | ?error&state) → keeps the new grant apart (whoop_pending,
 //                   never used for a sync) plus a single-use code (only its hash is stored, valid 10 minutes)
-//                   and sends the browser back: 302 <app>#du/verbindungen?whoop=confirm&code=…
+//                   and sends the browser back: 302 <app>#du/verbindungen?whoop=confirm&code=…, where <app>
+//                   is the state's return_to (else WHOOP_APP_URL, else https://mapius55.github.io/bucket-list/)
 //                   (whoop=error / whoop=denied / whoop=taken: that WHOOP account is another member's)
 //   whoop-webhook   POST from WHOOP, signed with the client secret → 204 at once, the changed day follows
 // Secrets: WHOOP_CLIENT_ID, WHOOP_CLIENT_SECRET, WHOOP_TOKEN_KEY (at least 32 characters; encrypts the
 // tokens before they reach the database), PUSH_CRON_SECRET (shared with the notifications job) or
 // WHOOP_CRON_SECRET. Optional: WHOOP_REDIRECT_URI (default <SUPABASE_URL>/functions/v1/whoop-callback),
-// WHOOP_APP_URL (default https://mapius55.github.io/App-ich/).
+// WHOOP_APP_URL (an extra allowed app address and the fallback; default https://mapius55.github.io/bucket-list/,
+// allowed always: …/App-ich/ and …/bucket-list/).
 // Logs carry route names and status codes only: no ids, tokens or health values.
 
 import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2.119.0";
+import { allowedReturnTo, appUrlAllowlist, DEFAULT_APP_URL, fallbackAppUrl } from "./app_url.ts";
 import {
   appReturnUrl,
   authorizeUrl,
@@ -77,7 +83,6 @@ const CORS = {
 const json = (data: unknown, status = 200) =>
   new Response(JSON.stringify(data), { status, headers: { ...CORS, "Content-Type": "application/json", "Cache-Control": "no-store" } });
 
-const DEFAULT_APP_URL = "https://mapius55.github.io/App-ich/";
 const PROVIDER = "whoop";
 const LEASE_SECONDS = 30; // refresh lock; the token request itself times out after 10 s
 const MANUAL_MIN_GAP_MS = 60_000; // "Jetzt holen" at most once a minute
@@ -89,7 +94,10 @@ interface Config {
   clientSecret: string;
   tokenKey: string;
   redirectUri: string;
+  /** where the callback goes when the state carries no return_to */
   appUrl: string;
+  /** the app addresses a return_to may name (exact match) */
+  appUrls: string[];
 }
 
 function config(): Config | null {
@@ -99,8 +107,8 @@ function config(): Config | null {
   if (!clientId || !clientSecret || tokenKey.length < 32) return null;
   const base = (Deno.env.get("SUPABASE_URL") ?? "").replace(/\/+$/, "");
   const redirectUri = (Deno.env.get("WHOOP_REDIRECT_URI") ?? "").trim() || `${base}/functions/v1/whoop-callback`;
-  const app = (Deno.env.get("WHOOP_APP_URL") ?? "").trim();
-  return { clientId, clientSecret, tokenKey, redirectUri, appUrl: /^https:\/\//.test(app) ? app : DEFAULT_APP_URL };
+  const app = Deno.env.get("WHOOP_APP_URL");
+  return { clientId, clientSecret, tokenKey, redirectUri, appUrl: fallbackAppUrl(app), appUrls: appUrlAllowlist(app) };
 }
 
 const admin = () =>
@@ -366,13 +374,15 @@ async function syncAll(sb: SupabaseClient, cfg: Config) {
 
 // ---------- routes for the app ----------
 
-async function start(sb: SupabaseClient, cfg: Config, userId: string) {
+async function start(sb: SupabaseClient, cfg: Config, userId: string, returnTo: unknown) {
   // one pending login per person; expired states of everyone go too
   await sb.from("whoop_oauth_states").delete().lt("created_at", new Date(Date.now() - STATE_TTL_MS).toISOString());
   await check(sb.from("whoop_oauth_states").delete().eq("user_id", userId));
+  // where the callback sends the browser back: only an exactly allowed app address, else the fallback
+  const return_to = allowedReturnTo(returnTo, cfg.appUrls);
   for (let i = 0; i < 5; i++) {
     const state = randomState();
-    const { error } = await sb.from("whoop_oauth_states").insert({ state, user_id: userId });
+    const { error } = await sb.from("whoop_oauth_states").insert({ state, user_id: userId, return_to });
     if (!error) return { url: authorizeUrl({ clientId: cfg.clientId, redirectUri: cfg.redirectUri, state }) };
     if ((error as { code?: string }).code !== "23505") throw error; // taken: draw again
   }
@@ -692,7 +702,7 @@ export async function handleApp(req: Request): Promise<Response> {
     if (!uid) return json({ error: "unauthorized" }, 401);
     if (body.action === "disconnect") return json(await disconnect(sb, cfg, uid));
     if (!cfg) return json({ ok: false, reason: "not_configured" });
-    if (body.action === "start") return json(await start(sb, cfg, uid));
+    if (body.action === "start") return json(await start(sb, cfg, uid, (body as { return_to?: unknown }).return_to));
     if (body.action === "confirm") return json(await confirm(sb, cfg, uid, (body as { code?: unknown }).code));
     if (body.action === "sync") return json(await syncNow(sb, cfg, uid));
     return json({ error: "unknown action" }, 400);
@@ -706,12 +716,14 @@ export async function handleApp(req: Request): Promise<Response> {
 
 export async function handleCallback(req: Request): Promise<Response> {
   const cfg = config();
+  // the app address the browser goes back to: the fallback until the state names its own (return_to)
+  let appUrl = cfg?.appUrl ?? DEFAULT_APP_URL;
   // never "connected" from here: the browser that comes back may not be the person who started (CSRF)
   const back = (result: "confirm" | "error" | "denied" | "taken", code?: string) =>
     new Response(null, {
       status: 302,
       headers: {
-        Location: appReturnUrl(cfg?.appUrl ?? DEFAULT_APP_URL, result, code),
+        Location: appReturnUrl(appUrl, result, code),
         "Cache-Control": "no-store",
         "Referrer-Policy": "no-referrer",
       },
@@ -726,9 +738,11 @@ export async function handleCallback(req: Request): Promise<Response> {
   try {
     const sb = admin();
     // single use: the state is deleted as it is read
-    const { data: claimed, error } = await sb.from("whoop_oauth_states").delete().eq("state", state).select("user_id, created_at");
+    const { data: claimed, error } = await sb.from("whoop_oauth_states").delete().eq("state", state).select("user_id, created_at, return_to");
     if (error) throw error;
-    const st = claimed?.[0] as { user_id: string; created_at: string } | undefined;
+    const st = claimed?.[0] as { user_id: string; created_at: string; return_to?: string | null } | undefined;
+    // checked again on the way out: the allowlist may have changed since "start"
+    appUrl = allowedReturnTo(st?.return_to, cfg.appUrls) ?? appUrl;
     if (params.get("error")) return back(params.get("error") === "access_denied" ? "denied" : "error"); // declined at WHOOP
     if (!st || Date.now() - Date.parse(st.created_at) > STATE_TTL_MS) return back("error");
     if (!code || code.length > 2000) return back("error");

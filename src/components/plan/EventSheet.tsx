@@ -8,6 +8,7 @@ import { ConfirmDelete as ConfirmInline } from "../../space/ConfirmDelete";
 import { SpaceContext, type CloseVia } from "../../space/state";
 import { Unfold, useUnfold, useUnfoldClose } from "../../space/Unfold";
 import { ConfirmDelete, Sheet } from "./Sheet";
+import { GoalLinkField, goalLinkView } from "./GoalLinkField";
 import { NolioEventForm } from "../../places/conn/NolioEventForm";
 
 // Reminders are minutes before the start. For all-day entries they count back
@@ -116,8 +117,7 @@ export function EventForm({ event, day, time, goals, variant, close, onChanged, 
   const options = [...(allDay ? ALL_DAY : TIMED)];
   if (!options.includes(reminder)) options.push(reminder);
 
-  // dropped goals stay hidden, unless this entry belongs to one (so it can be seen and unlinked)
-  const goalOptions = goals.filter((g) => g.status !== "dropped" || g.id === event?.goal_id);
+  const linked = goalId ? goals.find((g) => g.id === goalId) : undefined;
 
   // "Bis" at or before "Von" means after midnight, not an error
   const offset = end && start && endOffset === 0 && toMin(end) <= toMin(start) ? 1 : endOffset;
@@ -324,22 +324,10 @@ export function EventForm({ event, day, time, goals, variant, close, onChanged, 
         </select>
       </label>
 
-      {goalOptions.length > 0 && (
-        <label className="sheet-field">
-          <span>Gehört zu Ziel</span>
-          <select value={goalId} onChange={(e) => setGoalId(e.target.value)}>
-            <option value="">Kein Ziel</option>
-            {goalOptions.map((g) => (
-              <option key={g.id} value={g.id}>
-                {g.title}
-              </option>
-            ))}
-          </select>
-        </label>
-      )}
-      {detail && space && goalId && goals.some((g) => g.id === goalId) && (
-        <button type="button" className="uf-link" onClick={() => space.go("ziele", { highlight: goalId })}>
-          Ziel ansehen
+      <GoalLinkField goals={goals} current={event?.goal_id} value={goalId} onChange={setGoalId} />
+      {detail && space && linked && (
+        <button type="button" className="uf-link" onClick={() => space.go("ziele", { highlight: linked.id })}>
+          {goalLinkView(linked)}
         </button>
       )}
 

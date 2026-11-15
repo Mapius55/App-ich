@@ -58,7 +58,7 @@ export function HabitChips({ day }: { day: string }) {
           <Chip key={h.id} habit={h} day={day} done={h.done_days.includes(day)} />
         ))}
         {more > 0 && (
-          <button type="button" className="hc-chip hc-more" onClick={() => go("ziele")} aria-label={`${more} weitere Gewohnheiten bei den Zielen`}>
+          <button type="button" className="hc-chip hc-more" onClick={() => go("ziele")} aria-label={`${more} weitere Gewohnheiten auf der Bucket List`}>
             +{more}
           </button>
         )}

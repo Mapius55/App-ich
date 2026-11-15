@@ -346,3 +346,157 @@ export function yearMonths(year: number): { month: string; cells: { day: string;
     return { month, cells };
   });
 }
+
+// ---------- Bucket List: the year so far, life in weeks, the coach's reminders ----------
+
+/** a real calendar day "YYYY-MM-DD" (so "2026-02-30" is not one) */
+function isDay(day: string): boolean {
+  return DAY_RE.test(day) && fromUtc(toUtc(day)) === day;
+}
+
+export function isLeapYear(year: number): boolean {
+  return (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
+}
+
+export function daysInYear(year: number): number {
+  return isLeapYear(year) ? 366 : 365;
+}
+
+/** 0 = 1 January … 364 = 31 December (365 in a leap year) */
+export function dayOfYear(day: string): number {
+  return daysBetween(`${day.slice(0, 4)}-01-01`, day);
+}
+
+export interface YearProgress {
+  /** days of the year that have passed, today included */
+  passedDays: number;
+  totalDays: number;
+  /** days after today («Noch 46 Tage in 2026» on 15 November) */
+  leftDays: number;
+  /** passedDays / totalDays: 1 for a past year, 0 for a future one */
+  fraction: number;
+}
+
+/** How much of a calendar year has passed. Today counts as passed; on 31 December nothing is left. */
+export function yearProgress(year: number, today: string = dayOf()): YearProgress {
+  const totalDays = daysInYear(year);
+  const now = Number(today.slice(0, 4));
+  const passedDays = year < now ? totalDays : year > now || !isDay(today) ? 0 : dayOfYear(today) + 1;
+  return { passedDays, totalDays, leftDays: totalDays - passedDays, fraction: passedDays / totalDays };
+}
+
+/** «Leben»: 90 years (rows) of 52 weeks (columns). */
+export const LIFE_YEARS = 90;
+export const LIFE_WEEKS_PER_YEAR = 52;
+
+/**
+ * The column of a day in its year's row: week 0 starts on 1 January, every seven days the next one;
+ * the last day or two of the year (week «52», in a leap year also a 366th day) fold into column 51.
+ */
+export function lifeColumn(day: string): number {
+  return Math.min(LIFE_WEEKS_PER_YEAR - 1, Math.floor(dayOfYear(day) / 7));
+}
+
+/**
+ * The cell of a date in the life grid, or null when it lies outside the 90 years (or is no date).
+ * Rows are the calendar years from the birth year on (row k = birthYear + k). `date` may be a day
+ * "YYYY-MM-DD" or an ISO timestamp (its first ten characters are taken, e.g. a goal's done_at).
+ */
+export function weekCell(date: string | null | undefined, birthYear: number): { row: number; col: number } | null {
+  if (typeof date !== "string" || !Number.isInteger(birthYear)) return null;
+  const day = date.slice(0, 10);
+  if (!isDay(day)) return null;
+  const row = Number(day.slice(0, 4)) - birthYear;
+  if (row < 0 || row >= LIFE_YEARS) return null;
+  return { row, col: lifeColumn(day) };
+}
+
+export interface LifeWeeks {
+  /** 90 × 52 = 4680 */
+  total: number;
+  /** the weeks before the current one */
+  lived: number;
+  /** today's cell; -1 / -1 when today lies outside the grid (birth year in the future, or more than 89 years ago) */
+  currentRow: number;
+  currentCol: number;
+}
+
+/**
+ * Life in weeks. Before the birth year nothing is lived; after birthYear + 89 everything is
+ * (and there is no current cell). The current week itself is not counted as lived: it is «Woche lived + 1».
+ */
+export function lifeWeeks(birthYear: number, today: string = dayOf()): LifeWeeks {
+  const total = LIFE_YEARS * LIFE_WEEKS_PER_YEAR;
+  const cell = weekCell(today, birthYear);
+  if (cell) return { total, lived: cell.row * LIFE_WEEKS_PER_YEAR + cell.col, currentRow: cell.row, currentCol: cell.col };
+  const after = Number.isInteger(birthYear) && isDay(today) && Number(today.slice(0, 4)) >= birthYear + LIFE_YEARS;
+  return { total, lived: after ? total : 0, currentRow: -1, currentCol: -1 };
+}
+
+/** "4’680": the Swiss thousands separator for numbers people read (the right single quotation mark). */
+export function thousands(n: number): string {
+  return String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, "’");
+}
+
+export type DreamNudge = "lange" | "zeitpunkt";
+
+/** «guter Zeitpunkt»: the target date lies at most this many days ahead (8 weeks) … */
+export const NUDGE_SOON_DAYS = 56;
+/** … and the coach has not brought it up in the last 14 days */
+export const NUDGE_SOON_QUIET_DAYS = 14;
+/** «liegt lange»: no update, no logged time and no block for at least 60 days … */
+export const NUDGE_LONG_DAYS = 60;
+/** … and not brought up in the last 30 days */
+export const NUDGE_LONG_QUIET_DAYS = 30;
+
+export interface NudgeGoal {
+  kind?: string | null;
+  status: string;
+  target_date: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+  reminded_at?: string | null;
+}
+
+export interface NudgeActivity {
+  /** the newest day time was logged for the dream, null = never */
+  lastTimeDay?: string | null;
+  /** the newest day of a calendar block for it, a planned one in the future too, null = none */
+  lastBlockDay?: string | null;
+  /** the newest day one of its milestones was added, changed or done, null = none */
+  lastStepDay?: string | null;
+  /** an ISO timestamp → the person's local day; default its date as written (UTC from the database) */
+  dayOfIso?: (iso: string) => string;
+}
+
+/**
+ * The coach's reminder candidates (they go into its context, it mentions at most one per conversation):
+ * "zeitpunkt" for an active dream with a target date in the next 8 weeks, not brought up in the last
+ * 14 days; "lange" for an active dream with no update, logged time or block for 60 days or more, not
+ * brought up in the last 30 days; otherwise null (goals, paused, fulfilled or dropped dreams too).
+ * "In the last n days" means fewer than n days ago: reminded exactly 14 days ago may be mentioned again.
+ */
+export function dreamNudge(goal: NudgeGoal, today: string = dayOf(), ctx: NudgeActivity = {}): DreamNudge | null {
+  if (goal.kind !== "dream" || goal.status !== "active" || !isDay(today)) return null;
+  const local = (iso: string | null | undefined): string | null => {
+    if (typeof iso !== "string" || !iso) return null;
+    let d: string;
+    try {
+      d = iso.length > 10 && ctx.dayOfIso ? ctx.dayOfIso(iso) : iso.slice(0, 10);
+    } catch {
+      d = iso.slice(0, 10);
+    }
+    return isDay(d) ? d : null;
+  };
+  const reminded = local(goal.reminded_at);
+  const quiet = (days: number) => reminded === null || daysBetween(reminded, today) >= days;
+  if (goal.target_date && isDay(goal.target_date)) {
+    const ahead = daysBetween(today, goal.target_date);
+    if (ahead >= 0 && ahead <= NUDGE_SOON_DAYS && quiet(NUDGE_SOON_QUIET_DAYS)) return "zeitpunkt";
+  }
+  const seen = [goal.updated_at, goal.created_at, ctx.lastTimeDay, ctx.lastBlockDay, ctx.lastStepDay].map(local).filter((d): d is string => d !== null);
+  if (!seen.length) return null;
+  const last = seen.reduce((a, b) => (b > a ? b : a));
+  if (daysBetween(last, today) >= NUDGE_LONG_DAYS && quiet(NUDGE_LONG_QUIET_DAYS)) return "lange";
+  return null;
+}
