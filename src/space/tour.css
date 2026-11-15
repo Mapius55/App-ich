@@ -1,1 +1,10 @@
 /* The short tour (owned by Builder C). Scope every rule under .space / .tour-caption. */
+
+/* stub styles (phase 0), replace freely */
+.space .tour-block { display: flex; flex-direction: column; align-items: center; gap: 12px; margin-top: 24px; }
+.space .tour-row { display: flex; gap: 10px; }
+.tour-caption {
+  position: fixed; z-index: 7; left: 0; right: 0;
+  bottom: calc(var(--dock-bottom) + var(--mic) + 64px);
+  display: flex; justify-content: center; align-items: center; gap: 10px;
+}
