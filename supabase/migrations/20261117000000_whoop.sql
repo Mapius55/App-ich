@@ -9,7 +9,13 @@
 -- - tokens only in a service-role table (RLS on, no policies), sealed with AES-256-GCM in the function
 --   (secret WHOOP_TOKEN_KEY, never stored in the database) on top of Supabase's encryption at rest;
 -- - WHOOP data reaches the coach only with consent_ai = true, and then only as a short summary line;
--- - disconnecting revokes the access at WHOOP and deletes all WHOOP rows of the person.
+-- - disconnecting revokes the access at WHOOP and deletes all WHOOP rows of the person (deleting the
+--   account does the same first, in the function "account").
+-- Linking is confirmed in the app (CSRF fix): the OAuth callback cannot tell who is in the browser, so it
+-- keeps the tokens as a PENDING link plus a single-use code (only its SHA-256 is stored, valid 10 minutes)
+-- and sends the browser back to the app; the app confirms the code with the person's login, and only
+-- her own pending link becomes connected. Unconfirmed links are removed (and revoked) by the
+-- reconciliation run, at the latest by the daily purge.
 -- WHOOP workouts never become goal time (training hours come from Nolio): whoop_days keeps only a
 -- daily workout count and minutes.
 
@@ -17,13 +23,15 @@
 create table public.connections (
   user_id uuid not null references auth.users (id) on delete cascade,
   provider text not null check (provider in ('whoop')),
-  status text not null default 'connected' check (status in ('connected', 'needs_reconnect')),
-  external_user_id text check (external_user_id is null or external_user_id ~ '^[0-9]{1,20}$'), -- WHOOP user id
+  -- pending: back from WHOOP, not yet confirmed in the app (nothing is synced, webhooks don't match it)
+  status text not null default 'pending' check (status in ('pending', 'connected', 'needs_reconnect')),
+  external_user_id text check (external_user_id is null or external_user_id ~ '^[0-9]{1,20}$'), -- WHOOP user id, set when confirmed
   consent_ai boolean not null default false,       -- "Coach darf WHOOP-Daten sehen": off until the person turns it on
   consent_ai_changed_at timestamptz,               -- set by the trigger below
   connected_at timestamptz not null default now(),
   last_sync_at timestamptz,
   last_error text check (last_error is null or length(last_error) <= 300), -- German message for the app
+  manual_sync_at timestamptz,                      -- last "Jetzt holen" (at most once a minute, claimed atomically)
   updated_at timestamptz not null default now(),
   primary key (user_id, provider)
 );
@@ -80,10 +88,18 @@ create table public.whoop_tokens (
   scope text check (scope is null or length(scope) <= 500),
   refresh_lock uuid,                -- single-flight refresh: who is refreshing right now …
   refresh_lock_until timestamptz,   -- … and until when the lease holds
+  -- link confirmation: the WHOOP user id waiting for the app's confirmation, the SHA-256 (base64url) of
+  -- the single-use code and until when it is valid. After the confirmation the hash stays only as a
+  -- marker (a repeated request of the same person answers the status); a new link replaces it.
+  pending_external_user_id text check (pending_external_user_id is null or pending_external_user_id ~ '^[0-9]{1,20}$'),
+  confirm_hash text check (confirm_hash is null or confirm_hash ~ '^[A-Za-z0-9_-]{43}$'),
+  confirm_until timestamptz,
   updated_at timestamptz not null default now(),
   -- no tokens without a connection; deleting the connection (disconnect) deletes them
   foreign key (user_id, provider) references public.connections (user_id, provider) on delete cascade
 );
+create unique index whoop_tokens_confirm_idx on public.whoop_tokens (confirm_hash) where confirm_hash is not null;
+create index whoop_tokens_pending_idx on public.whoop_tokens (pending_external_user_id) where pending_external_user_id is not null;
 alter table public.whoop_tokens enable row level security;
 revoke all on public.whoop_tokens from anon, authenticated;
 
@@ -92,8 +108,11 @@ revoke all on public.whoop_tokens from anon, authenticated;
 -- the sealed refresh token handed out in the same step. The holder then calls WHOOP and writes the new
 -- access + refresh token in ONE update that also clears the lease (whoop_server.ts); everyone else
 -- ('busy') waits for that result instead of spending the old refresh token a second time.
+-- The claim also hands out the access token stored at that moment (and its expiry): if another worker
+-- refreshed between the caller's read and this claim, the caller uses that new token and releases the
+-- lease instead of refreshing once more.
 create function public.whoop_claim_refresh(p_user uuid, p_lease_seconds integer default 30)
-returns table (state text, lock_id uuid, sealed_refresh text)
+returns table (state text, lock_id uuid, sealed_refresh text, sealed_access text, access_expires_at timestamptz)
 language plpgsql set search_path = '' as $$
 declare
   r public.whoop_tokens%rowtype;
@@ -101,22 +120,22 @@ declare
 begin
   select * into r from public.whoop_tokens t where t.user_id = p_user for update;
   if not found then
-    return query select 'missing'::text, null::uuid, null::text;
+    return query select 'missing'::text, null::uuid, null::text, null::text, null::timestamptz;
     return;
   end if;
   if r.refresh_token is null then
-    return query select 'no_refresh'::text, null::uuid, null::text;
+    return query select 'no_refresh'::text, null::uuid, null::text, null::text, null::timestamptz;
     return;
   end if;
   if r.refresh_lock_until is not null and r.refresh_lock_until > now() then
-    return query select 'busy'::text, null::uuid, null::text;
+    return query select 'busy'::text, null::uuid, null::text, null::text, null::timestamptz;
     return;
   end if;
   update public.whoop_tokens t
     set refresh_lock = v_lock,
         refresh_lock_until = now() + make_interval(secs => greatest(5, least(coalesce(p_lease_seconds, 30), 120)))
     where t.user_id = p_user;
-  return query select 'claimed'::text, v_lock, r.refresh_token;
+  return query select 'claimed'::text, v_lock, r.refresh_token, r.access_token, r.expires_at;
 end;
 $$;
 revoke execute on function public.whoop_claim_refresh(uuid, integer) from public, anon, authenticated;
@@ -173,11 +192,13 @@ revoke all on public.whoop_webhook_seen from anon, authenticated;
 
 -- ---------- daily purge ----------
 -- Summaries older than 14 days (today and the 13 days before stay), trace ids older than 2 days,
--- OAuth states older than 10 minutes.
+-- OAuth states older than 10 minutes, and links never confirmed in the app (their tokens go with them;
+-- the reconciliation run normally removes them sooner and revokes them at WHOOP first).
 create function public.whoop_purge() returns void language sql set search_path = '' as $$
   delete from public.whoop_days where day < current_date - 13;
   delete from public.whoop_webhook_seen where seen_at < now() - interval '2 days';
   delete from public.whoop_oauth_states where created_at < now() - interval '10 minutes';
+  delete from public.connections where provider = 'whoop' and status = 'pending' and updated_at < now() - interval '1 day';
 $$;
 revoke execute on function public.whoop_purge() from public, anon, authenticated;
 
@@ -188,11 +209,9 @@ revoke execute on function public.whoop_purge() from public, anon, authenticated
 --    with the x-cron-secret header. Project URL and secret (PUSH_CRON_SECRET) are taken from 'i-am-push',
 --    so no secret is written into this file. Without that job the reconciliation is not scheduled here
 --    (see the deploy notes: schedule it by hand with a WHOOP_CRON_SECRET).
-do $cron$
-declare
-  push_cmd text;
-  base_url text;
-  secret text;
+-- Fail-safe: whatever goes wrong here (no pg_cron, no 'i-am-push', no rights on the cron schema) only
+-- raises a notice; the tables above stay. Schedule by hand then (deploy notes).
+do $purge$
 begin
   if not exists (select 1 from pg_extension where extname = 'pg_cron') then
     raise notice 'WHOOP: pg_cron fehlt, keine Zeitpläne eingerichtet (Löschung: select public.whoop_purge() täglich von Hand planen)';
@@ -200,9 +219,20 @@ begin
   end if;
   execute $q$select cron.unschedule('i-am-whoop-purge') where exists (select 1 from cron.job where jobname = 'i-am-whoop-purge')$q$;
   execute $q$select cron.schedule('i-am-whoop-purge', '7 2 * * *', 'select public.whoop_purge()')$q$;
+exception when others then
+  raise notice 'WHOOP: Löschung nicht geplant (%): select public.whoop_purge() täglich von Hand planen', sqlerrm;
+end
+$purge$;
 
-  if not exists (select 1 from pg_extension where extname = 'pg_net') then
-    raise notice 'WHOOP: pg_net fehlt, kein Abgleich-Zeitplan eingerichtet';
+do $cron$
+declare
+  push_cmd text;
+  base_url text;
+  secret text;
+begin
+  if not exists (select 1 from pg_extension where extname = 'pg_cron')
+     or not exists (select 1 from pg_extension where extname = 'pg_net') then
+    raise notice 'WHOOP: pg_cron/pg_net fehlen, kein Abgleich-Zeitplan eingerichtet';
     return;
   end if;
   execute $q$select command from cron.job where jobname = 'i-am-push' limit 1$q$ into push_cmd;
@@ -226,5 +256,7 @@ begin
       jsonb_build_object('Content-Type', 'application/json', 'x-cron-secret', secret)::text
     )
   );
+exception when others then
+  raise notice 'WHOOP: Abgleich-Zeitplan nicht eingerichtet (%): bitte von Hand planen', sqlerrm;
 end
 $cron$;

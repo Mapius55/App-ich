@@ -225,12 +225,11 @@ describe("mapToGoal", () => {
     expect(mapToGoal(keys(RUN), "2026-11-10", goals)).toBeNull();
   });
 
-  it("without any sports set: the single goal with an effort estimate takes every training", () => {
+  it("without sports chosen, a training counts toward no goal (no guessing, not even with one big goal)", () => {
     const one = [goal({ id: "ironman", effort_hours: 400 }), goal({ id: "buch" })];
-    expect(mapToGoal(keys(ROW), "2026-11-10", one)).toBe("ironman");
-    const two = [goal({ id: "a", effort_hours: 400 }), goal({ id: "b", effort_hours: 60 })];
-    expect(mapToGoal(keys(ROW), "2026-11-10", two)).toBeNull();
-    expect(mapToGoal(keys(ROW), "2026-11-10", [goal({ id: "z", effort_hours: 0 })])).toBeNull();
+    expect(mapToGoal(keys(ROW), "2026-11-10", one)).toBeNull();
+    expect(mapToGoal(keys(RUN), "2026-11-10", [goal({ id: "solo", effort_hours: 60 })])).toBeNull();
+    expect(mapToGoal(keys(ROW), "2026-11-10", [goal({ id: "empty", effort_hours: 400, sports: [] })])).toBeNull();
     expect(mapToGoal(keys(ROW), "2026-11-10", [])).toBeNull();
   });
 
@@ -543,9 +542,33 @@ describe("errors and helpers", () => {
     expect(deviceAttribution("garmin", null)).toBe("Garmin");
     expect(deviceAttribution("coros", "pace_3")).toBeNull();
   });
-  it("hands the coach only unrestricted trainings", () => {
-    const rows = [parseRealEvent(garminRun, { tz: TZ, sports })!, parseRealEvent(stravaRide, { tz: TZ, sports })!, { ...parseRealEvent(garminRun, { tz: TZ, sports })!, source: "whoop" }];
-    expect(trainingsForCoach(rows).map((r) => r.id)).toEqual(["trn_9aK2xQ7bLm4Fw"]);
+  it("hands the coach only unrestricted trainings, Garmin with its attribution", () => {
+    const garmin = parseRealEvent(garminRun, { tz: TZ, sports })!;
+    const rows = [garmin, parseRealEvent(stravaRide, { tz: TZ, sports })!, { ...garmin, id: "trn_w", source: "whoop" }, { ...garmin, id: "trn_s", source: " Strava " }];
+    const out = trainingsForCoach(rows);
+    expect(out).toHaveLength(1);
+    expect(out[0]).toEqual({ day: garmin.day, sport: garmin.sport_name, minutes: garmin.minutes, distance_km: Math.round(garmin.distance_km! * 10) / 10, attribution: deviceAttribution("garmin", garmin.device_name) });
+    expect(out[0].attribution).toMatch(/^Garmin/);
+  });
+  it("gives the coach only duration and distance of Zepp and Huawei trainings", () => {
+    const base = parseRealEvent(garminRun, { tz: TZ, sports })!;
+    const zepp = { ...base, id: "trn_z", source: "zepp", device_name: "amazfit", raw_name: "Morgenlauf am See", load: 55, rpe: 6, feeling: 4 };
+    const huawei = { ...base, id: "trn_h", source: "HUAWEI", minutes: 30, distance_km: null };
+    const out = trainingsForCoach([zepp, huawei]);
+    expect(out).toEqual([
+      { day: base.day, sport: null, minutes: zepp.minutes, distance_km: Math.round(zepp.distance_km! * 10) / 10, attribution: null },
+      { day: base.day, sport: null, minutes: 30, distance_km: null, attribution: null },
+    ]);
+    // nothing else of the row survives: no name, load, RPE, feeling, device or sport
+    const text = JSON.stringify(out);
+    for (const hidden of ["Morgenlauf", "amazfit", "55", "rpe", "feeling", "load", base.sport_name ?? "Course"]) expect(text).not.toContain(hidden);
+  });
+  it("never passes a training's name, load, RPE or feeling, and skips empty or broken rows", () => {
+    const base = parseRealEvent(garminRun, { tz: TZ, sports })!;
+    const manual = { ...base, id: "trn_m", source: "manual", device_name: null, raw_name: "Geheim", load: 80, rpe: 9, feeling: 2 };
+    const out = trainingsForCoach([manual, { ...manual, id: "trn_x", day: "gestern" }, { ...manual, id: "trn_e", source: "zepp", minutes: null, distance_km: null }]);
+    expect(out).toEqual([{ day: base.day, sport: base.sport_name, minutes: base.minutes, distance_km: Math.round(base.distance_km! * 10) / 10, attribution: null }]);
+    expect(JSON.stringify(out)).not.toContain("Geheim");
   });
   it("compares secrets", () => {
     expect(safeEqual("abc", "abc")).toBe(true);

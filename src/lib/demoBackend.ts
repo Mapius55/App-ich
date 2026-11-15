@@ -384,8 +384,7 @@ const ONBOARDING: { q: (name: string) => string; category: MemoryCategory; asks?
 ];
 
 /** The checkin greeting asks once (space only, nothing connected): which apps and devices may I read? */
-const ASK_CONNECTIONS =
-  " Eine Frage noch: Nutzt du WHOOP, eine Polar- oder Garmin-Uhr oder Nolio? Wenn du magst, verbindest du sie links bei «Du» unter Verbindungen. Dann sehe ich Schlaf, Erholung und Trainings, und du musst kaum etwas selber eintragen.";
+const ASK_CONNECTIONS = " Magst du WHOOP oder Nolio verbinden? Dann trägst du kaum etwas selber ein.";
 
 // ---------- connections in the demo (WHOOP, Nolio) ----------
 
@@ -452,8 +451,9 @@ interface DemoPlanned {
   notes: string;
 }
 const DEMO_PLAN: DemoPlanned[] = [
-  { offset: 1, at: "18:00", minutes: 60, title: "Intervalle 6 × 800 m", sport: "spt_demorun", notes: "Geplant: 1:00 h · 10 km\n\nEinlaufen 15 Min, 6 × 800 m im 10-km-Tempo mit 2 Min Trabpause, Auslaufen 10 Min." },
-  { offset: 2, at: "07:00", minutes: 45, title: "Lockerer Dauerlauf", sport: "spt_demorun", notes: "Geplant: 45 min · 8 km\n\nGanz locker, du solltest dich unterhalten können." },
+  // tomorrow early, so the evening stays free (the day's largest gap)
+  { offset: 1, at: "07:00", minutes: 45, title: "Lockerer Dauerlauf", sport: "spt_demorun", notes: "Geplant: 45 min · 8 km\n\nGanz locker, du solltest dich unterhalten können." },
+  { offset: 2, at: "18:00", minutes: 60, title: "Intervalle 6 × 800 m", sport: "spt_demorun", notes: "Geplant: 1:00 h · 10 km\n\nEinlaufen 15 Min, 6 × 800 m im 10-km-Tempo mit 2 Min Trabpause, Auslaufen 10 Min." },
   { offset: 4, at: "17:30", minutes: 45, title: "Kraft und Stabi", sport: "spt_demostr", notes: "Geplant: 45 min\n\nRumpf, Hüfte, Waden. Drei Runden." },
   { offset: 6, at: "09:00", minutes: 105, title: "Langer Lauf", sport: "spt_demorun", notes: "Geplant: 1:45 h · 20 km\n\nGleichmässig, die letzten 3 km etwas zügiger." },
 ];
@@ -1099,8 +1099,10 @@ export class DemoBackend implements Backend {
 
   private async say(text: string, onEvent: (e: CoachEvent) => void) {
     const words = text.split(/(\s+)/);
-    for (const w of words) {
-      onEvent({ type: "text", text: w });
+    // word by word, but in at most ~24 steps: a long reply doesn't keep the demo waiting
+    const step = Math.max(1, Math.ceil(words.length / 24));
+    for (let i = 0; i < words.length; i += step) {
+      onEvent({ type: "text", text: words.slice(i, i + step).join("") });
       await sleep(28);
     }
   }

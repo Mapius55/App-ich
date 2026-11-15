@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import {
   agoLabel,
   average,
+  bodyValue,
   canSyncNow,
   connectionsValue,
   latest,
@@ -158,6 +159,18 @@ describe("row states", () => {
     expect(connectionsValue(status({ connected: true, status: "connected" }), nolio())).toBe("WHOOP · Nolio");
     expect(connectionsValue(status(), nolio({ available: false }))).toBeNull();
     expect(connectionsValue(null, nolio())).toBe("Nolio");
+  });
+  it("says what the body row shows: the latest recovery of today or yesterday", () => {
+    const today = "2026-11-15";
+    const day = (d: string, recovery: number | null) => ({ ...demoWhoopDay(d), recovery_score: recovery });
+    expect(bodyValue(undefined, today)).toBe("Noch nicht verbunden");
+    expect(bodyValue(null, today)).toBe("Noch nicht verbunden");
+    expect(bodyValue(status({ status: "pending" }), today)).toBe("Noch nicht verbunden");
+    const on = (days: WhoopDay[]) => status({ connected: true, status: "connected", days });
+    expect(bodyValue(on([day("2026-11-15", 81.6), day("2026-11-14", 40)]), today)).toBe("Erholung 82 %");
+    expect(bodyValue(on([day("2026-11-15", null), day("2026-11-14", 40)]), today)).toBe("Erholung 40 %");
+    expect(bodyValue(on([day("2026-11-12", 70)]), today)).toBe("WHOOP");
+    expect(bodyValue(on([]), today)).toBe("WHOOP");
   });
   it("gives a one-line reason for services that can't be connected", () => {
     expect(unavailableReason("strava")).toContain("KI-Coach");

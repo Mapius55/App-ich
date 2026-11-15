@@ -77,8 +77,8 @@ export function ConnChooser({ flow, onClose }: { flow: Flow; onClose(): void }) 
             </button>
           );
         })}
-        <button type="button" className="cx-chip later" onClick={onClose}>
-          {done ? "Fertig" : "Später"}
+        <button type="button" className={`cx-chip later${done ? " next" : ""}`} onClick={onClose}>
+          {done ? "Weiter" : "Später"}
         </button>
       </div>
 

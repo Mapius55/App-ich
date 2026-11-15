@@ -281,24 +281,16 @@ function goalCountsOn(g: GoalForMapping, day: string): boolean {
 }
 
 /**
- * The goal a training on `day` counts toward:
- * - active goals whose `sports` name its sport (id, name or slug, also of a parent sport); with
- *   several, the one whose target date comes first;
- * - if no active goal has sports set and exactly ONE active goal has an effort estimate, that one;
- * - otherwise none.
+ * The goal a training on `day` counts toward: an active goal whose `sports` name its sport (id, name
+ * or slug, also of a parent sport); with several, the one whose target date comes first. Otherwise
+ * none: a training counts only toward a goal the person chose its sports for ("Welche Trainings
+ * zählen?"), never by guessing (there is no fallback to a single goal).
  */
 export function mapToGoal(keys: SportKeys, day: string, goals: GoalForMapping[]): string | null {
-  const active = goals.filter((g) => g.status === "active");
-  const withSports = active.filter((g) => Array.isArray(g.sports) && g.sports.some((s) => typeof s === "string" && s.trim()));
-  if (withSports.length) {
-    const hits = withSports
-      .filter((g) => goalCountsOn(g, day) && namesSport(g.sports!, keys))
-      .sort((a, b) => (a.target_date ?? "9999-12-31").localeCompare(b.target_date ?? "9999-12-31") || a.id.localeCompare(b.id));
-    return hits[0]?.id ?? null;
-  }
-  const withEffort = active.filter((g) => isNum(g.effort_hours) && g.effort_hours > 0);
-  if (withEffort.length === 1 && goalCountsOn(withEffort[0], day)) return withEffort[0].id;
-  return null;
+  const hits = goals
+    .filter((g) => g.status === "active" && Array.isArray(g.sports) && goalCountsOn(g, day) && namesSport(g.sports, keys))
+    .sort((a, b) => (a.target_date ?? "9999-12-31").localeCompare(b.target_date ?? "9999-12-31") || a.id.localeCompare(b.id));
+  return hits[0]?.id ?? null;
 }
 
 // ---------- completed trainings ----------
@@ -677,10 +669,43 @@ export function deviceAttribution(source: string | null | undefined, device: str
   return model ? `Garmin ${model}` : "Garmin";
 }
 
+/** Connectors whose workouts may reach an AI model only as duration and distance (Nolio API terms A.5). */
+export const DURATION_ONLY_SOURCES: readonly string[] = ["zepp", "huawei"];
+
+/** A completed training as the coach (AI) may see it. */
+export interface CoachTraining {
+  day: string;
+  /** null where only duration and distance may be passed on (Zepp, Huawei) */
+  sport: string | null;
+  minutes: number | null;
+  distance_km: number | null;
+  /** "Garmin <model>" for Garmin data (required wherever it is shown), else null */
+  attribution: string | null;
+}
+
 /**
- * The only shape in which Nolio trainings may be given to the coach (AI): restricted rows
- * (Strava, WHOOP, Nolio `restriction`) are left out completely.
+ * The only shape in which Nolio trainings may be given to the coach (AI):
+ * - restricted rows (Strava, WHOOP, Nolio `restriction`) are left out completely;
+ * - Zepp and Huawei rows only as day, duration and distance (no sport, name, load, RPE or feeling);
+ * - Garmin rows carry their attribution ("Garmin <model>");
+ * - never the name, load, RPE or feeling of any training.
  */
-export function trainingsForCoach<T extends Pick<TrainingRow, "restricted" | "source">>(rows: T[]): T[] {
-  return rows.filter((r) => !r.restricted && !isRestricted({ source: r.source, restriction: null }));
+export function trainingsForCoach(
+  rows: Pick<TrainingRow, "day" | "sport_name" | "minutes" | "distance_km" | "source" | "device_name" | "restricted">[],
+): CoachTraining[] {
+  const out: CoachTraining[] = [];
+  for (const r of rows) {
+    if (!r || r.restricted || isRestricted({ source: r.source, restriction: null })) continue;
+    if (typeof r.day !== "string" || !DAY_RE.test(r.day)) continue;
+    const minutes = isNum(r.minutes) && r.minutes > 0 ? Math.round(r.minutes) : null;
+    const km = r.distance_km === null || r.distance_km === undefined ? null : Number(r.distance_km);
+    const distance_km = isNum(km) && km > 0 ? round(km, 1) : null;
+    const source = String(r.source ?? "").trim().toLowerCase();
+    if (DURATION_ONLY_SOURCES.includes(source)) {
+      if (minutes !== null || distance_km !== null) out.push({ day: r.day, sport: null, minutes, distance_km, attribution: null });
+      continue;
+    }
+    out.push({ day: r.day, sport: clean(r.sport_name, 60), minutes, distance_km, attribution: deviceAttribution(r.source, r.device_name) });
+  }
+  return out.sort((a, b) => a.day.localeCompare(b.day));
 }

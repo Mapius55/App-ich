@@ -88,9 +88,18 @@
 .space .lvl-next-chev { margin-left: 2px; letter-spacing: 0; }
 html[data-voice-active] .space .lvl-next,
 html[data-typed] .space .lvl-next { opacity: 0; visibility: hidden; }
-/* the typed field stands above the dock: Tag and Woche end above it (Tag re-fits its list) */
-html[data-typed] .space .lvl[data-level="1"] .lvl-inner,
-html[data-typed] .space .lvl[data-level="2"] .lvl-inner { padding-bottom: calc(var(--lvl-content-bottom) + 50px); }
+/* The typed field stands above the dock: Tag and Woche end above it (Tag re-fits its list).
+   The room is kept inside .tl (the swipe root), so a swipe there still pages through time. */
+html[data-typed] .space .lvl[data-level="1"] .tl,
+html[data-typed] .space .lvl[data-level="2"] .tl { padding-bottom: 50px; }
+/* The tour's caption (step 2) stands above the dock: Tag and Woche end above it, so the
+   habit chips stay visible and tappable, and a swipe across the caption still pages.
+   --tour-cap is measured by the caption (Tour.tsx), ahead from step 1 on, so Tag is
+   already fitted when the person arrives. */
+html[data-tour="1"] .space .lvl[data-level="1"] .tl,
+html[data-tour="2"] .space .lvl[data-level="1"] .tl,
+html[data-tour="2"] .space .lvl[data-level="2"] .tl { padding-bottom: max(0px, calc(var(--tour-cap, 18.5rem) + 8px - var(--lvl-content-bottom))); }
+html[data-tour="2"] .space .lvl-next { opacity: 0; visibility: hidden; }
 
 .space .tl .form-error { margin: 8px 0 0; }
 
@@ -418,8 +427,8 @@ html[data-typed] .space .lvl[data-level="2"] .lvl-inner { padding-bottom: calc(v
 .space .wk-rows.tight .wk-micro { flex: 0 1 auto; min-width: 0; max-width: 48%; overflow: hidden; text-overflow: ellipsis; }
 .space .wk-rows.tight .wk-wd,
 .space .wk-rows.tight .wk-num { line-height: 1; }
-.space .wk-rows.tight .wk-date { gap: 2px; }
-.space .wk-rows.tight .wk-row.today .wk-num { width: 30px; height: 30px; font-size: 1rem; }
+.space .wk-rows.tight .wk-date { gap: 1px; }
+.space .wk-rows.tight .wk-row.today .wk-num { width: 28px; height: 28px; font-size: 0.9375rem; }
 .space .wk-row.arrive { animation: wk-wash 150ms ease-out; }
 @keyframes wk-wash { from { background: color-mix(in srgb, var(--accent) 18%, transparent); } }
 

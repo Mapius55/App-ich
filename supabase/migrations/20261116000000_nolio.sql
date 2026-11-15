@@ -124,6 +124,7 @@ from public.goals g;
 -- POST with the x-cron-secret header. The project URL and the secret (PUSH_CRON_SECRET) are taken from
 -- that job, so no secret is written into this file. Without that job nothing is scheduled here
 -- (see the deploy notes: schedule it by hand with a NOLIO_CRON_SECRET).
+-- Fail-safe: a missing job, missing extension or missing rights on the cron schema only raise a notice.
 do $cron$
 declare
   push_cmd text;
@@ -156,5 +157,7 @@ begin
       jsonb_build_object('Content-Type', 'application/json', 'x-cron-secret', secret)::text
     )
   );
+exception when others then
+  raise notice 'Nolio: Zeitplan nicht eingerichtet (%): bitte von Hand planen', sqlerrm;
 end
 $cron$;

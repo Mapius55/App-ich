@@ -3,7 +3,7 @@
 // on a side during step 3 a caption floats above the dock (TourCaption, rendered by
 // Space, always mounted, so it also moves the tour on when the person does the thing).
 // The nudges (lift, ghost dot, ring, pill halos) are A's CSS on html[data-tour].
-import { useEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import { markTourSeen } from "./flags";
 import { useSpace, type TourStep } from "./state";
 
@@ -40,15 +40,16 @@ const ON_SIDE: Step = {
   sans: "Zurück geht’s mit dem kleinen Kreis oben oder mit einem Wisch zur Seite.",
 };
 
-function Copy({ step, n, reduced }: { step: Step; n: TourStep; reduced: boolean }) {
+/** `ghost`: the hidden measuring copy (no live region, its glyph under its own class) */
+function Copy({ step, n, reduced, ghost = false }: { step: Step; n: TourStep; reduced: boolean; ghost?: boolean }) {
   return (
     <>
       <span className="tour-pill">Kurz gezeigt · {n} von 4</span>
-      <div className="tour-text" aria-live="polite">
+      <div className="tour-text" aria-live={ghost ? undefined : "polite"}>
         <p className="tour-serif">{step.serif}</p>
         <p className="tour-sans">
           {reduced && step.glyph && (
-            <span className="tour-glyph" aria-hidden="true">
+            <span className={ghost ? "tour-glyph-ghost" : "tour-glyph"} aria-hidden="true">
               {step.glyph}
             </span>
           )}
@@ -121,12 +122,61 @@ export function TourCaption() {
 
   const onTag = tour === 2 && place === "jetzt" && level >= 1;
   const onSide = tour === 3 && place !== "jetzt";
+  const shown = !detail && (onTag || onSide);
+  // before step 2 shows, a hidden copy of its caption measures it ahead (below)
+  const ghost = !shown && (tour === 1 || tour === 2);
   useStepFocus(onTag ? primary : skip, `${tour}-${place}-${onTag || onSide}`);
-  if (detail || !(onTag || onSide)) return null;
+
+  // The caption takes the bottom of the screen: it reports how far up it reaches
+  // (--tour-cap), so Tag and Woche fit their content above it and a side can scroll its
+  // last row clear (tour.css / time.css). Measured ahead from step 1 on, Tag is already
+  // fitted when the person arrives there.
+  const innerRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const el = innerRef.current;
+    if (!el) return;
+    const root = document.documentElement;
+    const write = () => root.style.setProperty("--tour-cap", `${Math.ceil(window.innerHeight - el.getBoundingClientRect().top)}px`);
+    write();
+    const ro = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(write);
+    ro?.observe(el);
+    window.addEventListener("resize", write);
+    return () => {
+      ro?.disconnect();
+      window.removeEventListener("resize", write);
+    };
+  }, [shown, ghost, onTag]);
+  useEffect(() => {
+    if (tour === null) document.documentElement.style.removeProperty("--tour-cap");
+  }, [tour]);
+  useEffect(
+    () => () => {
+      document.documentElement.style.removeProperty("--tour-cap");
+    },
+    [],
+  );
+
+  if (ghost)
+    return (
+      <div key="ghost" className="tour-caption" data-ghost="" aria-hidden="true" inert>
+        <div ref={innerRef} className="tour-caption-inner">
+          <Copy step={STEPS[2]} n={2} reduced={reduced} ghost />
+          <div className="tour-row">
+            <button type="button" className="tour-skip" tabIndex={-1}>
+              Überspringen
+            </button>
+            <button type="button" className="tour-go" tabIndex={-1}>
+              Zurück zum Kreis
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  if (!shown) return null;
   const step = onTag ? STEPS[2] : ON_SIDE;
   return (
-    <div className="tour-caption" role="region" aria-label="Kurze Einführung" data-step={tour}>
-      <div className="tour-caption-inner">
+    <div key="shown" className="tour-caption" role="region" aria-label="Kurze Einführung" data-step={tour}>
+      <div ref={innerRef} className="tour-caption-inner">
         <Copy step={step} n={tour} reduced={reduced} />
         <div className="tour-row">
           <button ref={skip} type="button" className="tour-skip" onClick={() => end(setTour)}>

@@ -2,20 +2,26 @@ import { describe, expect, it } from "vitest";
 import nodeCrypto from "node:crypto";
 import {
   addDays,
+  appReturnUrl,
   asleepMinutes,
   authorizeUrl,
   bounded,
+  CONFIRM_CODE_RE,
+  confirmOutcome,
   dayAt,
   dayWindow,
   extractUserId,
+  hashConfirmCode,
   hoursMinutes,
   keepFrom,
   needsReconnect,
+  openStoredToken,
   openToken,
   parseOffset,
   parseRetryAfter,
   parseTokenResponse,
   parseWebhookEvent,
+  randomConfirmCode,
   randomState,
   recordDay,
   type RefreshClaim,
@@ -529,6 +535,102 @@ describe("single-flight refresh", () => {
     const base = setup(new Date(Date.now() - 1000).toISOString()).store;
     expect(needsReconnect(await validAccessToken({ ...base, claim: async () => ({ state: "no_refresh" }) }).catch((e) => e))).toBe(true);
     expect(needsReconnect(await validAccessToken({ ...base, read: async () => null }).catch((e) => e))).toBe(true);
+  });
+  it("re-checks the stored token after the claim: another worker's fresh token is used, not refreshed again", async () => {
+    // worker A read the expired token; worker B refreshed and released the lock before A claimed
+    const { db, store, exchanges } = setup(new Date(Date.now() - 1000).toISOString());
+    const later = new Date(Date.now() + 3600_000).toISOString();
+    const claim = async (): Promise<RefreshClaim> => {
+      db.access = "access-from-b"; // B's save landed between A's read and A's claim
+      db.expiresAt = later;
+      db.lock = "lock-a";
+      return { state: "claimed", lock: "lock-a", refresh: db.refresh, current: { access: db.access, expiresAt: db.expiresAt } };
+    };
+    expect(await validAccessToken({ ...store, claim })).toBe("access-from-b");
+    expect(exchanges).toEqual([]); // no second rotation
+    expect(db.lock).toBeNull(); // the lease was released
+  });
+  it("still refreshes when the stored token is the same old one, or the new one is about to run out", async () => {
+    const { db, store, exchanges } = setup(new Date(Date.now() - 1000).toISOString());
+    const same = async (): Promise<RefreshClaim> => {
+      db.lock = "l1";
+      return { state: "claimed", lock: "l1", refresh: db.refresh, current: { access: db.access, expiresAt: db.expiresAt } };
+    };
+    expect(await validAccessToken({ ...store, claim: same })).toBe("access-1");
+    expect(exchanges).toEqual(["r0"]);
+    // a forced refresh after a 401: a token that changed but expires within the skew is not trusted
+    const soon = async (): Promise<RefreshClaim> => {
+      db.lock = "l2";
+      return { state: "claimed", lock: "l2", refresh: db.refresh, current: { access: "other", expiresAt: new Date(Date.now() + 10_000).toISOString() } };
+    };
+    expect(await validAccessToken({ ...store, claim: soon }, { force: true })).toBe("access-2");
+  });
+  it("a token sealed with another key needs a reconnect instead of failing on every sync", async () => {
+    const sealed = await sealToken("access-1", "the-old-key-the-old-key-the-old-key", "u:access");
+    const err = await openStoredToken(sealed, "the-new-key-the-new-key-the-new-key", "u:access").catch((e) => e);
+    expect(err).toBeInstanceOf(WhoopError);
+    expect(err).toMatchObject({ status: 401, code: "token_unreadable" });
+    expect(needsReconnect(err)).toBe(true);
+    expect(whoopErrorMessage(err)).toBe("Die Verbindung zu WHOOP muss neu eingerichtet werden. Bitte verbinde WHOOP neu.");
+    expect(await openStoredToken(sealed, "the-old-key-the-old-key-the-old-key", "u:access")).toBe("access-1");
+    await expect(openStoredToken("garbage", "k".repeat(40), "u:access")).rejects.toMatchObject({ code: "token_unreadable" });
+  });
+});
+
+// ---------- link confirmation (CSRF fix) ----------
+
+describe("link confirmation", () => {
+  it("draws a 43-character URL-safe code from 32 random bytes", () => {
+    const code = randomConfirmCode();
+    expect(code).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(CONFIRM_CODE_RE.test(code)).toBe(true);
+    expect(randomConfirmCode()).not.toBe(code);
+    expect(randomConfirmCode(() => new Uint8Array(32).fill(255))).toBe("_".repeat(42) + "8");
+    expect(() => randomConfirmCode(() => new Uint8Array(8))).toThrow();
+  });
+  it("stores only a hash of the code (SHA-256, base64url)", async () => {
+    expect(await hashConfirmCode("abc")).toBe("ungWv48Bz-pBQUDeXa4iI7ADYaOWF3qctBD_YfIAFa0");
+    const code = randomConfirmCode();
+    const hash = await hashConfirmCode(code);
+    expect(hash).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(hash).not.toBe(code);
+    expect(await hashConfirmCode(code)).toBe(hash);
+  });
+  it("accepts 32 to 512 URL-safe characters like the app", () => {
+    expect(CONFIRM_CODE_RE.test("a".repeat(31))).toBe(false);
+    expect(CONFIRM_CODE_RE.test("a".repeat(512))).toBe(true);
+    expect(CONFIRM_CODE_RE.test("a".repeat(513))).toBe(false);
+    expect(CONFIRM_CODE_RE.test("a".repeat(40) + "=")).toBe(false);
+  });
+  it("sends the browser back to the app with the code, never with 'connected'", () => {
+    const app = "https://mapius55.github.io/App-ich/";
+    expect(appReturnUrl(app, "confirm", "Ab-_9".repeat(9))).toBe(`${app}#du/verbindungen?whoop=confirm&code=${"Ab-_9".repeat(9)}`);
+    expect(appReturnUrl(app, "error")).toBe(`${app}#du/verbindungen?whoop=error`);
+    expect(appReturnUrl(app, "denied")).toBe(`${app}#du/verbindungen?whoop=denied`);
+    expect(appReturnUrl(app, "confirm")).toBe(`${app}#du/verbindungen?whoop=error`); // no code, no confirm
+    expect(appReturnUrl(`${app}#jetzt`, "error")).toBe(`${app}#du/verbindungen?whoop=error`);
+  });
+  it("connects only the caller's own pending link, in time", () => {
+    const now = Date.parse("2026-11-15T10:00:00Z");
+    const until = "2026-11-15T10:05:00Z";
+    const past = "2026-11-15T09:59:59Z";
+    expect(confirmOutcome({ user_id: "me", status: "pending", confirm_until: until }, "me", true, now)).toEqual({ outcome: "connect" });
+    expect(confirmOutcome({ user_id: "me", status: "pending", confirm_until: past }, "me", true, now)).toEqual({ outcome: "expired", remove: "me" });
+    expect(confirmOutcome({ user_id: "me", status: "pending", confirm_until: null }, "me", true, now)).toEqual({ outcome: "expired", remove: "me" });
+    // the same request twice (e.g. a reload): the status, no second sync
+    expect(confirmOutcome({ user_id: "me", status: "connected", confirm_until: until }, "me", false, now)).toEqual({ outcome: "already" });
+    expect(confirmOutcome({ user_id: "me", status: "connected", confirm_until: past }, "me", false, now)).toEqual({ outcome: "expired", remove: null });
+  });
+  it("a foreign code removes that other pending link; a confirmed link is never removed", () => {
+    const now = Date.parse("2026-11-15T10:00:00Z");
+    const until = "2026-11-15T10:05:00Z";
+    // the attack: someone else started the link, the victim's app sends the code
+    expect(confirmOutcome({ user_id: "attacker", status: "pending", confirm_until: until }, "victim", false, now)).toEqual({ outcome: "mismatch", remove: "attacker" });
+    expect(confirmOutcome({ user_id: "other", status: "connected", confirm_until: until }, "me", true, now)).toEqual({ outcome: "mismatch", remove: null });
+    // an unknown code removes the caller's own pending link (it can't be confirmed any more)
+    expect(confirmOutcome(null, "me", true, now)).toEqual({ outcome: "mismatch", remove: "me" });
+    expect(confirmOutcome(null, "me", false, now)).toEqual({ outcome: "mismatch", remove: null });
+    expect(confirmOutcome({ user_id: "me", status: "needs_reconnect", confirm_until: until }, "me", false, now)).toEqual({ outcome: "mismatch", remove: null });
   });
 });
 

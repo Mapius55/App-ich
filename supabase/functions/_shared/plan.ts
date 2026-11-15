@@ -198,17 +198,23 @@ export interface GoalEffort {
   done: number;
   /** hours left, null without an estimate */
   remaining: number | null;
-  /** weeks until the target date (at least a fraction of a week), null without a date or when it has passed */
+  /** weeks to work on it: today up to the day before the target date (at least one day), null without a date or when it has passed */
   weeksLeft: number | null;
   /** hours per week needed to make it by the target date */
   neededPerWeek: number | null;
+  /** hours per day needed, only when less than three weeks are left (else null) */
+  neededPerDay: number | null;
   /** hours per week she can invest */
   available: number | null;
   /** with her weekly time and no target date (or a passed one): weeks until done */
   weeksToFinish: number | null;
-  /** needed vs available: up to 100 % "machbar", up to 130 % "knapp", beyond "kaum machbar" */
+  /** needed vs available: up to 85 % "machbar" (a buffer for bad weeks), up to 110 % "knapp", beyond "kaum machbar" */
   feasibility: Feasibility | null;
 }
+
+/** needed / available up to this share is "machbar"; up to TIGHT_MAX "knapp"; beyond "kaum machbar" */
+export const FEASIBLE_MAX = 0.85;
+export const TIGHT_MAX = 1.1;
 
 const round1 = (n: number) => Math.round(n * 10) / 10;
 
@@ -217,17 +223,31 @@ export function goalEffort(g: GoalEffortInput, today: string = dayOf()): GoalEff
   const effort = g.effort_hours && g.effort_hours > 0 ? g.effort_hours : null;
   const remaining = effort === null ? null : round1(Math.max(0, effort - done));
   const days = g.target_date ? daysBetween(today, g.target_date) : null;
-  const weeksLeft = days !== null && days >= 0 ? Math.max(1 / 7, (days + 1) / 7) : null;
+  // the work happens from today up to the day before the target date (race or exam day itself doesn't count);
+  // on the target day itself, today is the last day left
+  const weeksLeft = days !== null && days >= 0 ? Math.max(1 / 7, days / 7) : null;
   const neededPerWeek = remaining !== null && weeksLeft !== null ? round1(remaining / weeksLeft) : null;
+  const neededPerDay = remaining !== null && weeksLeft !== null && weeksLeft < 3 ? round1(remaining / (weeksLeft * 7)) : null;
   const available = g.weekly_hours && g.weekly_hours > 0 ? g.weekly_hours : null;
   const weeksToFinish = remaining !== null && available !== null && weeksLeft === null ? Math.ceil(remaining / available) : null;
   let feasibility: Feasibility | null = null;
   if (remaining === 0) feasibility = "erreicht";
-  else if (neededPerWeek !== null && available !== null) {
-    const ratio = neededPerWeek / available;
-    feasibility = ratio <= 1 ? "machbar" : ratio <= 1.3 ? "knapp" : "kaum machbar";
+  else if (remaining !== null && weeksLeft !== null && available !== null) {
+    // unrounded, so the buffers don't move with the display rounding
+    const ratio = remaining / weeksLeft / available;
+    feasibility = ratio <= FEASIBLE_MAX ? "machbar" : ratio <= TIGHT_MAX ? "knapp" : "kaum machbar";
   }
-  return { effort, done, remaining, weeksLeft: weeksLeft === null ? null : round1(weeksLeft), neededPerWeek, available, weeksToFinish, feasibility };
+  return {
+    effort,
+    done,
+    remaining,
+    weeksLeft: weeksLeft === null ? null : round1(weeksLeft),
+    neededPerWeek,
+    neededPerDay,
+    available,
+    weeksToFinish,
+    feasibility,
+  };
 }
 
 /** 1234.5 → "1'235", 12.3 → "12.3", 4 → "4" (Swiss thousands separator) */
@@ -249,11 +269,13 @@ export function durationLabel(weeks: number): string {
 /**
  * Minutes that went into goals per local day: logged time, plus past planned blocks
  * for a goal that nobody answered yet (an answered block is already in the log).
+ * A planned Nolio training (source "nolio") never counts by itself: the completed training
+ * arrives as logged time from Nolio, so counting the plan too would count it twice.
  * `dayOfIso` turns an ISO start time into the person's local day.
  */
 export function dayMinutes(
   log: { day: string; minutes: number }[],
-  blocks: { id: string; starts_at: string; ends_at: string | null; all_day: boolean; kind: string; goal_id: string | null }[],
+  blocks: { id: string; starts_at: string; ends_at: string | null; all_day: boolean; kind: string; goal_id: string | null; source?: string | null }[],
   answered: Set<string>,
   now: Date,
   dayOfIso: (iso: string) => string,
@@ -261,7 +283,7 @@ export function dayMinutes(
   const out: Record<string, number> = {};
   for (const t of log) if (t.minutes > 0) out[t.day] = (out[t.day] ?? 0) + t.minutes;
   for (const b of blocks) {
-    if (b.kind !== "block" || !b.goal_id || b.all_day || !b.ends_at || answered.has(b.id)) continue;
+    if (b.kind !== "block" || !b.goal_id || b.all_day || !b.ends_at || answered.has(b.id) || b.source === "nolio") continue;
     const end = new Date(b.ends_at).getTime();
     if (end > now.getTime()) continue;
     const min = Math.min(1440, Math.max(0, Math.round((end - new Date(b.starts_at).getTime()) / 60000)));

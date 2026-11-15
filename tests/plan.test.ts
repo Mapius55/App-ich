@@ -114,14 +114,40 @@ describe("goal effort", () => {
     const e = goalEffort(base, "2026-11-14");
     expect(e.done).toBe(16);
     expect(e.remaining).toBe(104);
-    expect(e.weeksLeft).toBeCloseTo(23 / 7, 1);
-    expect(e.neededPerWeek).toBeCloseTo(104 / (23 / 7), 0);
-    expect(e.feasibility).toBe("kaum machbar"); // ~32 h/week needed, 6 available
+    // 22 days from today up to the day before the target date
+    expect(e.weeksLeft).toBe(3.1);
+    expect(e.neededPerWeek).toBe(33.1);
+    expect(e.neededPerDay).toBeNull(); // more than three weeks left
+    expect(e.feasibility).toBe("kaum machbar"); // ~33 h/week needed, 6 available
   });
   it("machbar, knapp, erreicht", () => {
-    expect(goalEffort({ ...base, effort_hours: 30 }, "2026-11-14").feasibility).toBe("machbar"); // 14 left over 3.3 weeks ≈ 4.3/week
-    expect(goalEffort({ ...base, effort_hours: 40 }, "2026-11-14").feasibility).toBe("knapp"); // ≈ 7.3/week vs 6
+    expect(goalEffort({ ...base, effort_hours: 30 }, "2026-11-14").feasibility).toBe("machbar"); // 14 left over 3.1 weeks ≈ 4.5/week (74 %)
+    expect(goalEffort({ ...base, effort_hours: 34 }, "2026-11-14").feasibility).toBe("knapp"); // ≈ 5.7/week vs 6 (95 %)
+    expect(goalEffort({ ...base, effort_hours: 40 }, "2026-11-14").feasibility).toBe("kaum machbar"); // ≈ 7.6/week vs 6 (127 %)
     expect(goalEffort({ ...base, effort_hours: 10 }, "2026-11-14")).toMatchObject({ remaining: 0, feasibility: "erreicht" });
+  });
+  it("keeps a buffer: up to 85 % machbar, up to 110 % knapp", () => {
+    // two weeks left (14 days before the target), 10 h per week
+    const two = { effort_hours: 0, weekly_hours: 10, prior_hours: 0, target_date: "2026-11-28", time: { logged_minutes: 0, block_minutes: 0 } };
+    expect(goalEffort({ ...two, effort_hours: 17 }, "2026-11-14").feasibility).toBe("machbar"); // 8.5 of 10 = 85 %
+    expect(goalEffort({ ...two, effort_hours: 17.2 }, "2026-11-14").feasibility).toBe("knapp");
+    expect(goalEffort({ ...two, effort_hours: 22 }, "2026-11-14").feasibility).toBe("knapp"); // 110 %
+    expect(goalEffort({ ...two, effort_hours: 22.2 }, "2026-11-14").feasibility).toBe("kaum machbar");
+    // the same need, 100 %, was "machbar" before the buffer
+    expect(goalEffort({ ...two, effort_hours: 20 }, "2026-11-14").feasibility).toBe("knapp");
+  });
+  it("counts the days up to the day before the target date, with hours per day under three weeks", () => {
+    // p07: 55 h for an exam in 11 days: 11 study days, so 35 h per week and 5 h per day (not 12 days)
+    const exam = goalEffort({ effort_hours: 55, weekly_hours: 30, prior_hours: 0, target_date: "2026-11-25", time: { logged_minutes: 0, block_minutes: 0 } }, "2026-11-14");
+    expect(exam.weeksLeft).toBe(1.6);
+    expect(exam.neededPerWeek).toBe(35);
+    expect(exam.neededPerDay).toBe(5);
+    expect(exam.feasibility).toBe("kaum machbar"); // 35 needed, 30 available: 117 %
+    // on the target day itself, today is the one day left; a passed date has no weeks
+    const today = goalEffort({ effort_hours: 3, weekly_hours: 7, prior_hours: 0, target_date: "2026-11-14", time: { logged_minutes: 0, block_minutes: 0 } }, "2026-11-14");
+    expect(today).toMatchObject({ neededPerWeek: 21, neededPerDay: 3, feasibility: "kaum machbar" });
+    const past = goalEffort({ effort_hours: 3, weekly_hours: 7, prior_hours: 0, target_date: "2026-11-10", time: { logged_minutes: 0, block_minutes: 0 } }, "2026-11-14");
+    expect(past).toMatchObject({ weeksLeft: null, neededPerWeek: null, neededPerDay: null, feasibility: null });
   });
   it("long goals without a date: how long it takes with her weekly time", () => {
     const olympia = goalEffort({ effort_hours: 10000, weekly_hours: 20, prior_hours: 2500, target_date: null, time: { logged_minutes: 0, block_minutes: 0 } }, "2026-11-14");
@@ -157,6 +183,14 @@ describe("year view", () => {
     ];
     const m = dayMinutes(log, blocks, new Set(["b2"]), new Date("2026-11-14T12:00:00Z"), day);
     expect(m).toEqual({ "2026-11-10": 90, "2026-11-12": 90 });
+  });
+  it("leaves out planned Nolio trainings: the completed one comes as logged time", () => {
+    const log = [{ day: "2026-11-12", minutes: 75 }]; // the completed training, synced from Nolio
+    const blocks = [
+      { id: "n1", starts_at: "2026-11-12T16:00:00Z", ends_at: "2026-11-12T17:30:00Z", all_day: false, kind: "block", goal_id: "g", source: "nolio" },
+      { id: "c1", starts_at: "2026-11-13T16:00:00Z", ends_at: "2026-11-13T17:00:00Z", all_day: false, kind: "block", goal_id: "g", source: "coach" },
+    ];
+    expect(dayMinutes(log, blocks, new Set(), new Date("2026-11-14T12:00:00Z"), day)).toEqual({ "2026-11-12": 75, "2026-11-13": 60 });
   });
   it("four steps fitted to her own days", () => {
     const t = heatThresholds([10, 20, 30, 60, 90, 120, 180, 240]);

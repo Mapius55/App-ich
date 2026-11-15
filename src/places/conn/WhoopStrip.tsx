@@ -1,4 +1,4 @@
-// The last 14 WHOOP days as a calm strip: three thin bar rows (Erholung, Schlaf, Belastung), one hue,
+// The last 14 (or 7) WHOOP days as a calm strip: three thin bar rows (Erholung, Schlaf, Belastung), one hue,
 // the newest value on the right. Tap a day to read its values; the rows carry spoken summaries.
 import { useState } from "react";
 import { shortDay } from "../../lib/dates";
@@ -19,8 +19,8 @@ const METRICS: Metric[] = [
   { key: "strain", label: "Belastung", max: 21, text: (v) => strainLabel(v) ?? "–", spoken: (v) => (strainLabel(v) ?? "").replace(".", " Komma ") },
 ];
 
-export function WhoopStrip({ days, today }: { days: WhoopDay[]; today: string }) {
-  const strip = whoopStrip(days, today, 14);
+export function WhoopStrip({ days, today, n = 14 }: { days: WhoopDay[]; today: string; n?: number }) {
+  const strip = whoopStrip(days, today, n);
   const [sel, setSel] = useState<number | null>(null);
   const pick = (i: number) => setSel((s) => (s === i ? null : i));
   const shown: StripDay | null = sel === null ? null : strip[sel];
@@ -28,7 +28,7 @@ export function WhoopStrip({ days, today }: { days: WhoopDay[]; today: string })
   return (
     <div className="cx-strip">
       <p className="cx-strip-head">
-        <span className="pl-label">{shown ? (shown.day === today ? "Heute" : shortDay(shown.day)) : "Letzte 14 Tage"}</span>
+        <span className="pl-label">{shown ? (shown.day === today ? "Heute" : shortDay(shown.day)) : `Letzte ${n} Tage`}</span>
         {shown && (
           <button type="button" className="cx-strip-reset" onClick={() => setSel(null)}>
             Zurück
@@ -40,7 +40,7 @@ export function WhoopStrip({ days, today }: { days: WhoopDay[]; today: string })
         const avg = average(strip, m.key);
         const value = shown ? shown[m.key] : (last?.value ?? null);
         const summary = last
-          ? `${m.label}: ${last.day === today ? "heute" : `zuletzt am ${shortDay(last.day)}`} ${m.spoken(last.value)}${avg !== null ? `, im Schnitt der 14 Tage ${m.spoken(avg)}` : ""}`
+          ? `${m.label}: ${last.day === today ? "heute" : `zuletzt am ${shortDay(last.day)}`} ${m.spoken(last.value)}${avg !== null ? `, im Schnitt der ${n} Tage ${m.spoken(avg)}` : ""}`
           : `${m.label}: noch keine Werte`;
         return (
           <div key={m.key} className="cx-metric">

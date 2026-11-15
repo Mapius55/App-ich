@@ -32,9 +32,10 @@
 .space .cx-hint { font-size: 0.8125rem; line-height: 1.4; color: var(--text-soft); }
 .space .cx-foot { margin: 0; font-size: 0.75rem; line-height: 1.5; color: var(--text-soft); }
 .space .cx-link {
-  display: inline-block;
-  padding: 10px 0; /* a 44 px tap area around a small link */
-  margin: -10px 0;
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px; /* a 44 px tap area around a small link, without a taller line */
+  margin: -13px 0;
   color: inherit;
   text-decoration: underline;
   text-decoration-color: var(--line-strong, rgba(255, 255, 255, 0.3));
@@ -105,12 +106,19 @@
 }
 .nolio-entry dd { margin: 0; font-size: 1rem; line-height: 1.45; color: var(--text); white-space: pre-line; overflow-wrap: anywhere; }
 .nolio-entry .nolio-title { margin: 0; font-size: 1.375rem; font-weight: 700; line-height: 1.2; overflow-wrap: anywhere; }
-.detail-root .nolio-entry .nolio-title {
+/* in the Unfold the title sits in the header (.uf-titlebox), like the own entries' title (.uf-title) */
+.detail-root .uf-titlebox .nolio-title {
+  margin: 0;
+  padding: 6px 0;
+  color: var(--text);
+  text-align: center;
   font-family: var(--sans);
   font-weight: 800;
-  font-size: 1.5rem;
+  font-size: 1.625rem;
+  line-height: 1.12;
   letter-spacing: -0.01em;
   text-transform: uppercase;
+  overflow-wrap: anywhere;
 }
 
 /* ---------- which trainings count (goal) ---------- */
@@ -152,6 +160,7 @@
 .cx-chip.soon { color: var(--text-soft); }
 .cx-chip.on { border-color: transparent; background: color-mix(in srgb, var(--text) 18%, transparent); }
 .cx-chip.later { background: none; border-color: transparent; color: var(--text-soft); font-weight: 500; }
+.cx-chip.later.next { background: var(--text); border-color: transparent; color: #0a0a0f; font-weight: 600; }
 .cx-chip svg { flex: none; }
 .cx-chooser .cx-reason { margin: 0; font-size: 0.875rem; line-height: 1.45; color: var(--text-soft); text-wrap: balance; }
 .cx-chooser .cx-reason.ok { font-family: var(--serif); font-style: italic; font-size: 1.0625rem; color: var(--text); }

@@ -6,9 +6,30 @@ import { backend } from "../../lib/backend";
 import { SPORT_GROUPS, sportGroupsOn, toggleSportGroup } from "../../lib/connections";
 import type { Goal } from "../../lib/types";
 import { planData } from "../../space/data";
+import { connStore } from "./store";
 import "./conn.css";
 
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
+
+// After the last change, one sync with Nolio maps the trainer's sessions and the completed trainings
+// anew (the server also does every 3 hours). Shared, so several goals changed in a row sync once.
+const SYNC_AFTER_MS = 4000;
+let syncTimer = 0;
+function syncSoon() {
+  clearTimeout(syncTimer);
+  syncTimer = window.setTimeout(() => {
+    backend.nolioSync().then(
+      () => {
+        planData.bumpEvents();
+        planData.bumpPlan();
+        void connStore.loadNolio(true);
+      },
+      () => {
+        /* the next regular sync applies it */
+      },
+    );
+  }, SYNC_AFTER_MS);
+}
 
 export function SportsPicker({ goal }: { goal: Pick<Goal, "id" | "title" | "sports"> }) {
   const [open, setOpen] = useState(false);
@@ -36,7 +57,10 @@ export function SportsPicker({ goal }: { goal: Pick<Goal, "id" | "title" | "spor
     saving.current = saving.current
       .then(() => backend.updateGoal(goal.id, { sports: next }))
       .then(
-        () => planData.bumpPlan(),
+        () => {
+          planData.bumpPlan();
+          syncSoon();
+        },
         (e) => {
           setError(message(e));
           setSports(goal.sports ?? null);

@@ -80,6 +80,13 @@ const EXPORT_TABLES: [string, string[]][] = [
   ["messages", ["id"]],
   ["push_subscriptions", ["id"]],
 ];
+// readable by the person (RLS), present once the WHOOP / Nolio migrations ran
+const EXPORT_CONNECTION_TABLES: [string, string[]][] = [
+  ["connections", ["provider"]],
+  ["whoop_days", ["day"]],
+  ["nolio_trainings", ["id"]],
+  ["nolio_sync", ["user_id"]],
+];
 
 // A habit row with its embedded logs (only the days).
 type HabitRow = Omit<Habit, "done_days"> & { habit_logs: { day: string }[] | null };
@@ -488,12 +495,10 @@ export class SupabaseBackend implements Backend {
 
   async whoopConfirm(code: string): Promise<WhoopConfirmResult> {
     const res = await this.connFn("whoop", { method: "POST", body: JSON.stringify({ action: "confirm", code }) });
-    if (!res || !res.ok) {
-      await res?.body?.cancel().catch(() => {});
-      return { ok: false, reason: "error" };
-    }
+    if (!res) return { ok: false, reason: "error" };
+    // {ok:false, reason:"mismatch" | "expired"} may come with a 4xx status too
     const j = (await res.json().catch(() => null)) as Record<string, unknown> | null;
-    if (!j || j.ok === false) return { ok: false, reason: typeof j?.reason === "string" ? j.reason : "error" };
+    if (!j || j.ok === false || !res.ok) return { ok: false, reason: typeof j?.reason === "string" ? j.reason : "error" };
     const status = whoopStatusFrom(j);
     return status ? { ...status, ok: true } : { ok: false, reason: "error" };
   }
@@ -616,6 +621,14 @@ export class SupabaseBackend implements Backend {
   async exportData() {
     const out: Record<string, unknown> = { exported_at: new Date().toISOString(), profile: await this.getProfile() };
     for (const [table, order] of EXPORT_TABLES) out[table] = await this.readAll(table, order);
+    // the connections' own rows (WHOOP, Nolio), where the server has them; never the tokens
+    for (const [table, order] of EXPORT_CONNECTION_TABLES) {
+      try {
+        out[table] = await this.readAll(table, order);
+      } catch {
+        // not set up on this server (the table doesn't exist): nothing to export
+      }
+    }
     return out;
   }
 

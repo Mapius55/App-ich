@@ -45,7 +45,7 @@ export function IphoneConnect({ initiallyOpen = false, variant = "card" }: { ini
 
   const content = (
     <>
-      <p className="hint">Alles aus deinem Plan erscheint dann im iPhone-Kalender „I am“, mit Erinnerung.</p>
+      <p className="hint">Alles aus deinem Plan erscheint dann im iPhone-Kalender „I am“, mit Erinnerung.</p>
       {error && <p className="form-error">{error}</p>}
       {link === undefined && !error && <p className="hint">Einen Moment …</p>}
       {link && (

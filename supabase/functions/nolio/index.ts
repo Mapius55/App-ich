@@ -2,7 +2,9 @@
 //   POST + header x-cron-secret       → sync (pg_cron job "i-am-nolio", every 3 hours at minute 17)
 //   POST with the owner's login       → sync now (app: "Jetzt holen"); any other login gets
 //                                       {connected:false, reason:"not_owner"}
-//   GET  ?action=status (login)       → {available, connected, last_sync_at, last_error, running, counts}
+//   GET  ?action=status (login)       → {available, connected, last_sync_at, last_error, running, counts, garmin}
+//                                       garmin: "Garmin <model>" when the latest trainings came from a Garmin
+//                                       device (Garmin's attribution, required wherever that data is shown)
 //   GET  ?action=check (service role key as bearer)
 //                                     → {ok, http_status, error_code, scopes, quota}: verifies the key
 //                                       without returning any personal data
@@ -15,6 +17,7 @@ import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2.1
 import { zonedToUtc } from "../_shared/ics.ts";
 import {
   DEFAULT_TZ,
+  deviceAttribution,
   diffEvents,
   diffGoalTime,
   type EventRow,
@@ -276,15 +279,17 @@ async function runSync(sb: SupabaseClient, cfg: Config): Promise<SyncResult> {
 // ---------- status and key check ----------
 
 async function status(sb: SupabaseClient, userId: string, cfg: Config) {
-  const none = { available: false, connected: false, last_sync_at: null, last_error: null, running: false, counts: null };
+  const none = { available: false, connected: false, last_sync_at: null, last_error: null, running: false, counts: null, garmin: null };
   if (!cfg.owner || userId !== cfg.owner || !cfg.key) return none;
   const head = { count: "exact" as const, head: true };
-  const [st, trainings, assigned, planned] = await Promise.all([
+  const [st, trainings, assigned, planned, recent] = await Promise.all([
     sb.from("nolio_sync").select("last_sync_at, last_error, status").eq("user_id", userId).maybeSingle(),
     sb.from("nolio_trainings").select("id", head).eq("user_id", userId).eq("restricted", false),
     sb.from("goal_time").select("id", head).eq("user_id", userId).eq("source", "nolio"),
     sb.from("events").select("id", head).eq("user_id", userId).eq("source", "nolio").gte("starts_at", zonedToUtc(localDay(new Date(), DEFAULT_TZ), DEFAULT_TZ)),
+    sb.from("nolio_trainings").select("source, device_name").eq("user_id", userId).eq("restricted", false).order("day", { ascending: false }).limit(10),
   ]);
+  const garmin = ((recent.data ?? []) as { source: string | null; device_name: string | null }[]).map((r) => deviceAttribution(r.source, r.device_name)).find(Boolean) ?? null;
   return {
     available: true,
     connected: !!st.data?.last_sync_at,
@@ -292,6 +297,7 @@ async function status(sb: SupabaseClient, userId: string, cfg: Config) {
     last_error: st.data?.last_error ?? null,
     running: st.data?.status === "running",
     counts: { trainings: trainings.count ?? 0, assigned: assigned.count ?? 0, planned: planned.count ?? 0 },
+    garmin,
   };
 }
 

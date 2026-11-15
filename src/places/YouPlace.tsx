@@ -9,6 +9,7 @@ import type { Memory, Profile } from "../lib/types";
 import { useSpace, type DuSection } from "../space/state";
 import { BodySection } from "./BodySection";
 import { Connections } from "./Connections";
+import { useBodyValue, useConnectionsValue } from "./conn/Body";
 import { DuRow } from "./DuRow";
 import { MemoryList } from "./MemoryList";
 import { NotificationsSection, notifyValue } from "./NotificationsSection";
@@ -29,6 +30,8 @@ const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 export function YouPlace({ titleId, active, profile, palette, hasCoords, onProfile, onCoords }: YouPlaceProps) {
   const { duSection, reduced, registerAdd, setDuOpen } = useSpace();
+  const bodyValue = useBodyValue();
+  const connValue = useConnectionsValue();
   const [openRow, setOpenRow] = useState<DuSection | null>(duSection);
   const [memories, setMemories] = useState<Memory[] | null>(null);
   const [memError, setMemError] = useState<string | null>(null);
@@ -119,10 +122,10 @@ export function YouPlace({ titleId, active, profile, palette, hasCoords, onProfi
         <DuRow {...row("memories")} title="Was ich über dich weiss" value={memories ? String(memories.length) : null}>
           <MemoryList items={memories} error={memError} onItems={(fn) => setMemories((xs) => fn(xs ?? []))} adding={adding} setAdding={setAdding} />
         </DuRow>
-        <DuRow {...row("body")} title="Dein Körper" value="Noch nicht verbunden">
+        <DuRow {...row("body")} title="Dein Körper" value={bodyValue}>
           <BodySection onConnections={() => openSection("connections")} />
         </DuRow>
-        <DuRow {...row("connections")} title="Verbindungen" value="iPhone-Kalender">
+        <DuRow {...row("connections")} title="Verbindungen" value={connValue}>
           <Connections />
         </DuRow>
         <DuRow {...row("notifications")} title="Benachrichtigungen" value={notifyValue(profile)}>

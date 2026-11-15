@@ -15,18 +15,21 @@ let whoop: Loaded<WhoopStatus> = INITIAL;
 let nolio: Loaded<NolioStatus> = INITIAL;
 let whoopRun: Promise<void> | null = null;
 let nolioRun: Promise<void> | null = null;
-let epoch = 0; // bumps on reset, so a late answer for the previous login is dropped
+// Every load and every set takes a ticket; an answer is used only while its ticket is the newest for
+// that service. So a status call that was on its way when a confirm (or a reset at a login change)
+// put a newer value can't overwrite it.
+const ticket = { whoop: 0, nolio: 0 };
 const subs = new Set<() => void>();
 const emit = () => subs.forEach((f) => f());
 
-function run<T>(call: () => Promise<T | null>, put: (l: Loaded<T>) => void): Promise<void> {
-  const at = epoch;
+function run<T>(key: keyof typeof ticket, call: () => Promise<T | null>, put: (l: Loaded<T>) => void): Promise<void> {
+  const at = ++ticket[key];
   return call().then(
     (value) => {
-      if (at === epoch) put({ value, failed: false });
+      if (at === ticket[key]) put({ value, failed: false });
     },
     () => {
-      if (at === epoch) put({ value: null, failed: true });
+      if (at === ticket[key]) put({ value: null, failed: true });
     },
   );
 }
@@ -43,6 +46,7 @@ export const connStore = {
     if (whoopRun && !force) return whoopRun;
     if (!force && whoop.value !== undefined && !whoop.failed) return Promise.resolve();
     const p = run(
+      "whoop",
       () => backend.whoopStatus(),
       (l) => {
         whoop = l;
@@ -58,6 +62,7 @@ export const connStore = {
     if (nolioRun && !force) return nolioRun;
     if (!force && nolio.value !== undefined && !nolio.failed) return Promise.resolve();
     const p = run(
+      "nolio",
       () => backend.nolioStatus(),
       (l) => {
         nolio = l;
@@ -70,15 +75,18 @@ export const connStore = {
     return p;
   },
   setWhoop(value: WhoopStatus | null): void {
+    ticket.whoop++;
     whoop = { value, failed: false };
     emit();
   },
   setNolio(value: NolioStatus | null): void {
+    ticket.nolio++;
     nolio = { value, failed: false };
     emit();
   },
   reset(): void {
-    epoch++;
+    ticket.whoop++;
+    ticket.nolio++;
     whoop = INITIAL;
     nolio = INITIAL;
     whoopRun = null;

@@ -11,5 +11,14 @@ const key = (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined) || SU
 // so they never touch the real project).
 const forceDemo = import.meta.env.VITE_FORCE_DEMO === "1";
 
-/** Real backend when Supabase is configured, otherwise the in-browser demo (with simulated WHOOP and Nolio). */
-export const backend: Backend = url && key && !forceDemo ? new SupabaseBackend(url, key) : new DemoBackend({ connections: true });
+/** The demo simulates WHOOP and Nolio; localStorage "ich.demo.connections" = "0" shows them as not deployed ("Bald verfügbar"). */
+function demoConnections(): boolean {
+  try {
+    return localStorage.getItem("ich.demo.connections") !== "0";
+  } catch {
+    return true;
+  }
+}
+
+/** Real backend when Supabase is configured, otherwise the in-browser demo. */
+export const backend: Backend = url && key && !forceDemo ? new SupabaseBackend(url, key) : new DemoBackend({ connections: demoConnections() });

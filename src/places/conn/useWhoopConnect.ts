@@ -7,13 +7,14 @@ import { setWhoopFrom, takeWhoopReturn, WHOOP_RETURN_EVENT } from "../../lib/who
 import type { WhoopReturn } from "../../lib/connections";
 import { connStore } from "./store";
 
-export type WhoopOutcome = "ok" | "mismatch" | "expired" | "error" | "denied";
+export type WhoopOutcome = "ok" | "mismatch" | "expired" | "taken" | "error" | "denied";
 
 /** one calm sentence per outcome (success has its own line) */
 export const WHOOP_OUTCOME_TEXT: Record<WhoopOutcome, string> = {
   ok: "WHOOP ist verbunden.",
   mismatch: "Die Verbindung liess sich nicht bestätigen. Der Link war schon benutzt oder gehört zu einem anderen Konto.",
   expired: "Das hat etwas zu lange gedauert. Verbinde WHOOP bitte nochmal.",
+  taken: "Dieses WHOOP-Konto ist schon mit einem anderen Konto in der App verbunden.",
   error: "Das hat gerade nicht geklappt.",
   denied: "Du hast bei WHOOP nicht zugestimmt. Das ist in Ordnung.",
 };
@@ -30,6 +31,8 @@ export function useWhoopConnect(from: "space" | "onboarding", onOutcome?: (o: Wh
   const finish = useCallback((o: WhoopOutcome) => {
     setOutcome(o);
     setBusy(null);
+    // a failed confirm removed the pending link on the server: the row shows what is left
+    if (o !== "ok") void connStore.loadWhoop(true);
     onOutcomeRef.current?.(o);
   }, []);
 
@@ -46,7 +49,7 @@ export function useWhoopConnect(from: "space" | "onboarding", onOutcome?: (o: Wh
           return finish(connStore.whoop().value?.connected ? "ok" : "error");
         }
         const res = await backend.whoopConfirm(r.code!);
-        if (res.ok === false) return finish(res.reason === "expired" ? "expired" : res.reason === "mismatch" ? "mismatch" : "error");
+        if (res.ok === false) return finish(res.reason === "expired" || res.reason === "mismatch" || res.reason === "taken" ? res.reason : "error");
         connStore.setWhoop({ ...res });
         finish("ok");
       } catch {

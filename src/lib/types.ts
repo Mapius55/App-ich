@@ -223,7 +223,7 @@ export interface WhoopStatus {
   days: WhoopDay[];
 }
 
-export type WhoopConfirmResult = (WhoopStatus & { ok?: true }) | { ok: false; reason: "mismatch" | "expired" | "not_configured" | string };
+export type WhoopConfirmResult = (WhoopStatus & { ok?: true }) | { ok: false; reason: "mismatch" | "expired" | "taken" | "not_configured" | string };
 
 /** POST whoop {action:"sync"} ("Jetzt holen"). */
 export interface WhoopSyncResult {

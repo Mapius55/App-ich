@@ -3,11 +3,14 @@ import { type OrbState } from "../components/Portal";
 import { FitPortal } from "../components/FitPortal";
 import { VoiceConversation } from "../components/VoiceConversation";
 import { requestCoords, type Coords } from "../lib/location";
+import { isAudioUnlocked } from "../lib/voice";
 import type { Palette } from "../lib/palette";
 import type { CoachContext, CoachEvent } from "../lib/types";
 import { ConnChooser } from "../places/conn/ConnChooser";
 import { useWhoopConnect } from "../places/conn/useWhoopConnect";
 import "../places/conn/conn.css";
+
+const WHOOP_NEWS = "Ich habe WHOOP verbunden.";
 
 interface Props {
   palette: Palette;
@@ -27,13 +30,17 @@ export function Onboarding({ palette, context, onEvent, onCoords, hasCoords, onD
   const [askConnections, setAskConnections] = useState(false);
   // the newer of the two asks is the one shown
   const [lastAsk, setLastAsk] = useState<"location" | "connections" | null>(null);
-  // back from WHOOP (also after the page reloaded): the chooser shows the result and the
-  // conversation goes on by itself
+  // back from WHOOP: the chooser shows the result and the conversation goes on. After a page
+  // load (back from WHOOP's site) the sound is still locked: the coach would wait for a tap with
+  // the chooser hidden, so the news waits for "Weiter" (that tap also unlocks the sound).
   const [kickoff, setKickoff] = useState<string | null>(null);
+  const [news, setNews] = useState<string | null>(null);
   const whoop = useWhoopConnect("onboarding", (o) => {
     setAskConnections(true);
     setLastAsk("connections");
-    if (o === "ok") setKickoff("Ich habe WHOOP verbunden.");
+    if (o !== "ok") return;
+    if (isAudioUnlocked()) setKickoff(WHOOP_NEWS);
+    else setNews(WHOOP_NEWS);
   });
 
   const handle = useCallback(
@@ -72,7 +79,12 @@ export function Onboarding({ palette, context, onEvent, onCoords, hasCoords, onD
       </div>
     ) : null;
 
-  const connectionsUi = askConnections ? <ConnChooser flow={whoop} onClose={() => setAskConnections(false)} /> : null;
+  const closeChooser = () => {
+    setAskConnections(false);
+    if (news) setKickoff(news);
+    setNews(null);
+  };
+  const connectionsUi = askConnections ? <ConnChooser flow={whoop} onClose={closeChooser} /> : null;
   const asked = lastAsk === "connections" ? (connectionsUi ?? locationUi) : (locationUi ?? connectionsUi);
 
   return (

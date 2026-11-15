@@ -237,16 +237,17 @@ html.space-on:not([data-place="jetzt"]) .voice-layer .toasts > * { touch-action:
 /* A soft ground behind the voice stack, away from Jetzt: on the sides content scrolls
    under the dock, and on the levels the status, the echo, toasts and the typed field rise
    over the content. It grows with the stack (it is the layer's own box), so text never
-   sits on text and nothing readable sits under the buttons. */
+   sits on text and nothing readable sits under the buttons. The fade lies above the
+   stack and is at full strength where its first line starts. */
 .voice-layer::before {
   content: "";
   position: absolute;
   z-index: -1;
-  top: -28px;
+  top: -36px;
   bottom: 0;
   left: calc(50% - 50vw);
   right: calc(50% - 50vw);
-  background: linear-gradient(to bottom, color-mix(in srgb, var(--bg-bottom) 0%, transparent), color-mix(in srgb, var(--bg-bottom) 94%, transparent) 40px);
+  background: linear-gradient(to bottom, color-mix(in srgb, var(--bg-bottom) 0%, transparent), color-mix(in srgb, var(--bg-bottom) 94%, transparent) 36px);
   pointer-events: none;
   opacity: 0;
   transition: opacity var(--t-fast) ease;

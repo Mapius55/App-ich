@@ -34,6 +34,8 @@ export const PAGE_LIMIT = 25; // WHOOP's maximum page size
 export const MAX_PAGES = 10; // per collection and run (14 days need 1-2 pages)
 export const STATE_LENGTH = 8;
 export const STATE_TTL_MS = 10 * 60_000;
+export const CONFIRM_TTL_MS = 10 * 60_000; // the app confirms the link within 10 minutes
+export const CONFIRM_BYTES = 32; // → 43 URL-safe characters
 export const TOKEN_SKEW_MS = 60_000; // refresh a minute before the access token runs out
 export const SIGNATURE_TOLERANCE_MS = 24 * 3600_000; // shorter than the dedupe window (2 days)
 
@@ -492,6 +494,65 @@ export function whoopForCoach(
 const URL_SAFE = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
 export const STATE_RE = /^[A-Za-z0-9_-]{8}$/;
 
+// ---------- link confirmation (CSRF fix) ----------
+// The OAuth callback cannot tell who is in the browser (the app keeps its login in its own storage),
+// so it never connects anyone: it keeps the tokens as a PENDING link plus a single-use code and sends the
+// browser back to the app. The app, with the person's login, confirms the code; only a pending link of
+// that same person becomes connected. A link someone else started (a forged consent link) never does.
+
+/** What the app sends back: 32 to 512 URL-safe characters (the code itself has 43). */
+export const CONFIRM_CODE_RE = /^[A-Za-z0-9_-]{32,512}$/;
+
+/** A new confirmation code: 32 random bytes, base64url (43 characters). */
+export function randomConfirmCode(bytes: (n: number) => Uint8Array = (n) => crypto.getRandomValues(new Uint8Array(n))): string {
+  const b = bytes(CONFIRM_BYTES);
+  if (b.length !== CONFIRM_BYTES) throw new Error("confirm code: not enough random bytes");
+  return b64url(b);
+}
+
+/** The stored form of a code: SHA-256, base64url (43 characters). The code itself is never stored. */
+export async function hashConfirmCode(code: string): Promise<string> {
+  return b64url(new Uint8Array(await crypto.subtle.digest("SHA-256", enc.encode(code))));
+}
+
+/** The app URL the callback sends the browser to: …#du/verbindungen?whoop=confirm&code=… (or whoop=error / denied). */
+export function appReturnUrl(appUrl: string, result: "confirm" | "error" | "denied", code?: string): string {
+  const base = appUrl.split("#")[0];
+  const q = result === "confirm" && code ? `whoop=confirm&code=${encodeURIComponent(code)}` : `whoop=${result === "confirm" ? "error" : result}`;
+  return `${base}#du/verbindungen?${q}`;
+}
+
+/** A link found by its code: whose it is, its state and until when the code is valid. */
+export interface PendingLink {
+  user_id: string;
+  status: string; // connections.status of that person ("pending", "connected", …)
+  confirm_until: string | null;
+}
+
+export type ConfirmOutcome =
+  /** the caller's own pending link, in time: connect it */
+  | { outcome: "connect" }
+  /** the caller's link was already confirmed with this code (a repeated request): answer the status */
+  | { outcome: "already" }
+  /** `remove`: whose pending link goes (null = none, e.g. it is connected already) */
+  | { outcome: "mismatch"; remove: string | null }
+  | { outcome: "expired"; remove: string | null };
+
+/**
+ * What a confirm request does. `found`: the link the code belongs to (null = no such code);
+ * `callerPending`: the caller has a pending link of her own. A wrong code removes the caller's own
+ * pending link (it can't be confirmed any more), a foreign one removes that other pending link; a
+ * confirmed (connected) link is never removed here.
+ */
+export function confirmOutcome(found: PendingLink | null, caller: string, callerPending: boolean, now: number): ConfirmOutcome {
+  if (!found) return { outcome: "mismatch", remove: callerPending ? caller : null };
+  if (found.user_id !== caller) return { outcome: "mismatch", remove: found.status === "pending" ? found.user_id : null };
+  const inTime = !!found.confirm_until && Date.parse(found.confirm_until) > now;
+  if (found.status === "pending") return inTime ? { outcome: "connect" } : { outcome: "expired", remove: caller };
+  if (found.status === "connected") return inTime ? { outcome: "already" } : { outcome: "expired", remove: null };
+  return { outcome: "mismatch", remove: null };
+}
+
 /** Exactly 8 random URL-safe characters (WHOOP wants at least 8). 64 symbols, so no modulo bias. */
 export function randomState(bytes: (n: number) => Uint8Array = (n) => crypto.getRandomValues(new Uint8Array(n))): string {
   return [...bytes(STATE_LENGTH)].map((b) => URL_SAFE[b & 63]).join("");
@@ -597,6 +658,19 @@ export async function sealToken(plain: string, secret: string, context: string):
   return `v1.${b64url(iv)}.${b64url(new Uint8Array(ct))}`;
 }
 
+/**
+ * A stored token, opened. When it can't be (the key WHOOP_TOKEN_KEY changed, or the value is broken),
+ * the person has to connect again: WhoopError(401, "token_unreadable"), which needsReconnect() knows,
+ * instead of failing the same way on every sync.
+ */
+export async function openStoredToken(sealed: string, secret: string, context: string): Promise<string> {
+  try {
+    return await openToken(sealed, secret, context);
+  } catch {
+    throw new WhoopError(401, "token_unreadable");
+  }
+}
+
 /** Throws when the value was not sealed with this key and context. */
 export async function openToken(sealed: string, secret: string, context: string): Promise<string> {
   const [v, iv, ct] = (sealed ?? "").split(".");
@@ -612,7 +686,8 @@ export async function openToken(sealed: string, secret: string, context: string)
 // ---------- single-flight refresh ----------
 
 export type RefreshClaim =
-  | { state: "claimed"; lock: string; refresh: string } // this caller refreshes
+  // this caller refreshes; `current` is the token stored at the moment of the claim (read in the same step)
+  | { state: "claimed"; lock: string; refresh: string; current?: { access: string; expiresAt: string } | null }
   | { state: "busy" } // someone else is refreshing right now
   | { state: "no_refresh" } // no refresh token stored
   | { state: "missing" }; // not connected
@@ -652,6 +727,13 @@ export async function validAccessToken(store: TokenStore, opts: { force?: boolea
       if (r.expiresAt !== row.expiresAt && fresh(r.expiresAt)) return r.access;
     }
     throw new WhoopError(503, "refresh_busy");
+  }
+  // Another worker may have refreshed between our read and our claim (its save released the lock):
+  // then the stored token is new and valid, and refreshing again would only rotate it once more.
+  const cur = claim.current;
+  if (cur && cur.access !== row.access && fresh(cur.expiresAt)) {
+    await store.release(claim.lock).catch(() => {});
+    return cur.access;
   }
   try {
     const t = await store.exchange(claim.refresh);
@@ -764,10 +846,11 @@ export function parseRetryAfter(header: string | null | undefined, now = Date.no
 
 /** Errors that mean the person has to connect WHOOP again. */
 export const needsReconnect = (e: unknown) =>
-  e instanceof WhoopError && (e.status === 401 || e.code === "invalid_grant" || e.code === "no_refresh_token");
+  e instanceof WhoopError && (e.status === 401 || e.code === "invalid_grant" || e.code === "no_refresh_token" || e.code === "token_unreadable");
 
 /** German message for connections.last_error (shown in the app). */
 export function whoopErrorMessage(e: unknown): string {
+  if (e instanceof WhoopError && e.code === "token_unreadable") return "Die Verbindung zu WHOOP muss neu eingerichtet werden. Bitte verbinde WHOOP neu.";
   if (needsReconnect(e)) return "WHOOP hat den Zugriff beendet. Bitte verbinde WHOOP neu.";
   if (e instanceof WhoopError && e.status === 429) return "WHOOP bremst gerade (zu viele Anfragen). Ich versuche es später nochmal.";
   if (e instanceof WhoopError && (e.status >= 500 || e.status === 0)) return "WHOOP ist gerade nicht erreichbar. Ich versuche es später nochmal.";

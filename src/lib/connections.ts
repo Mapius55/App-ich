@@ -104,6 +104,13 @@ export function connectionsValue(whoop: WhoopStatus | null | undefined, nolio: N
   return on.length ? on.join(" · ") : null;
 }
 
+/** The soft value on the right of "DEIN KÖRPER": the latest recovery (today or yesterday), else whether WHOOP is there. */
+export function bodyValue(whoop: WhoopStatus | null | undefined, today: string): string {
+  if (whoopRowKind(whoop) !== "connected" || !whoop) return "Noch nicht verbunden";
+  const recent = whoop.days.find((d) => d.recovery_score !== null && d.day >= addDays(today, -1) && d.day <= today);
+  return recent ? `Erholung ${Math.round(recent.recovery_score!)} %` : "WHOOP";
+}
+
 // ---------- labels ----------
 
 /** "gerade eben", "vor 5 Min", "vor 2 Std", "gestern", "vor 3 Tagen", "am 3.11." */

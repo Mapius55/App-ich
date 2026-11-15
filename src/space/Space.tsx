@@ -750,9 +750,12 @@ export function Space(props: SpaceProps) {
     [go, goLevel],
   );
   // the coach asks which apps it may read (request_connections): "Verbindungen ansehen" opens Du › Verbindungen
+  // (the row Du reports open, by hand too, not only the one a go() asked for)
+  const duOpenRef = useRef(duOpen);
+  duOpenRef.current = duOpen;
   const connections = useMemo(
     () => ({
-      shown: () => stateRef.current.place === "du" && stateRef.current.duSection === "connections",
+      shown: () => stateRef.current.place === "du" && duOpenRef.current === "connections",
       open: () => void go("du", { duSection: "connections" }),
     }),
     [go],

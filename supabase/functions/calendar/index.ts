@@ -30,6 +30,17 @@ Deno.serve(async (req) => {
     .limit(1000);
   if (error) return new Response("Error", { status: 500 });
 
+  // "subscribed": the coach's context and the app can tell that the iPhone calendar reads the feed.
+  // At most every 6 hours, a conditional update (no write per fetch); a missing column (migration
+  // 20261118000000 not applied yet) must not break the feed.
+  const stale = new Date(Date.now() - 6 * 3600 * 1000).toISOString();
+  const touched = await sb
+    .from("profiles")
+    .update({ calendar_fetched_at: new Date().toISOString() })
+    .eq("id", profile.id)
+    .or(`calendar_fetched_at.is.null,calendar_fetched_at.lt."${stale}"`);
+  if (touched.error) console.error("calendar_fetched_at:", touched.error.code ?? "error");
+
   const tz = new URL(req.url).searchParams.get("tz") ?? "Europe/Zurich";
   return new Response(buildIcs(events ?? [], { name: "I am", timezone: tz }), {
     headers: {
