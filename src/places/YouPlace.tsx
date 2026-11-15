@@ -29,7 +29,7 @@ const ORDER: DuSection[] = ["memories", "body", "connections", "notifications", 
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 export function YouPlace({ titleId, active, profile, palette, hasCoords, onProfile, onCoords }: YouPlaceProps) {
-  const { duSection, reduced, registerAdd, setDuOpen } = useSpace();
+  const { duSection, duRequest, reduced, registerAdd, setDuOpen } = useSpace();
   const bodyValue = useBodyValue();
   const connValue = useConnectionsValue();
   const [openRow, setOpenRow] = useState<DuSection | null>(duSection);
@@ -53,12 +53,12 @@ export function YouPlace({ titleId, active, profile, palette, hasCoords, onProfi
     if (active) loadMemories();
   }, [active, loadMemories]);
 
-  // go("du", { duSection }) and #du/verbindungen: open that row and bring it up
+  // go("du", { duSection }) and #du/verbindungen: open that row and bring it up, on every request
   useEffect(() => {
     if (!duSection) return;
     setOpenRow(duSection);
     reveal.current = duSection;
-  }, [duSection]);
+  }, [duSection, duRequest]);
 
   // the hash follows the open row ("#du/verbindungen"), however it opened
   useEffect(() => setDuOpen(openRow), [openRow, setDuOpen]);
@@ -84,7 +84,8 @@ export function YouPlace({ titleId, active, profile, palette, hasCoords, onProfi
     closedAbove.current = false;
     const t = wait ? window.setTimeout(go, 260) : requestAnimationFrame(go);
     return () => (wait ? clearTimeout(t) : cancelAnimationFrame(t));
-  }, [openRow, reduced]);
+    // duRequest: a row asked for again while it is open still comes up
+  }, [openRow, reduced, duRequest]);
 
   const openSection = (id: DuSection) => {
     closedAbove.current = openRow !== null && ORDER.indexOf(openRow) < ORDER.indexOf(id);

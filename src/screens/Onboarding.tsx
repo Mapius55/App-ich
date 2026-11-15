@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { type OrbState } from "../components/Portal";
 import { FitPortal } from "../components/FitPortal";
 import { VoiceConversation } from "../components/VoiceConversation";
@@ -43,12 +43,28 @@ export function Onboarding({ palette, context, onEvent, onCoords, hasCoords, onD
     else setNews(WHOOP_NEWS);
   });
 
+  // The chooser belongs to the question about apps: it goes once the conversation moves on, when she
+  // answers by typing or speaking, or after a reply of the coach that didn't ask again. It stays while
+  // WHOOP is being started or confirmed.
+  const askedThisTurn = useRef(false);
+  const whoopBusy = useRef(whoop.busy);
+  whoopBusy.current = whoop.busy;
+  const onTurn = useCallback((t: "start" | "end", byPerson: boolean) => {
+    if (t === "start") askedThisTurn.current = false;
+    if (whoopBusy.current) return;
+    if ((t === "start" && byPerson) || (t === "end" && !askedThisTurn.current)) {
+      setAskConnections(false);
+      setNews(null); // the coach sees WHOOP in its context anyway
+    }
+  }, []);
+
   const handle = useCallback(
     (e: CoachEvent) => {
       if (e.type === "request_location") {
         setAskLocation(true);
         setLastAsk("location");
       } else if (e.type === "request_connections") {
+        askedThisTurn.current = true;
         setAskConnections(true);
         setLastAsk("connections");
       } else if (e.type === "onboarding_done") setDone(true);
@@ -92,7 +108,7 @@ export function Onboarding({ palette, context, onEvent, onCoords, hasCoords, onD
       <header className="topbar center">
         <span className="pill">Kennenlernen</span>
       </header>
-      <FitPortal colors={palette.orb} daylight={palette.daylight} clouds={palette.clouds} speed={palette.speed} seed={palette.seed} state={orbState} />
+      <FitPortal colors={palette.orb} daylight={palette.daylight} clouds={palette.clouds} speed={palette.speed} seed={palette.seed} state={orbState} min={72} />
       <VoiceConversation
         mode="onboarding"
         thread="onboarding"
@@ -101,6 +117,7 @@ export function Onboarding({ palette, context, onEvent, onCoords, hasCoords, onD
         onOrbState={setOrbState}
         kickoff={kickoff}
         onKickoffSent={() => setKickoff(null)}
+        onTurn={onTurn}
         extra={
           done ? (
             <div className="inline-action center">

@@ -55,3 +55,17 @@ export function replyShape(text: string): { words: number; questions: number } {
   const t = text.trim();
   return { words: t ? t.split(/\s+/).length : 0, questions: (t.match(/\?/g) ?? []).length };
 }
+
+/**
+ * A memory that carries WHOOP values (or what the coach read from them), e.g. „Erholung meist um 60 %“
+ * or „HRV sinkt nach langen Arbeitstagen“. Checked only on turns where WHOOP values were in the
+ * context: WHOOP data is kept 14 days at most and never becomes a memory.
+ */
+export function whoopInMemory(text: string): boolean {
+  return /\bWHOOP\b|\bHRV\b|Herzfrequenzvariabilit|Ruhepuls|Schlafleistung|\bStrain\b|(Erholung|Belastung|Schlaf)\w*(\s+(von|bei|um|unter|über|meist|oft|etwa|rund|im Schnitt))*\s*(\d|Ø)/i.test(text);
+}
+export const WHOOP_MEMORY_REFUSAL =
+  "Werte von WHOOP (und Muster daraus) werden nie als Erinnerung gespeichert: Sie stehen jeden Tag neu im Kontext und werden nach 14 Tagen gelöscht. Nichts speichern, nichts dazu sagen.";
+
+/** What the coach gets instead of an earlier reply of its own that used WHOOP values, while it may not see them. */
+export const WHOOP_HIDDEN_REPLY = "(Diese frühere Antwort enthielt Werte von WHOOP. Du darfst sie gerade nicht sehen.)";

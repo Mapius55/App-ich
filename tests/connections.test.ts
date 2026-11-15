@@ -17,6 +17,8 @@ import {
   unavailableReason,
   WHOOP_RETURN_TTL_MS,
   whoopRowKind,
+  stravaLine,
+  whoopDayDetails,
   whoopStrip,
 } from "../src/lib/connections";
 import { captureWhoopReturn, peekWhoopReturn, setWhoopFrom, takeWhoopReturn } from "../src/lib/whoopReturn";
@@ -54,6 +56,9 @@ describe("the return from WHOOP (hash)", () => {
   it("knows error, denied and the older 'connected'", () => {
     expect(parseWhoopHash("#du/verbindungen?whoop=error", NOW)?.ret).toEqual({ result: "error", code: null, at: NOW });
     expect(parseWhoopHash("#du/verbindungen?whoop=denied", NOW)?.ret.result).toBe("denied");
+    // the WHOOP account is another member's: its own sentence, not the generic error
+    expect(parseWhoopHash("#du/verbindungen?whoop=taken", NOW)?.ret).toEqual({ result: "taken", code: null, at: NOW });
+    expect(readWhoopReturn(JSON.stringify({ result: "taken", code: null, at: NOW }), NOW)?.result).toBe("taken");
     expect(parseWhoopHash("#du/verbindungen?whoop=connected", NOW)?.ret.result).toBe("connected");
     expect(parseWhoopHash("#du/verbindungen?whoop=something", NOW)?.ret.result).toBe("error");
   });
@@ -174,6 +179,10 @@ describe("row states", () => {
   });
   it("gives a one-line reason for services that can't be connected", () => {
     expect(unavailableReason("strava")).toContain("KI-Coach");
+    // Strava's way round names only what can be connected now
+    expect(stravaLine({ whoop: true, nolio: true })).toMatch(/KI-Coach.*Verbinde lieber WHOOP direkt oder Garmin über Nolio\.$/);
+    expect(stravaLine({ whoop: true, nolio: false })).toMatch(/Verbinde lieber WHOOP direkt\.$/);
+    expect(stravaLine({ whoop: false, nolio: false })).toBe("Strava erlaubt nicht, seine Daten an einen KI-Coach weiterzugeben. Darum verbinde ich es nicht.");
     expect(unavailableReason("garmin", { nolio: true })).toContain("über Nolio");
     expect(unavailableReason("garmin")).toContain("kommt bald");
     for (const k of ["whoop", "nolio", "polar", "garmin", "strava"] as const) expect(unavailableReason(k)).not.toMatch(/ß/);
@@ -214,11 +223,21 @@ describe("the 14-day strip", () => {
     expect(strip).toHaveLength(14);
     expect(strip[0].day).toBe("2026-11-02");
     expect(strip[13]).toMatchObject({ day: today, recovery: 70 });
-    expect(strip[12]).toEqual({ day: "2026-11-14", recovery: null, sleep: null, strain: null });
+    expect(strip[12]).toEqual({ day: "2026-11-14", recovery: null, sleep: null, strain: null, source: null });
     expect(strip[11]).toMatchObject({ recovery: 40, strain: null });
     expect(latest(strip, "recovery")).toEqual({ day: today, value: 70 });
     expect(latest(strip, "strain")).toEqual({ day: today, value: strip[13].strain });
     expect(average(strip, "recovery")).toBe(55);
+  });
+  it("shows the rest of a tapped day: everything kept, and all the coach reads", () => {
+    const d = day("2026-11-15", { hrv_ms: 64.3, resting_hr: 48, sleep_performance: 88, workout_count: 1, workout_minutes: 45 });
+    expect(whoopDayDetails(d)).toEqual(["HRV 64 ms", "Ruhepuls 48", "Schlafleistung 88 %", "1 Training, 45 Min"]);
+    expect(whoopDayDetails(day("2026-11-15", { hrv_ms: null, resting_hr: null, sleep_performance: null, workout_count: 2, workout_minutes: 95 }))).toEqual(["2 Trainings, 1 Std 35"]);
+    expect(whoopDayDetails(null)).toEqual([]);
+    // what a stored day holds: the bars (recovery, sleep, strain) plus these details
+    expect(Object.keys(demoWhoopDay("2026-11-15")).sort()).toEqual(
+      ["day", "day_strain", "hrv_ms", "recovery_score", "resting_hr", "sleep_minutes", "sleep_performance", "workout_count", "workout_minutes"],
+    );
   });
   it("demo days are plausible and stable", () => {
     const d = demoWhoopDays("2026-11-15");

@@ -19,7 +19,17 @@ import {
   type ContextConnections,
   type ContextGoal,
 } from "./prompt.ts";
-import { goalHints, NOLIO_EDIT_REFUSAL, NOLIO_TIME_REFUSAL, nolioEditAllowed, priorProblem, replyShape } from "./rules.ts";
+import {
+  goalHints,
+  NOLIO_EDIT_REFUSAL,
+  NOLIO_TIME_REFUSAL,
+  nolioEditAllowed,
+  priorProblem,
+  replyShape,
+  WHOOP_HIDDEN_REPLY,
+  WHOOP_MEMORY_REFUSAL,
+  whoopInMemory,
+} from "./rules.ts";
 import { zonedToUtc } from "../_shared/ics.ts";
 import { trainingsForCoach } from "../_shared/nolio.ts";
 import { addDays, daysBetween, goalEffort, habitStreak, habitWeek, streakLabel, weekStart } from "../_shared/plan.ts";
@@ -569,7 +579,7 @@ const PLAN_TOOLS = new Set([
 async function runTool(
   name: string,
   input: Record<string, unknown>,
-  ctx: { sb: SupabaseClient; userId: string; day: string; tz: string; mode: ReqBody["mode"]; send: (e: Ev) => void },
+  ctx: { sb: SupabaseClient; userId: string; day: string; tz: string; mode: ReqBody["mode"]; send: (e: Ev) => void; whoop?: boolean },
 ): Promise<string> {
   const { sb, userId, day, send } = ctx;
   switch (name) {
@@ -577,6 +587,8 @@ async function runTool(
       const category = String(input.category);
       if (!(CATEGORIES as readonly string[]).includes(category)) throw new ToolInputError("unbekannte Kategorie");
       const row = { user_id: userId, content: str(input.content, 2000, "content"), category, event_date: optDate(input.event_date) ?? null, source: "coach" };
+      // WHOOP values were in the context: none of them (nor a pattern from them) becomes a memory
+      if (ctx.whoop && whoopInMemory(row.content)) throw new ToolInputError(WHOOP_MEMORY_REFUSAL);
       const { data, error } = await sb.from("memories").insert(row).select().single();
       if (error) throw error;
       send({ type: "memory", memory: data });
@@ -586,6 +598,7 @@ async function runTool(
       const id = str(input.id, 64, "id");
       const patch: Record<string, unknown> = {};
       if (input.content !== undefined) patch.content = str(input.content, 2000, "content");
+      if (ctx.whoop && typeof patch.content === "string" && whoopInMemory(patch.content)) throw new ToolInputError(WHOOP_MEMORY_REFUSAL);
       const d = optDate(input.event_date);
       if (d !== undefined) patch.event_date = d;
       if (!Object.keys(patch).length) throw new ToolInputError("nichts zu ändern");
@@ -1109,7 +1122,7 @@ async function converse({ sb, userId, body, send }: { sb: SupabaseClient; userId
   const iso = (t: number) => new Date(t).toISOString();
   const yesterdayThread = mode === "checkin" && DATE_RE.test(thread) ? addDays(thread, -1) : null;
   const owner = nolioOwner(userId);
-  type Msg = { role: string; content: string };
+  type Msg = { id?: number | string; role: string; content: string };
 
   const [
     profileRes,
@@ -1126,12 +1139,13 @@ async function converse({ sb, userId, body, send }: { sb: SupabaseClient; userId
     whoopConn,
     nolioSync,
     nolioRows,
+    whoopMarkedRows,
   ] = await Promise.all([
     sb.from("profiles").select("display_name, location_name, summary, nature_palette").eq("id", userId).single(),
     sb.from("memories").select("id, category, event_date, content, source").order("created_at", { ascending: true }).limit(400),
     mode === "tidy"
       ? Promise.resolve({ data: [] as { role: string; content: string }[] })
-      : sb.from("messages").select("role, content").eq("thread", thread).order("id", { ascending: false }).limit(80),
+      : sb.from("messages").select("id, role, content").eq("thread", thread).order("id", { ascending: false }).limit(80),
     // Two weeks of mood and energy, so the coach can notice patterns, and today's mood and focus.
     sb.from("days").select("day, mood, focus").lte("day", context.day).order("day", { ascending: false }).limit(15),
     // Appointments from two days back on, also far out (a race in spring), so nothing is entered twice.
@@ -1183,7 +1197,7 @@ async function converse({ sb, userId, body, send }: { sb: SupabaseClient; userId
       .limit(30),
     // The end of yesterday's conversation: used only while today's is still empty (the greeting picks it up).
     yesterdayThread
-      ? soft<Msg[]>(sb.from("messages").select("role, content").eq("thread", yesterdayThread).eq("hidden", false).order("id", { ascending: false }).limit(12), [], "yesterday")
+      ? soft<Msg[]>(sb.from("messages").select("id, role, content").eq("thread", yesterdayThread).eq("hidden", false).order("id", { ascending: false }).limit(12), [], "yesterday")
       : Promise.resolve([] as Msg[]),
     // Columns from later migrations, apart so that a missing one never breaks the coach.
     soft<{ connections_asked_at?: string | null; calendar_fetched_at?: string | null } | null>(
@@ -1214,6 +1228,19 @@ async function converse({ sb, userId, body, send }: { sb: SupabaseClient; userId
           "nolio_trainings",
         )
       : Promise.resolve([] as Parameters<typeof trainingsForCoach>[0]),
+    // Its own replies that had WHOOP values in their context (messages.whoop), in today's and yesterday's thread.
+    mode === "tidy"
+      ? Promise.resolve([] as { id: number }[])
+      : soft<{ id: number }[]>(
+          sb
+            .from("messages")
+            .select("id")
+            .in("thread", yesterdayThread ? [thread, yesterdayThread] : [thread])
+            .eq("whoop", true)
+            .limit(200),
+          [],
+          "whoop_marked",
+        ),
   ]);
   if (profileRes.error) throw profileRes.error;
   // The rest only enriches the context: the coach still talks without it.
@@ -1246,6 +1273,15 @@ async function converse({ sb, userId, body, send }: { sb: SupabaseClient; userId
     );
     whoopLine = whoopForCoach(whoopConn, rows, context.day);
   }
+  // Earlier replies that used WHOOP values go back to the coach only while she still allows it.
+  const whoopAllowed = whoopOn && whoopConn?.consent_ai === true && whoopConn.status === "connected";
+  const whoopMarked = new Set(whoopMarkedRows.map((r) => String(r.id)));
+  const marked = (m: Msg) => m.id !== undefined && whoopMarked.has(String(m.id));
+  const historyRows = ((historyRes.data ?? []) as Msg[]).map((m) => (!whoopAllowed && marked(m) ? { ...m, content: WHOOP_HIDDEN_REPLY } : m));
+  const yesterdayVisible = whoopAllowed ? yesterdayRows : yesterdayRows.filter((m) => !marked(m));
+  // this reply has WHOOP values in its context: today's line, or earlier replies with them
+  const whoopInContext =
+    !!whoopLine || (whoopAllowed && (((historyRes.data ?? []) as Msg[]).some(marked) || (!(historyRes.data ?? []).length && yesterdayRows.some(marked))));
   const connections: ContextConnections | undefined =
     mode === "tidy"
       ? undefined
@@ -1266,7 +1302,7 @@ async function converse({ sb, userId, body, send }: { sb: SupabaseClient; userId
   // Tidying is invisible: nothing goes into the conversation.
   if (mode !== "tidy") await sb.from("messages").insert({ user_id: userId, thread, role: "user", content: opener, hidden: !message });
 
-  const history: Anthropic.Beta.BetaMessageParam[] = (historyRes.data ?? [])
+  const history: Anthropic.Beta.BetaMessageParam[] = historyRows
     .reverse()
     .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }));
   const messages: Anthropic.Beta.BetaMessageParam[] = [...history, { role: "user", content: opener }];
@@ -1287,7 +1323,7 @@ async function converse({ sb, userId, body, send }: { sb: SupabaseClient; userId
         recentDays,
         today,
         // only while today's conversation is still empty: the greeting picks up one point from it
-        yesterday: (historyRes.data ?? []).length ? undefined : [...yesterdayRows].reverse(),
+        yesterday: (historyRes.data ?? []).length ? undefined : [...yesterdayVisible].reverse(),
         connections,
         trainings: trainingsForCoach(nolioRows),
         whoop: whoopLine,
@@ -1357,7 +1393,7 @@ async function converse({ sb, userId, body, send }: { sb: SupabaseClient; userId
     const call = async (tu: Anthropic.Beta.BetaToolUseBlock): Promise<Anthropic.Beta.BetaToolResultBlockParam> => {
       try {
         const input = tu.input && typeof tu.input === "object" ? (tu.input as Record<string, unknown>) : {};
-        const out = await runTool(tu.name, input, { sb, userId, day: context.day, tz, mode, send });
+        const out = await runTool(tu.name, input, { sb, userId, day: context.day, tz, mode, send, whoop: whoopInContext });
         return { type: "tool_result" as const, tool_use_id: tu.id, content: out };
       } catch (e) {
         const msgText = e instanceof ToolInputError ? e.message : "Speichern fehlgeschlagen";
@@ -1384,6 +1420,10 @@ async function converse({ sb, userId, body, send }: { sb: SupabaseClient; userId
     // the shape only (no content), to spot long answers and double questions
     const shape = replyShape(reply);
     console.log(`coach reply: words=${shape.words} questions=${shape.questions}${shape.words > 70 ? " long" : ""}${shape.questions > 1 ? " multi-question" : ""}`);
-    await sb.from("messages").insert({ user_id: userId, thread, role: "assistant", content: reply });
+    // marked when WHOOP values were in its context: cleared on disconnect and after 14 days (whoop_purge)
+    const row: Record<string, unknown> = { user_id: userId, thread, role: "assistant", content: reply };
+    let saved = await sb.from("messages").insert(whoopInContext ? { ...row, whoop: true } : row);
+    if (saved.error && whoopInContext) saved = await sb.from("messages").insert(row); // never lose the reply over the mark
+    if (saved.error) console.error("coach reply not saved:", (saved.error as { code?: string }).code ?? "error");
   }
 }

@@ -1,5 +1,5 @@
 // The return from WHOOP's consent page: <app>#du/verbindungen?whoop=confirm&code=… (or whoop=error /
-// whoop=denied). Imported first by main.tsx, so it reads the hash once at page load, before anything
+// whoop=denied / whoop=taken). Imported first by main.tsx, so it reads the hash once at page load, before anything
 // else looks at it: the values go to sessionStorage (they survive a login screen) and the query leaves
 // the URL (history.replaceState; #du/verbindungen stays, or nothing when onboarding started it).
 // Later hash changes are caught too (the demo "returns" without a page load). Once logged in,

@@ -46,13 +46,17 @@
 .space .cx-strip { display: flex; flex-direction: column; gap: 8px; padding: 2px 0 4px; }
 .space .cx-strip-head { margin: 0; min-height: 22px; display: flex; align-items: center; justify-content: space-between; }
 .space .cx-strip-reset {
-  min-height: 32px;
-  padding: 0;
+  /* a 44 px tap target in a 22 px line: the margins give the extra size back */
+  min-height: 44px;
+  min-width: 44px;
+  margin: -11px -10px -11px 0;
+  padding: 0 10px;
   border: 0;
   background: none;
   color: var(--text-soft);
   font-size: 0.8125rem;
 }
+.space .cx-strip-more { margin: 2px 0 0; font-size: 0.8125rem; line-height: 1.4; color: var(--text-soft); font-variant-numeric: tabular-nums; }
 .space .cx-metric { display: grid; grid-template-columns: 78px minmax(0, 1fr) 50px; align-items: end; gap: 10px; }
 .space .cx-metric-label {
   font-size: 11px;
@@ -63,8 +67,11 @@
   color: var(--text-soft);
   padding-bottom: 1px;
 }
-.space .cx-bars { display: flex; align-items: flex-end; gap: 3px; height: 26px; }
-.space .cx-bar { flex: 1 1 0; min-width: 0; height: 100%; display: flex; align-items: flex-end; cursor: pointer; }
+.space .cx-bars { display: flex; align-items: flex-end; gap: 0; height: 26px; }
+/* the bar's tap area runs into the gaps (1.5 px each side), the drawn bar stays as thin as before */
+.space .cx-bar { flex: 1 1 0; min-width: 0; height: 100%; padding: 0 1.5px; display: flex; align-items: flex-end; cursor: pointer; }
+.space .cx-bar:first-child { padding-left: 0; }
+.space .cx-bar:last-child { padding-right: 0; }
 .space .cx-bar > span {
   display: block;
   width: 100%;
@@ -192,3 +199,12 @@
 .space .cx-actions > .btn.quiet,
 .space .cx-actions .confirm-inline .btn.quiet { text-transform: none; letter-spacing: 0; font-size: 0.9375rem; font-weight: 500; }
 .space .cx-actions > .btn.quiet.danger { color: color-mix(in srgb, #ff9b8e 80%, var(--text-soft)); }
+
+/* ---------- onboarding on a small phone with large text ----------
+   The chooser (and the iPhone steps in it) can be taller than the room under the circle: then the
+   status area scrolls inside, so the circle (FitPortal keeps at least 72 px) and the dock stay on screen.
+   (margin-top: auto keeps it at the bottom while it fits, and lets it scroll from the top once it doesn't.) */
+.onboarding .voice { flex: 0 1 auto; min-height: 0; }
+.onboarding .voice > :not(.voice-status) { flex-shrink: 0; }
+.onboarding .voice-status { flex: 0 1 auto; min-height: 70px; overflow-y: auto; overscroll-behavior: contain; justify-content: flex-start; }
+.onboarding .voice-status > :first-child { margin-top: auto; }

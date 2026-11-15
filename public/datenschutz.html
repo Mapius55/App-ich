@@ -176,8 +176,8 @@
         <h3>Aus Verbindungen</h3>
         <div class="card">
           <p>
-            <strong>Nolio</strong> (nur wenn für dein Konto eingerichtet): abgeschlossene Trainings (Tag, Sportart, Dauer, Distanz,
-            Belastung, Empfinden, Gerät) sowie die Trainings und Wettkämpfe, die dein Trainer plant. Daraus entstehen die Zeit für deine
+            <strong>Nolio</strong> (nur wenn für dein Konto eingerichtet): abgeschlossene Trainings (Name und Startzeit des Trainings, Tag,
+            Sportart, Dauer, Distanz, Belastung, Empfinden, Gerät) sowie die Trainings und Wettkämpfe, die dein Trainer plant. Daraus entstehen die Zeit für deine
             Ziele und die Einträge im Kalender. Ein Training zählt nur für ein Ziel, bei dem du die Sportarten ausgewählt hast. Die Einträge
             deines Trainers kann in der App niemand ändern, auch der Coach nicht, ausser der Erinnerung. Trainings, die über Strava oder WHOOP
             zu Nolio kamen, bleiben ohne Messwerte. Daten von Garmin-Geräten zeigt die App mit dem Hinweis „Garmin“ und dem Gerät.
@@ -186,22 +186,24 @@
         <div class="card">
           <p>
             <strong>WHOOP</strong> (nur wenn du WHOOP verbindest): pro Tag eine Zusammenfassung mit Erholung, Herzfrequenzvariabilität (HRV),
-            Ruhepuls, Sauerstoffsättigung und Hauttemperatur (nur bei neueren Geräten), Schlafdauer, Schlafleistung, Schlafbedarf,
-            Atemfrequenz, Tagesbelastung, Energieverbrauch, Schritten sowie Anzahl und Dauer der Workouts.
+            Ruhepuls, Schlafdauer, Schlafleistung, Tagesbelastung sowie Anzahl und Dauer der Workouts. Mehr nicht: nur, was du in der App
+            siehst und was der Coach mit deiner Erlaubnis liest.
           </p>
           <p>
-            <strong>Nicht gespeichert</strong> werden einzelne Workouts, Sportarten, Herzfrequenzkurven, Rohdaten sowie Name und E-Mail aus
-            deinem WHOOP-Profil. Die App behält nur deine WHOOP-Kennnummer, damit sie Meldungen von WHOOP dir zuordnen kann.
+            <strong>Nicht gespeichert</strong> werden einzelne Workouts, Sportarten, Herzfrequenzkurven, Sauerstoffsättigung, Hauttemperatur,
+            Atemfrequenz, Energieverbrauch, Schritte, Schlafbedarf, Rohdaten sowie Name und E-Mail aus deinem WHOOP-Profil. Die App behält nur deine WHOOP-Kennnummer, damit sie Meldungen von WHOOP dir zuordnen kann.
           </p>
           <p>
             Die App behält höchstens die Tageswerte von heute und den 13 Tagen davor: <strong>Ältere löscht sie jeden Tag automatisch</strong>.
             Die Zugangsschlüssel zu WHOOP sind zusätzlich verschlüsselt und nur für den Server lesbar. WHOOP-Workouts zählen nicht als Zeit
             für deine Ziele (die kommt aus Nolio), damit nichts doppelt zählt. Unter <span class="path">Du → Verbindungen</span> siehst du
-            jederzeit alles, was gesammelt wurde.
+            jederzeit alles, was gesammelt wurde: Erholung, Schlaf und Belastung als Balken, und tippst du auf einen Tag, auch HRV, Ruhepuls,
+            Schlafleistung und Workouts.
           </p>
           <p>
             <strong>Bestätigen:</strong> Kommst du von der Anmeldung bei WHOOP zurück, bestätigst du die Verbindung in der App, mit deinem
-            Login. Erst dann liest die App deine Werte von WHOOP, vorher nur deine WHOOP-Kennnummer. Bestätigst du nicht innerhalb von
+            Login. Erst dann liest die App deine Werte von WHOOP, vorher nur deine WHOOP-Kennnummer. Bis dahin bleibt eine Verbindung, die du
+            schon hast, genau so, wie sie ist. Bestätigst du nicht innerhalb von
             10 Minuten, verfällt die Verbindung: Die App
             widerruft den Zugriff bei WHOOP, soweit das geht, und löscht die Zugangsschlüssel, spätestens nach einem Tag. So kann niemand
             dein WHOOP-Konto mit seinem Konto in der App verbinden.
@@ -244,6 +246,11 @@
             Auch dann bekommt er nur eine kurze Zusammenfassung der letzten 7 Tage, zum Beispiel „Erholung 72 %, HRV 64 ms, Ruhepuls 48,
             Schlaf 7 Std 10“, nie einzelne Messreihen. Du kannst es jederzeit wieder ausschalten, dann bekommt er ab der nächsten Antwort nichts
             mehr von WHOOP.
+          </p>
+          <p>
+            Der Coach sagt WHOOP-Werte in Worten statt als Zahl und macht aus ihnen <strong>keine Erinnerungen</strong>. Seine Antworten, die
+            er mit WHOOP-Werten geschrieben hat, sind markiert: Ist die Erlaubnis aus, bekommt er auch diese früheren Antworten nicht mehr zu
+            sehen. Trennst du WHOOP, löscht die App den Text dieser Antworten sofort, sonst nach 14 Tagen.
           </p>
         </div>
         <p>
@@ -293,13 +300,14 @@
           <li>Konto, Gespräche, Erinnerungen, Ziele und Kalender: solange dein Konto besteht.</li>
           <li>Der Coach räumt seine Erinnerungen täglich auf und löscht, was unwichtig, zu persönlich, doppelt oder lange vorbei ist.</li>
           <li><strong>WHOOP-Tageswerte: höchstens 14 Tage</strong> (heute und die 13 Tage davor), danach löscht die App sie täglich automatisch.</li>
+          <li>Antworten des Coaches, die er mit WHOOP-Werten geschrieben hat: ihr Text höchstens 14 Tage, dann steht dort nur noch, dass sie gelöscht wurde.</li>
           <li>
             Technische Hilfsdaten für die WHOOP-Verbindung: Anmeldecodes 10 Minuten, der Bestätigungscode nur als Prüfwert und 10 Minuten gültig,
             eine nicht bestätigte Verbindung höchstens einen Tag, Kennungen von WHOOP-Meldungen 2 Tage.
           </li>
           <li>Nolio-Trainings und die Einträge deines Trainers: solange dein Konto besteht. Was in Nolio gelöscht wird, verschwindet beim nächsten Abgleich.</li>
           <li>
-            Trennst du WHOOP, löscht die App alle WHOOP-Daten sofort. Löschst du dein Konto, widerruft die App zuerst den Zugriff bei WHOOP,
+            Trennst du WHOOP, löscht die App alle WHOOP-Daten sofort, auch den Text der Antworten mit WHOOP-Werten. Löschst du dein Konto, widerruft die App zuerst den Zugriff bei WHOOP,
             dann ist alles sofort weg. Sicherungskopien beim Anbieter der Datenbank werden nach kurzer Zeit überschrieben.
           </li>
         </ul>

@@ -1,5 +1,7 @@
 // The connection states (WHOOP, Nolio), loaded once and shared: Du › Verbindungen, the onboarding
-// chooser and the goal's sports picker read the same snapshot. Cleared when the login changes.
+// chooser and the goal's sports picker read the same snapshot. Cleared when another person logs in
+// (not on the auth events of the same person: supabase-js sends SIGNED_IN on every return to the app
+// and TOKEN_REFRESHED about hourly), and loaded again by whoever shows it.
 import { useEffect, useSyncExternalStore } from "react";
 import { backend } from "../../lib/backend";
 import type { NolioStatus, WhoopStatus } from "../../lib/types";
@@ -95,23 +97,47 @@ export const connStore = {
   },
 };
 
-backend.onAuthChange(() => connStore.reset());
+/**
+ * Resets the store only when the person really changes. `undefined` = not known yet: the first answer
+ * (the current login, or the first auth event) only sets it.
+ */
+export function watchLogin(source: Pick<typeof backend, "onAuthChange" | "currentUserId">, onChange: () => void): () => void {
+  let last: string | null | undefined;
+  const seen = (id: string | null) => {
+    if (last === undefined) {
+      last = id;
+      return;
+    }
+    if (id === last) return;
+    last = id;
+    onChange();
+  };
+  source.currentUserId().then(
+    (id) => {
+      if (last === undefined) last = id;
+    },
+    () => {},
+  );
+  return source.onAuthChange(seen);
+}
 
-/** the WHOOP state, loaded on first use */
+watchLogin(backend, () => connStore.reset());
+
+/** the WHOOP state, loaded on first use and again whenever it was cleared (another login) */
 export function useWhoop(): Loaded<WhoopStatus> {
   const snap = useSyncExternalStore(connStore.subscribe, connStore.whoop, connStore.whoop);
   useEffect(() => {
-    connStore.loadWhoop();
-  }, []);
+    if (snap.value === undefined && !snap.failed) void connStore.loadWhoop();
+  }, [snap]);
   return snap;
 }
 
-/** the Nolio state, loaded on first use */
+/** the Nolio state, loaded on first use and again whenever it was cleared (another login) */
 export function useNolio(): Loaded<NolioStatus> {
   const snap = useSyncExternalStore(connStore.subscribe, connStore.nolio, connStore.nolio);
   useEffect(() => {
-    connStore.loadNolio();
-  }, []);
+    if (snap.value === undefined && !snap.failed) void connStore.loadNolio();
+  }, [snap]);
   return snap;
 }
 

@@ -13,7 +13,7 @@ import {
   type ContextConnections,
   type ContextInput,
 } from "../supabase/functions/coach/prompt";
-import { goalHints, NOLIO_EDIT_REFUSAL, nolioEditAllowed, priorProblem, replyShape } from "../supabase/functions/coach/rules";
+import { goalHints, NOLIO_EDIT_REFUSAL, nolioEditAllowed, priorProblem, replyShape, whoopInMemory } from "../supabase/functions/coach/rules";
 import { spokenStream, stripEmoji } from "../supabase/functions/_shared/spoken";
 
 // Saturday, 14 November 2026, in Zurich (winter time, UTC+1).
@@ -396,6 +396,11 @@ describe("contextBlock: connections", () => {
     expect(off).toContain("- WHOOP: verbunden, aber die Werte sind für dich nicht freigegeben");
     const on = section(conn({ whoop: { status: "connected", consent_ai: true } }), "WHOOP (heute): Erholung 72 %.");
     expect(on).toContain("- WHOOP: verbunden, sie hat erlaubt, dass du die Werte siehst\n  WHOOP (heute): Erholung 72 %.\n");
+    // where to switch it on: only where the app has Du › Verbindungen
+    expect(off).toContain("(das kann sie unter Du, Verbindungen einschalten)");
+    const classic = section(conn({ whoop: { status: "connected", consent_ai: false }, offerable: false }));
+    expect(classic).toContain("- WHOOP: verbunden, aber die Werte sind für dich nicht freigegeben\n");
+    expect(classic).not.toContain("Verbindungen einschalten");
     expect(section(conn({ nolio: { available: true, connected: true } }))).toContain("- Nolio: verbunden (erledigte Trainings und der Plan vom Trainer)\n");
     expect(contextBlock(base)).toContain("## Verbindungen\n(unbekannt)\n");
   });
@@ -431,6 +436,18 @@ describe("contextBlock: Nolio", () => {
 });
 
 describe("coach rules (rules.ts)", () => {
+  it("knows a memory that carries WHOOP values (checked only on turns with WHOOP in the context)", () => {
+    for (const t of ["Erholung meist um 60 %.", "HRV sinkt nach langen Arbeitstagen.", "Laut WHOOP schläft sie zu wenig.", "Ruhepuls tief am Wochenende.", "Schlafleistung oft unter 70 %.", "Belastung Ø 12 am Montag."]) {
+      expect(whoopInMemory(t)).toBe(true);
+    }
+    for (const t of ["Hat morgens die meiste Energie.", "Braucht nach Rennen zwei Tage Erholung.", "Läuft dreimal pro Woche.", "Ist nach dem Nachtdienst meist müde."]) {
+      expect(whoopInMemory(t)).toBe(false);
+    }
+  });
+  it("tells the coach to say WHOOP values in words and never keep them", () => {
+    expect(PERSONA).toContain("Du sagst sie in Worten statt als Zahl");
+    expect(PERSONA).toContain("Aus WHOOP-Werten machst du nie eine Erinnerung");
+  });
   it("refuses prior hours above 30 % of the estimate unless she named or confirmed them", () => {
     // p06: 1000 h "from five years of running" on a 1230 h goal
     expect(priorProblem(1000, 1230, false)).toMatch(/mehr als 30 %/);

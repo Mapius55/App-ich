@@ -141,6 +141,7 @@ export function Space(props: SpaceProps) {
   const [detail, setDetail] = useState<Detail | null>(null);
   const [detailOrigin, setDetailOrigin] = useState<HTMLElement | null>(null);
   const [duSection, setDuSection] = useState<DuSection | null>(initial.s?.duSection ?? null);
+  const [duRequest, setDuRequest] = useState(0);
   // the row open in Du, as Du reports it (by hand too): the hash follows it
   const [duOpen, setDuOpenState] = useState<DuSection | null>(initial.s?.duSection ?? null);
   // (tourSeen() again: App decides once per page load, and the tour may have ended since, e.g. before a re-login)
@@ -154,7 +155,7 @@ export function Space(props: SpaceProps) {
   const [announce, setAnnounce] = useState("");
   const [slot, setSlot] = useState<OrbSlot | null>(null);
 
-  const state: SpaceState = { place, level, anchor, today, yearGoal, detail, detailOrigin, duSection, tour, highlight, typing: !!typing, reduced };
+  const state: SpaceState = { place, level, anchor, today, yearGoal, detail, detailOrigin, duSection, duRequest, tour, highlight, typing: !!typing, reduced };
   const stateRef = useRef(state);
   stateRef.current = state;
 
@@ -406,9 +407,11 @@ export function Space(props: SpaceProps) {
   const go = useCallback(
     async (p: Place, o?: { highlight?: string; duSection?: DuSection }) => {
       if (stateRef.current.detail && !(await close("nav"))) return;
+      // a request, not a state: Du opens the row each time (also when it was asked for before and
+      // closed by hand since) and reports what is open, so the hash follows what is really open
       if (p === "du") {
         setDuSection(o?.duSection ?? null);
-        if (o?.duSection) setDuOpenState(o.duSection);
+        if (o?.duSection) setDuRequest((n) => n + 1);
       } else setDuSection(null);
       if (stateRef.current.place !== p || motion.current.x !== baseX(p)) await pagerTo(p, GO_MS);
       if (o?.highlight) flash(o.highlight);
@@ -472,7 +475,7 @@ export function Space(props: SpaceProps) {
   const api: SpaceApi = useMemo(
     () => ({ ...state, go, goLevel, setAnchor, setYearGoal, open, close, registerCloser, flash, registerAdd, ask, startTour, setTour, setDuOpen }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [place, level, anchor, today, yearGoal, detail, detailOrigin, duSection, tour, highlight, typing, reduced],
+    [place, level, anchor, today, yearGoal, detail, detailOrigin, duSection, duRequest, tour, highlight, typing, reduced],
   );
 
   // ---------- the pager: Du ↔ Jetzt ↔ Ziele, live only at Jetzt (settled near the top) and on a side ----------

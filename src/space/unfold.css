@@ -122,7 +122,7 @@
   font-size: 0.9375rem;
   animation: plan-fade 0.3s ease both;
 }
-.detail-root .confirm-inline .btn { padding-left: 10px; padding-right: 10px; }
+.detail-root .confirm-inline .btn { padding-left: 10px; padding-right: 10px; min-width: 44px; }
 .detail-root .uf-ask .row { gap: 4px; }
 
 @media (prefers-reduced-motion: reduce) {

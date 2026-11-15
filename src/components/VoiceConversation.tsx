@@ -83,6 +83,8 @@ interface Props {
   onTyping?(on: boolean): void;
   /** request_connections: a toast with "Verbindungen ansehen" (space only; none when they're already shown) */
   connections?: { shown(): boolean; open(): void };
+  /** a turn of the conversation starts ("start"; byPerson: she typed or spoke) or ended ("end") */
+  onTurn?(t: "start" | "end", byPerson: boolean): void;
 }
 
 const dayOfIso = (iso: string) => dayOf(new Date(iso));
@@ -114,6 +116,7 @@ export function VoiceConversation({
   onActivity,
   onTyping,
   connections,
+  onTurn,
 }: Props) {
   const [phase, setPhase] = useState<Phase>("idle");
   const [speaking, setSpeaking] = useState(false);
@@ -146,6 +149,9 @@ export function VoiceConversation({
   suppressRef.current = suppressToast;
   const connectionsRef = useRef(connections);
   connectionsRef.current = connections;
+  const onTurnRef = useRef(onTurn);
+  onTurnRef.current = onTurn;
+  const kickoffRun = useRef(false);
   // the greeting waits while held (layer mode); asks from the space queue here
   const [greetPending, setGreetPending] = useState(false);
   const asks = useRef<string[]>([]);
@@ -191,6 +197,9 @@ export function VoiceConversation({
         return;
       }
       lastMessage.current = message;
+      const byPerson = !!message && !kickoffRun.current;
+      kickoffRun.current = false;
+      onTurnRef.current?.("start", byPerson);
       // the person spoke first (e.g. during the tour): a held greeting no longer fits
       if (message) {
         setSpoke(true);
@@ -261,6 +270,7 @@ export function VoiceConversation({
         setError(err instanceof Error ? err.message : String(err));
       } finally {
         setPhase("idle");
+        onTurnRef.current?.("end", byPerson);
       }
     },
     [mode, thread, context],
@@ -302,6 +312,7 @@ export function VoiceConversation({
     onKickoffSentRef.current?.();
     setHeard(text);
     setTimeout(() => setHeard((h) => (h === text ? "" : h)), 8000);
+    kickoffRun.current = true;
     run(text);
   };
 

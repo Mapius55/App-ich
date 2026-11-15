@@ -1,6 +1,6 @@
 // Du › Verbindungen › WHOOP: connect (with the confirm after the return), then the last 14 days, the
 // switch for the coach, "Jetzt holen", "Trennen" and the required attribution.
-import { useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { backend } from "../../lib/backend";
 import { dayOf } from "../../lib/plan";
 import { agoLabel, canSyncNow, SERVICE_LINES, whoopRowKind } from "../../lib/connections";
@@ -22,6 +22,15 @@ export function WhoopRow() {
   const [note, setNote] = useState<string | null>(null);
   const [consentBusy, setConsentBusy] = useState(false);
   const ids = { consent: useId(), consentHint: useId() };
+  // after "Ja, trennen" the confirm buttons go: focus stays in the row (its heading), not on the page start
+  const heading = useRef<HTMLHeadingElement>(null);
+  const [refocus, setRefocus] = useState(false);
+  useEffect(() => {
+    if (refocus && kind !== "connected") {
+      heading.current?.focus();
+      setRefocus(false);
+    }
+  }, [refocus, kind]);
 
   const sync = async () => {
     if (!canSyncNow(s?.last_sync_at, tapAt)) return setNote("Gerade eben geholt. Neue Werte kommen von selbst.");
@@ -31,7 +40,7 @@ export function WhoopRow() {
     try {
       const r = await backend.whoopSync();
       if (r.skipped === "recent") setNote("Gerade eben geholt. Neue Werte kommen von selbst.");
-      else if (!r.ok && r.error) setNote(r.error);
+      else if (!r.ok) setNote(r.error || "WHOOP ist gerade nicht erreichbar. Ich versuche es später nochmal.");
       await connStore.loadWhoop(true);
     } catch (e) {
       setNote(message(e));
@@ -60,6 +69,7 @@ export function WhoopRow() {
       await backend.whoopDisconnect();
       flow.clear();
       setNote(null);
+      setRefocus(true);
       await connStore.loadWhoop(true);
     } catch (e) {
       setNote(message(e));
@@ -79,7 +89,7 @@ export function WhoopRow() {
   return (
     <section className="du-conn cx-conn" aria-labelledby="du-conn-whoop" data-service="whoop" data-state={confirming ? "confirming" : kind}>
       <div className="du-conn-head">
-        <h4 id="du-conn-whoop" className="du-conn-name">
+        <h4 id="du-conn-whoop" className="du-conn-name" ref={heading} tabIndex={-1}>
           WHOOP
         </h4>
         {kind === "soon" && (

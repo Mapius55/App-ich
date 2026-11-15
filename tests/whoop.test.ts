@@ -195,15 +195,9 @@ const day = (d: string, v: Partial<WhoopDay> = {}): WhoopDay => ({
   recovery_score: null,
   hrv_ms: null,
   resting_hr: null,
-  spo2: null,
-  skin_temp: null,
   sleep_minutes: null,
   sleep_performance: null,
-  sleep_need_minutes: null,
-  respiratory_rate: null,
   day_strain: null,
-  kilojoule: null,
-  steps: null,
   workout_count: 0,
   workout_minutes: 0,
   ...v,
@@ -253,15 +247,9 @@ describe("daily summaries", () => {
       recovery_score: 72,
       hrv_ms: 64.3,
       resting_hr: 48,
-      spo2: 96.4,
-      skin_temp: 33.7,
       sleep_minutes: 430, // nap left out
       sleep_performance: 88,
-      sleep_need_minutes: 460,
-      respiratory_rate: 15.8,
       day_strain: 6, // current cycle, so far
-      kilojoule: 4121,
-      steps: null,
       workout_count: 0,
       workout_minutes: 0,
     });
@@ -271,12 +259,14 @@ describe("daily summaries", () => {
     expect(fri.workout_count).toBe(2);
     expect(fri.workout_minutes).toBe(55 + 30);
     expect(fri.day_strain).toBe(12.4);
-    expect(fri.steps).toBe(11234);
     expect(JSON.stringify(days)).not.toMatch(/running|yoga|sport/);
   });
-  it("leaves SpO2 and skin temperature empty for older devices", () => {
-    expect(byDay["2026-11-13"].spo2).toBeNull();
-    expect(byDay["2026-11-13"].skin_temp).toBeNull();
+  it("keeps only what the app shows or the coach reads (no SpO2, skin temperature, breathing, energy, steps or sleep need)", () => {
+    for (const d of days) {
+      expect(Object.keys(d).sort()).toEqual(
+        ["day", "day_strain", "hrv_ms", "recovery_score", "resting_hr", "sleep_minutes", "sleep_performance", "workout_count", "workout_minutes"],
+      );
+    }
     expect(byDay["2026-11-13"].recovery_score).toBe(41);
   });
   it("ignores pending and unscorable records", () => {
@@ -607,6 +597,7 @@ describe("link confirmation", () => {
     expect(appReturnUrl(app, "confirm", "Ab-_9".repeat(9))).toBe(`${app}#du/verbindungen?whoop=confirm&code=${"Ab-_9".repeat(9)}`);
     expect(appReturnUrl(app, "error")).toBe(`${app}#du/verbindungen?whoop=error`);
     expect(appReturnUrl(app, "denied")).toBe(`${app}#du/verbindungen?whoop=denied`);
+    expect(appReturnUrl(app, "taken")).toBe(`${app}#du/verbindungen?whoop=taken`);
     expect(appReturnUrl(app, "confirm")).toBe(`${app}#du/verbindungen?whoop=error`); // no code, no confirm
     expect(appReturnUrl(`${app}#jetzt`, "error")).toBe(`${app}#du/verbindungen?whoop=error`);
   });

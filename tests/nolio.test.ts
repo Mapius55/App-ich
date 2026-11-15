@@ -110,8 +110,9 @@ describe("quantities", () => {
     expect(toKm({ value: 3, unit: "parsec" })).toBeNull();
   });
   it("labels a planned volume", () => {
-    expect(volumeLabel(5400, 16.45)).toBe("1:30 h · 16,5 km");
-    expect(volumeLabel(2700, null)).toBe("45 min");
+    expect(volumeLabel(5400, 16.45)).toBe("1 Std 30 · 16,5 km");
+    expect(volumeLabel(3600, 10)).toBe("1 Std · 10 km");
+    expect(volumeLabel(2700, null)).toBe("45 Min");
     expect(volumeLabel(null, null)).toBeNull();
   });
 });
@@ -332,7 +333,7 @@ describe("plannedToEvent", () => {
       starts_at: "2026-11-18T17:15:00.000Z",
       ends_at: "2026-11-18T18:45:00.000Z",
       all_day: false,
-      notes: "Geplant: 1:30 h · 3,2 km\n\n4x400 locker, dazwischen 1' Pause.\n\nTechnik: Wasserlage.",
+      notes: "Geplant: 1 Std 30 · 3,2 km\n\n4x400 locker, dazwischen 1' Pause.\n\nTechnik: Wasserlage.",
       location: null,
       goal_id: "ironman",
       reminder_minutes: 30,

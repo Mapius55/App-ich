@@ -137,15 +137,9 @@ export interface WhoopDay {
   recovery_score: number | null;
   hrv_ms: number | null;
   resting_hr: number | null;
-  spo2: number | null;
-  skin_temp: number | null;
   sleep_minutes: number | null;
   sleep_performance: number | null;
-  sleep_need_minutes: number | null;
-  respiratory_rate: number | null;
   day_strain: number | null;
-  kilojoule: number | null;
-  steps: number | null;
   workout_count: number;
   workout_minutes: number;
 }
@@ -217,12 +211,6 @@ export function asleepMinutes(st: WhoopStageSummary | null | undefined): number 
   return null;
 }
 
-function sleepNeedMinutes(n: NonNullable<WhoopSleep["score"]>["sleep_needed"]): number | null {
-  if (!n || !isNum(n.baseline_milli)) return null;
-  const extra = [n.need_from_sleep_debt_milli, n.need_from_recent_strain_milli, n.need_from_recent_nap_milli].filter(isNum);
-  return (n.baseline_milli + extra.reduce((a, b) => a + b, 0)) / 60_000;
-}
-
 const scored = (s: { score_state?: ScoreState; score?: unknown }) => s.score_state === "SCORED" && !!s.score;
 
 // ---------- daily summaries ----------
@@ -243,10 +231,12 @@ export interface SummaryInput {
 
 /**
  * Daily summaries for the local days from..to (inclusive), one row per day that has any value.
- * - Sleep: the day you wake up. Naps are left out; several main sleeps on one day add up, the scores
- *   (performance, need, respiratory rate) come from the longest one.
+ * Only what the app shows or the coach reads is kept (data minimisation): recovery, HRV, resting heart
+ * rate, sleep, sleep performance, strain and the workouts' count and minutes.
+ * - Sleep: the day you wake up. Naps are left out; several main sleeps on one day add up, the
+ *   performance comes from the longest one.
  * - Recovery: the day of its sleep (sleep_id), else the day of its cycle.
- * - Cycle (strain, kilojoule, steps): the day of the sleep its recovery points to, else the local day
+ * - Cycle (strain): the day of the sleep its recovery points to, else the local day
  *   twelve hours after the cycle started (cycles begin around falling asleep). Two cycles on one day:
  *   the later one wins.
  * - Workouts: count and minutes on the day they start (no sport, no strain per workout).
@@ -283,15 +273,9 @@ export function summarizeDays(input: SummaryInput, opts: { tz: string; from: str
         recovery_score: null,
         hrv_ms: null,
         resting_hr: null,
-        spo2: null,
-        skin_temp: null,
         sleep_minutes: null,
         sleep_performance: null,
-        sleep_need_minutes: null,
-        respiratory_rate: null,
         day_strain: null,
-        kilojoule: null,
-        steps: null,
         workout_count: 0,
         workout_minutes: 0,
       };
@@ -311,8 +295,6 @@ export function summarizeDays(input: SummaryInput, opts: { tz: string; from: str
   for (const [d, c] of cycleOfDay) {
     const r = row(d);
     r.day_strain = bounded(c.score?.strain, 0, 21, 1);
-    r.kilojoule = bounded(c.score?.kilojoule, 0, 100_000);
-    r.steps = bounded(c.score?.step_count ?? c.step_count, 0, 200_000);
   }
 
   // 2. sleep (naps left out)
@@ -332,8 +314,6 @@ export function summarizeDays(input: SummaryInput, opts: { tz: string; from: str
     const main = list.reduce((a, b) => (b.minutes > a.minutes ? b : a));
     r.sleep_minutes = bounded(Math.min(1440, list.reduce((a, b) => a + b.minutes, 0)), 0, 1440);
     r.sleep_performance = bounded(main.s.score?.sleep_performance_percentage, 0, 100);
-    r.sleep_need_minutes = bounded(sleepNeedMinutes(main.s.score?.sleep_needed), 0, 1440);
-    r.respiratory_rate = bounded(main.s.score?.respiratory_rate, 1, 60, 1);
   }
 
   // 3. recovery (on the day of its sleep, else of its cycle; the most recently updated wins)
@@ -351,8 +331,6 @@ export function summarizeDays(input: SummaryInput, opts: { tz: string; from: str
     r.recovery_score = bounded(rec.score?.recovery_score, 0, 100);
     r.hrv_ms = bounded(rec.score?.hrv_rmssd_milli, 0, 999, 1);
     r.resting_hr = bounded(rec.score?.resting_heart_rate, 20, 250);
-    r.spo2 = bounded(rec.score?.spo2_percentage, 50, 100, 1);
-    r.skin_temp = bounded(rec.score?.skin_temp_celsius, 20, 45, 1);
   }
 
   // 4. workouts: count and minutes only
@@ -496,9 +474,10 @@ export const STATE_RE = /^[A-Za-z0-9_-]{8}$/;
 
 // ---------- link confirmation (CSRF fix) ----------
 // The OAuth callback cannot tell who is in the browser (the app keeps its login in its own storage),
-// so it never connects anyone: it keeps the tokens as a PENDING link plus a single-use code and sends the
-// browser back to the app. The app, with the person's login, confirms the code; only a pending link of
-// that same person becomes connected. A link someone else started (a forged consent link) never does.
+// so it never connects anyone: it keeps the new grant apart (whoop_pending) plus a single-use code and
+// sends the browser back to the app. The app, with the person's login, confirms the code; only a grant of
+// that same person becomes her link. A link someone else started (a forged consent link) never does, and
+// no sync ever uses a grant before that.
 
 /** What the app sends back: 32 to 512 URL-safe characters (the code itself has 43). */
 export const CONFIRM_CODE_RE = /^[A-Za-z0-9_-]{32,512}$/;
@@ -515,8 +494,9 @@ export async function hashConfirmCode(code: string): Promise<string> {
   return b64url(new Uint8Array(await crypto.subtle.digest("SHA-256", enc.encode(code))));
 }
 
-/** The app URL the callback sends the browser to: …#du/verbindungen?whoop=confirm&code=… (or whoop=error / denied). */
-export function appReturnUrl(appUrl: string, result: "confirm" | "error" | "denied", code?: string): string {
+/** The app URL the callback sends the browser to: …#du/verbindungen?whoop=confirm&code=… (or whoop=error /
+ *  denied / taken; taken: that WHOOP account is already linked to another member). */
+export function appReturnUrl(appUrl: string, result: "confirm" | "error" | "denied" | "taken", code?: string): string {
   const base = appUrl.split("#")[0];
   const q = result === "confirm" && code ? `whoop=confirm&code=${encodeURIComponent(code)}` : `whoop=${result === "confirm" ? "error" : result}`;
   return `${base}#du/verbindungen?${q}`;
@@ -525,9 +505,15 @@ export function appReturnUrl(appUrl: string, result: "confirm" | "error" | "deni
 /** A link found by its code: whose it is, its state and until when the code is valid. */
 export interface PendingLink {
   user_id: string;
-  status: string; // connections.status of that person ("pending", "connected", …)
+  /** "pending": a grant waiting for confirmation (whoop_pending); else connections.status of the link
+   *  that this code confirmed already ("connected", …) */
+  status: string;
   confirm_until: string | null;
 }
+
+/** The text of a coach reply that had WHOOP values in its context, once it is cleared (on disconnect and
+ *  after 14 days; the same text is in whoop_purge() in 20261117000000_whoop.sql). */
+export const WHOOP_CLEARED_TEXT = "Diese Antwort enthielt Werte von WHOOP und wurde gelöscht.";
 
 export type ConfirmOutcome =
   /** the caller's own pending link, in time: connect it */

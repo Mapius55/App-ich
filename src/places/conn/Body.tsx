@@ -2,7 +2,7 @@
 // last 7 days (Erholung, Schlaf, Belastung), otherwise the invitation to connect. Used by YouPlace /
 // BodySection (they own the rows); everything WHOOP-specific stays here.
 import { dayOf } from "../../lib/plan";
-import { bodyValue, connectionsValue, whoopRowKind } from "../../lib/connections";
+import { bodyValue, connectionsValue, whoopOffered, whoopRowKind } from "../../lib/connections";
 import { useNolio, useWhoop } from "./store";
 import { WhoopStrip } from "./WhoopStrip";
 import "./conn.css";
@@ -20,7 +20,8 @@ export function useConnectionsValue(): string {
 export function BodyContent({ onConnections }: { onConnections(): void }) {
   const whoop = useWhoop();
   const s = whoop.value;
-  if (whoopRowKind(s, whoop.failed) === "connected" && s) {
+  const kind = whoopRowKind(s, whoop.failed);
+  if (kind === "connected" && s) {
     return (
       <div className="du-body cx-body">
         {s.days.length > 0 ? (
@@ -40,7 +41,13 @@ export function BodyContent({ onConnections }: { onConnections(): void }) {
   }
   return (
     <div className="du-body">
-      <p className="du-serif">Verbinde WHOOP oder Polar, dann sehe ich, wie du schläfst und dich erholst.</p>
+      <p className="du-serif">
+        {kind === "loading"
+          ? "Einen Moment …"
+          : whoopOffered(kind)
+            ? "Verbinde WHOOP, dann sehe ich, wie du schläfst und dich erholst."
+            : "Sobald WHOOP oder Polar verbunden werden kann, sehe ich hier, wie du schläfst und dich erholst."}
+      </p>
       <button type="button" className="pl-quiet" onClick={onConnections}>
         Zu den Verbindungen
       </button>

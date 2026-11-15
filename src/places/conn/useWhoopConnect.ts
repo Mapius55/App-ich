@@ -40,7 +40,7 @@ export function useWhoopConnect(from: "space" | "onboarding", onOutcome?: (o: Wh
     async (r: WhoopReturn) => {
       setWhoopFrom(null);
       setError(null);
-      if (r.result === "error" || r.result === "denied") return finish(r.result);
+      if (r.result === "error" || r.result === "denied" || r.result === "taken") return finish(r.result);
       setBusy("confirming");
       try {
         if (r.result === "connected") {

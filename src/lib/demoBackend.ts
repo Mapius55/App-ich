@@ -385,6 +385,7 @@ const ONBOARDING: { q: (name: string) => string; category: MemoryCategory; asks?
 
 /** The checkin greeting asks once (space only, nothing connected): which apps and devices may I read? */
 const ASK_CONNECTIONS = " Magst du WHOOP oder Nolio verbinden? Dann trägst du kaum etwas selber ein.";
+const ASK_WHOOP = " Magst du WHOOP verbinden? Dann weiss ich, wie du geschlafen hast, und du trägst weniger selber ein.";
 
 // ---------- connections in the demo (WHOOP, Nolio) ----------
 
@@ -411,15 +412,9 @@ export function demoWhoopDay(day: string): WhoopDay {
     recovery_score: n(1, 34, 92),
     hrv_ms: n(3, 42, 82),
     resting_hr: n(4, 46, 56),
-    spo2: n(5, 94, 98, 1),
-    skin_temp: n(6, 33.2, 34.4, 1),
     sleep_minutes: sleep,
     sleep_performance: n(7, 68, 98),
-    sleep_need_minutes: n(8, 450, 520),
-    respiratory_rate: n(10, 13.5, 16, 1),
     day_strain: n(11, 5.5, 16.5, 1),
-    kilojoule: n(12, 7800, 12500),
-    steps: null,
     workout_count: workouts,
     workout_minutes: workouts ? n(13, 35, 95) : 0,
   };
@@ -452,12 +447,12 @@ interface DemoPlanned {
 }
 const DEMO_PLAN: DemoPlanned[] = [
   // tomorrow early, so the evening stays free (the day's largest gap)
-  { offset: 1, at: "07:00", minutes: 45, title: "Lockerer Dauerlauf", sport: "spt_demorun", notes: "Geplant: 45 min · 8 km\n\nGanz locker, du solltest dich unterhalten können." },
-  { offset: 2, at: "18:00", minutes: 60, title: "Intervalle 6 × 800 m", sport: "spt_demorun", notes: "Geplant: 1:00 h · 10 km\n\nEinlaufen 15 Min, 6 × 800 m im 10-km-Tempo mit 2 Min Trabpause, Auslaufen 10 Min." },
-  { offset: 4, at: "17:30", minutes: 45, title: "Kraft und Stabi", sport: "spt_demostr", notes: "Geplant: 45 min\n\nRumpf, Hüfte, Waden. Drei Runden." },
-  { offset: 6, at: "09:00", minutes: 105, title: "Langer Lauf", sport: "spt_demorun", notes: "Geplant: 1:45 h · 20 km\n\nGleichmässig, die letzten 3 km etwas zügiger." },
+  { offset: 1, at: "07:00", minutes: 45, title: "Lockerer Dauerlauf", sport: "spt_demorun", notes: "Geplant: 45 Min · 8 km\n\nGanz locker, du solltest dich unterhalten können." },
+  { offset: 2, at: "18:00", minutes: 60, title: "Intervalle 6 × 800 m", sport: "spt_demorun", notes: "Geplant: 1 Std · 10 km\n\nEinlaufen 15 Min, 6 × 800 m im 10-km-Tempo mit 2 Min Trabpause, Auslaufen 10 Min." },
+  { offset: 4, at: "17:30", minutes: 45, title: "Kraft und Stabi", sport: "spt_demostr", notes: "Geplant: 45 Min\n\nRumpf, Hüfte, Waden. Drei Runden." },
+  { offset: 6, at: "09:00", minutes: 105, title: "Langer Lauf", sport: "spt_demorun", notes: "Geplant: 1 Std 45 · 20 km\n\nGleichmässig, die letzten 3 km etwas zügiger." },
 ];
-const DEMO_DONE: DemoPlanned = { offset: -1, at: "18:00", minutes: 55, title: "Tempodauerlauf", sport: "spt_demorun", notes: "Geplant: 55 min · 10 km\n\n3 km locker, 5 km im Halbmarathon-Tempo, 2 km aus." };
+const DEMO_DONE: DemoPlanned = { offset: -1, at: "18:00", minutes: 55, title: "Tempodauerlauf", sport: "spt_demorun", notes: "Geplant: 55 Min · 10 km\n\n3 km locker, 5 km im Halbmarathon-Tempo, 2 km aus." };
 const NOLIO_SYNC_MS = 3 * 3600_000; // like the cron job
 
 const plannedId = (day: string, p: DemoPlanned) => `ptrn_demo${day.replace(/-/g, "")}${p.at.replace(":", "")}`;
@@ -490,15 +485,19 @@ export interface DemoOptions {
    * the calendar). The browser preview turns it on; tests opt in.
    */
   connections?: boolean;
+  /** with connections: this account is the owner of the app's Nolio (default). False: Nolio is "Bald verfügbar", as for every other member. */
+  nolioOwner?: boolean;
 }
 
 export class DemoBackend implements Backend {
   readonly kind = "demo" as const;
   private listeners = new Set<(id: string | null) => void>();
   private readonly connections: boolean;
+  private readonly nolioOwner: boolean;
 
   constructor(opts: DemoOptions = {}) {
     this.connections = opts.connections ?? false;
+    this.nolioOwner = this.connections && opts.nolioOwner !== false;
   }
 
   private load(): Record<string, DemoUser> {
@@ -941,7 +940,7 @@ export class DemoBackend implements Backend {
    * reminder the person set stays), yesterday's session counts as done for the goal it maps to.
    */
   private syncDemoNolio(force = false) {
-    if (!this.connections || !this.session()) return;
+    if (!this.nolioOwner || !this.session()) return;
     const u0 = this.load()[this.session()!];
     if (!u0) return;
     const last = u0.nolio?.last_sync_at ? Date.parse(u0.nolio.last_sync_at) : 0;
@@ -1005,6 +1004,7 @@ export class DemoBackend implements Backend {
 
   async nolioStatus(): Promise<NolioStatus | null> {
     if (!this.connections) return null;
+    if (!this.nolioOwner) return { available: false, connected: false, last_sync_at: null, last_error: null, running: false, counts: null, garmin: null };
     this.syncDemoNolio();
     const u = this.user();
     const today = new Date(`${dayOf()}T00:00`).getTime();
@@ -1025,7 +1025,7 @@ export class DemoBackend implements Backend {
   }
 
   async nolioSync(): Promise<NolioSyncResult> {
-    if (!this.connections) return { connected: false, reason: "not_owner" };
+    if (!this.nolioOwner) return { connected: false, reason: "not_owner" };
     await sleep(600);
     this.syncDemoNolio(true);
     const st = (await this.nolioStatus())!;
@@ -1204,11 +1204,15 @@ export class DemoBackend implements Backend {
         const h = new Date().getHours();
         const greet = h < 11 ? "Guten Morgen" : h < 17 ? "Hoi" : "Guten Abend";
         reply = `${greet}, ${name}. Wie geht es dir heute?`;
-        // once, for an account with nothing connected (only in the space: the old screens have no Verbindungen)
+        // once, for an account with nothing connected (only in the space: the old screens have no
+        // Verbindungen), by the server's rule (shouldAskConnections: no WHOOP link, no synced Nolio; the
+        // demo has no calendar subscription), and as the greeting's only question
         const u = this.user();
-        if (this.connections && req.context.view && !u.profile.connections_asked_at && u.whoop?.status !== "connected") {
+        const whoopLinked = u.whoop?.status === "connected" || u.whoop?.status === "pending";
+        const nolioLinked = this.nolioOwner && !!u.nolio?.last_sync_at;
+        if (this.connections && req.context.view && !u.profile.connections_asked_at && !whoopLinked && !nolioLinked) {
           await this.updateProfile({ connections_asked_at: now() });
-          reply += ASK_CONNECTIONS;
+          reply = `${greet}, ${name}.${this.nolioOwner ? ASK_CONNECTIONS : ASK_WHOOP}`;
           onEvent({ type: "request_connections" });
         }
       } else if (goal) {

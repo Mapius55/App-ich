@@ -1,11 +1,14 @@
 // The connection chooser under the onboarding conversation (after the coach's request_connections):
 // one chip per service. An available one starts its connect flow (WHOOP: to WHOOP and back, the
 // iPhone calendar: its steps inline); an unavailable one says why in one line. "Später" closes it.
-// Nothing here blocks finishing onboarding.
+// Nothing here blocks finishing onboarding. Only what the app can show and undo afterwards is offered:
+// the classic screens (space flag off) have no Du › Verbindungen, so WHOOP is "kommt bald" there and
+// Nolio is left out.
 import { useState } from "react";
 import { backend } from "../../lib/backend";
 import { nolioRowKind, SERVICE_NAMES, unavailableReason, whoopRowKind, type ServiceKey } from "../../lib/connections";
 import { IphoneConnect } from "../../components/plan/IphoneConnect";
+import { spaceEnabled } from "../../space/flags";
 import { connStore, useNolio, useWhoop } from "./store";
 import { WHOOP_OUTCOME_TEXT, type useWhoopConnect } from "./useWhoopConnect";
 
@@ -17,11 +20,13 @@ const Check = () => (
   </svg>
 );
 
-export function ConnChooser({ flow, onClose }: { flow: Flow; onClose(): void }) {
+export function ConnChooser({ flow, onClose, manageable = spaceEnabled() }: { flow: Flow; onClose(): void; manageable?: boolean }) {
   const whoop = useWhoop();
   const nolio = useNolio();
-  const wKind = whoopRowKind(whoop.value, whoop.failed);
-  const nKind = nolioRowKind(nolio.value, nolio.failed);
+  const wReal = whoopRowKind(whoop.value, whoop.failed);
+  // without a place to see, allow or disconnect it later, WHOOP is not offered (one that is connected stays shown)
+  const wKind = manageable || wReal === "connected" ? wReal : "soon";
+  const nKind = manageable ? nolioRowKind(nolio.value, nolio.failed) : "soon";
   const [active, setActive] = useState<ServiceKey | null>(null);
   const [reason, setReason] = useState<{ text: string; ok?: boolean } | null>(null);
   const [nolioBusy, setNolioBusy] = useState(false);
@@ -43,9 +48,12 @@ export function ConnChooser({ flow, onClose }: { flow: Flow; onClose(): void }) 
       setNolioBusy(true);
       setReason({ text: "Ich hole die Trainings von deinem Trainer …" });
       try {
-        await backend.nolioSync();
+        const r = await backend.nolioSync();
         await connStore.loadNolio(true);
-        setReason({ text: "Nolio ist verbunden. Die Trainings von deinem Trainer sind in deinem Kalender.", ok: true });
+        // the server answers a failed, throttled or running sync with 200 too: claim only what happened
+        if (r.ok === true) setReason({ text: "Nolio ist verbunden. Die Trainings von deinem Trainer sind in deinem Kalender.", ok: true });
+        else if (r.skipped === "running") setReason({ text: "Ich hole gerade schon. Gleich sind die Trainings in deinem Kalender." });
+        else setReason({ text: r.error || "Nolio ist gerade nicht erreichbar. Das holen wir später." });
       } catch {
         setReason({ text: "Nolio ist gerade nicht erreichbar. Das holen wir später." });
       } finally {

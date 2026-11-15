@@ -3,9 +3,9 @@
 // Garmin ("Bald verfügbar"), Strava (honest: its rules don't allow an AI coach). A service whose status
 // can't be read shows "Bald verfügbar", never an error or a dead button.
 import { IphoneConnect } from "../components/plan/IphoneConnect";
-import { nolioRowKind, SERVICE_LINES } from "../lib/connections";
+import { nolioRowKind, SERVICE_LINES, stravaLine, whoopOffered, whoopRowKind } from "../lib/connections";
 import { NolioRow } from "./conn/NolioRow";
-import { useNolio } from "./conn/store";
+import { useNolio, useWhoop } from "./conn/store";
 import { WhoopRow } from "./conn/WhoopRow";
 import "./conn/conn.css";
 
@@ -27,7 +27,9 @@ function SoonRow({ id, name, text }: { id: string; name: string; text: string })
 
 export function Connections() {
   const nolio = useNolio();
-  const garminViaNolio = nolioRowKind(nolio.value, nolio.failed) === "ready" && !!nolio.value?.connected;
+  const whoop = useWhoop();
+  const nolioReady = nolioRowKind(nolio.value, nolio.failed) === "ready";
+  const garminViaNolio = nolioReady && !!nolio.value?.connected;
   return (
     <div className="du-conns">
       <WhoopRow />
@@ -44,7 +46,7 @@ export function Connections() {
         <h4 id="du-conn-strava" className="du-conn-name">
           Strava
         </h4>
-        <p className="du-conn-text">{SERVICE_LINES.strava}</p>
+        <p className="du-conn-text">{stravaLine({ whoop: whoopOffered(whoopRowKind(whoop.value, whoop.failed)), nolio: nolioReady })}</p>
       </section>
     </div>
   );

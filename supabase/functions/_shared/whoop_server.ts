@@ -9,9 +9,10 @@
 //                   POST {action:"sync"} + x-cron-secret → reconciliation for every connected member
 //                                                         (pg_cron job "i-am-whoop", every 3 hours at minute 41)
 //                   POST {action:"disconnect"} (login)  → revoke at WHOOP, then delete tokens, days and connection
-//   whoop-callback  GET from WHOOP (?code&state | ?error&state) → keeps the tokens as a PENDING link plus a
-//                   single-use code (only its hash is stored, valid 10 minutes) and sends the browser back:
-//                   302 <app>#du/verbindungen?whoop=confirm&code=… (whoop=error / whoop=denied)
+//   whoop-callback  GET from WHOOP (?code&state | ?error&state) → keeps the new grant apart (whoop_pending,
+//                   never used for a sync) plus a single-use code (only its hash is stored, valid 10 minutes)
+//                   and sends the browser back: 302 <app>#du/verbindungen?whoop=confirm&code=…
+//                   (whoop=error / whoop=denied / whoop=taken: that WHOOP account is another member's)
 //   whoop-webhook   POST from WHOOP, signed with the client secret → 204 at once, the changed day follows
 // Secrets: WHOOP_CLIENT_ID, WHOOP_CLIENT_SECRET, WHOOP_TOKEN_KEY (at least 32 characters; encrypts the
 // tokens before they reach the database), PUSH_CRON_SECRET (shared with the notifications job) or
@@ -47,6 +48,7 @@ import {
   summarizeDays,
   type SyncWindow,
   syncWindow,
+  TOKEN_SKEW_MS,
   tokenRequestBody,
   type TokenSet,
   validAccessToken,
@@ -54,7 +56,9 @@ import {
   WHOOP_API,
   WHOOP_ATTRIBUTION,
   WHOOP_TOKEN_URL,
+  type PendingLink,
   type WhoopCycle,
+  WHOOP_CLEARED_TEXT,
   whoopClient,
   WhoopError,
   whoopErrorMessage,
@@ -232,12 +236,13 @@ function accessToken(sb: SupabaseClient, cfg: Config, userId: string, force = fa
         if (c?.state === "busy" || c?.state === "no_refresh") return { state: c.state };
         return { state: "missing" };
       },
-      async save(_lock, t) {
-        // access and the rotated refresh token in one statement, which also releases the lock
+      async save(lock, t) {
+        // access and the rotated refresh token in one statement, which also releases the lock; only while
+        // this caller still holds it (a confirmed new link replaced the row meanwhile: it stays)
         const row = await tokenRow(cfg, userId, t, "refresh");
         delete row.user_id;
         for (let attempt = 0; ; attempt++) {
-          const { error } = await sb.from("whoop_tokens").update(row).eq("user_id", userId);
+          const { error } = await sb.from("whoop_tokens").update(row).eq("user_id", userId).eq("refresh_lock", lock);
           if (!error) return;
           if (attempt >= 2) throw error;
           await sleep(300);
@@ -264,13 +269,21 @@ function apiFor(sb: SupabaseClient, cfg: Config, userId: string) {
 /** The tokens no longer work: the person has to connect again. The summaries stay until the daily purge. */
 async function markNeedsReconnect(sb: SupabaseClient, userId: string, e: unknown) {
   await sb.from("whoop_tokens").delete().eq("user_id", userId);
-  await sb.from("connections").update({ status: "needs_reconnect", last_error: whoopErrorMessage(e) }).eq("user_id", userId).eq("provider", PROVIDER);
+  await sb.from("connections").update({ status: "needs_reconnect", last_error: whoopErrorMessage(e) }).eq("user_id", userId).eq("provider", PROVIDER).eq("status", "connected");
+}
+
+/** No token row at all: a disconnect or a confirmation is just writing it. Not a reason to ask for a reconnect. */
+const tokenMissing = (e: unknown) => e instanceof WhoopError && e.code === "not_connected";
+
+/** Clears the text of the coach's replies that had WHOOP values in their context (messages.whoop). */
+async function clearWhoopMessages(sb: SupabaseClient, userId: string) {
+  const { error } = await sb.from("messages").update({ content: WHOOP_CLEARED_TEXT, whoop: false }).eq("user_id", userId).eq("whoop", true);
+  if (error) console.error("whoop: clearing coach replies failed:", errCode(error));
 }
 
 // ---------- sync ----------
 
-const DAY_COLS =
-  "day, recovery_score, hrv_ms, resting_hr, spo2, skin_temp, sleep_minutes, sleep_performance, sleep_need_minutes, respiratory_rate, day_strain, kilojoule, steps, workout_count, workout_minutes";
+const DAY_COLS = "day, recovery_score, hrv_ms, resting_hr, sleep_minutes, sleep_performance, day_strain, workout_count, workout_minutes";
 
 /** Fetch the window's cycles, recoveries, sleeps and workouts and rewrite the summaries of its days. */
 async function syncUser(sb: SupabaseClient, cfg: Config, userId: string, w: SyncWindow, tz: string): Promise<number> {
@@ -317,12 +330,13 @@ async function syncAndRecord(sb: SupabaseClient, cfg: Config, userId: string, w:
   const started = new Date().toISOString();
   try {
     const days = await syncUser(sb, cfg, userId, w, tz);
-    await sb.from("connections").update({ last_sync_at: started, last_error: null, status: "connected" }).eq("user_id", userId).eq("provider", PROVIDER);
+    // bookkeeping only: a sync never changes the link's status (a disconnect or reconnect meanwhile wins)
+    await sb.from("connections").update({ last_sync_at: started, last_error: null }).eq("user_id", userId).eq("provider", PROVIDER).eq("status", "connected");
     return { ok: true, days, last_sync_at: started };
   } catch (e) {
     console.error("whoop sync failed:", errCode(e));
-    if (needsReconnect(e)) await markNeedsReconnect(sb, userId, e);
-    else await sb.from("connections").update({ last_error: whoopErrorMessage(e) }).eq("user_id", userId).eq("provider", PROVIDER);
+    if (needsReconnect(e) && !tokenMissing(e)) await markNeedsReconnect(sb, userId, e);
+    else await sb.from("connections").update({ last_error: whoopErrorMessage(e) }).eq("user_id", userId).eq("provider", PROVIDER).eq("status", "connected");
     return { ok: false, error: whoopErrorMessage(e), retryAfter: e instanceof WhoopError ? e.retryAfter : null };
   }
 }
@@ -374,17 +388,21 @@ async function status(sb: SupabaseClient, cfg: Config | null, userId: string) {
     .maybeSingle();
   if (error) throw error;
   let days: unknown[] = [];
-  // a pending link has nothing synced yet (and may not even be hers: see confirm)
-  if (conn && conn.status !== "pending") {
+  let pending = false;
+  if (conn) {
     const today = localDate(new Date(), await timeZoneOf(sb, userId));
     const res = await sb.from("whoop_days").select(DAY_COLS).eq("user_id", userId).gte("day", keepFrom(today)).order("day", { ascending: false }).limit(14);
     if (res.error) throw res.error;
     days = res.data ?? [];
+  } else {
+    // back from WHOOP, not confirmed yet (a grant waiting for her app never shows any values)
+    const { data: p } = await sb.from("whoop_pending").select("user_id").eq("user_id", userId).maybeSingle();
+    pending = !!p;
   }
   return {
     available: !!cfg,
     connected: conn?.status === "connected",
-    status: conn?.status ?? null,
+    status: conn?.status ?? (pending ? "pending" : null),
     consent_ai: conn?.consent_ai ?? false,
     connected_at: conn?.connected_at ?? null,
     last_sync_at: conn?.last_sync_at ?? null,
@@ -419,6 +437,9 @@ async function syncNow(sb: SupabaseClient, cfg: Config, userId: string) {
 }
 
 // ---------- link confirmation ----------
+// A grant back from WHOOP waits in whoop_pending until the person confirms it in her app. Nothing syncs,
+// refreshes or matches webhooks with it, and it never touches a link that is connected: only her own
+// confirmation moves it into connections and whoop_tokens.
 
 /** A WHOOP account that a confirmed link (of anyone but `except`) uses. */
 async function linkedElsewhere(sb: SupabaseClient, externalId: string | null, except: string): Promise<boolean> {
@@ -427,44 +448,71 @@ async function linkedElsewhere(sb: SupabaseClient, externalId: string | null, ex
   return !!data?.length;
 }
 
-/** Someone else links (or is linking) this WHOOP account: a revoke would end their access too. */
-async function inUseElsewhere(sb: SupabaseClient, externalId: string | null, except: string): Promise<boolean> {
-  if (!externalId) return false;
-  if (await linkedElsewhere(sb, externalId, except)) return true;
-  const { data } = await sb.from("whoop_tokens").select("user_id").eq("pending_external_user_id", externalId).neq("user_id", except).limit(1);
-  return !!data?.length;
+/**
+ * A revoke would end someone's access: the WHOOP account is linked for real (by anyone, `owner` too) or
+ * someone other than `owner` is linking it right now. When unsure (a read failed), it counts as in use.
+ */
+async function inUse(sb: SupabaseClient, externalId: string, owner: string): Promise<boolean> {
+  const linked = await sb.from("connections").select("user_id").eq("provider", PROVIDER).eq("external_user_id", externalId).limit(1);
+  if (linked.error || linked.data?.length) return true;
+  const other = await sb.from("whoop_pending").select("user_id").eq("external_user_id", externalId).neq("user_id", owner).limit(1);
+  return !!other.error || !!other.data?.length;
+}
+
+interface PendingGrant {
+  external_user_id: string;
+  access_token: string;
+  refresh_token: string | null;
+  expires_at: string;
+  scope: string | null;
+  confirm_hash: string;
+  confirm_until: string;
+}
+const GRANT_COLS = "external_user_id, access_token, refresh_token, expires_at, scope, confirm_hash, confirm_until";
+
+/**
+ * Ends an unconfirmed grant at WHOOP with its own tokens. Access tokens live an hour, so one that ran
+ * out is refreshed first (and once more after a 401): a revoke with a dead token would reach nothing.
+ */
+async function revokeGrant(cfg: Config, userId: string, g: PendingGrant): Promise<boolean> {
+  let refreshed = false;
+  const refresh = async (): Promise<string | null> => {
+    if (refreshed || !g.refresh_token) return null;
+    refreshed = true;
+    const refreshToken = await openStoredToken(g.refresh_token, cfg.tokenKey, ctx(userId, "refresh"));
+    const t = await exchange(tokenRequestBody({ grant: "refresh_token", refreshToken, clientId: cfg.clientId, clientSecret: cfg.clientSecret }));
+    return t.access_token;
+  };
+  let access = await openStoredToken(g.access_token, cfg.tokenKey, ctx(userId, "access"));
+  if (Date.parse(g.expires_at) - TOKEN_SKEW_MS <= Date.now()) access = (await refresh()) ?? access;
+  return whoopClient({ fetch, token: () => Promise.resolve(access), onUnauthorized: refresh, maxWaitSec: 0 }).revoke();
 }
 
 /**
- * Removes a PENDING link (never a confirmed one): revokes its access at WHOOP as far as possible (not
- * when that WHOOP account is linked to someone for real, a revoke would end that link), then deletes
- * the connection; tokens and summaries go with it (on delete cascade).
+ * Removes this person's unconfirmed grant (never a confirmed link): revokes it at WHOOP as far as
+ * possible (not while that WHOOP account is in use, see inUse), then deletes it. True when revoked.
  */
-async function removePending(sb: SupabaseClient, cfg: Config | null, userId: string, opts: { revoke?: boolean } = {}) {
-  const { data: conn } = await sb.from("connections").select("status").eq("user_id", userId).eq("provider", PROVIDER).maybeSingle();
-  if (conn?.status !== "pending") return;
-  if (cfg && opts.revoke !== false) {
-    const { data: tok } = await sb.from("whoop_tokens").select("access_token, pending_external_user_id").eq("user_id", userId).maybeSingle();
-    if (tok?.access_token && !(await inUseElsewhere(sb, tok.pending_external_user_id ?? null, userId))) {
-      try {
-        const access = await openStoredToken(tok.access_token, cfg.tokenKey, ctx(userId, "access"));
-        await whoopClient({ fetch, token: () => Promise.resolve(access), maxWaitSec: 0 }).revoke();
-      } catch (e) {
-        console.error("whoop revoke (pending) failed:", errCode(e));
-      }
+async function removePending(sb: SupabaseClient, cfg: Config | null, userId: string, opts: { revoke?: boolean } = {}): Promise<boolean> {
+  const { data: g, error } = await sb.from("whoop_pending").select(GRANT_COLS).eq("user_id", userId).maybeSingle();
+  if (error) throw error;
+  if (!g) return false;
+  const grant = g as PendingGrant;
+  let revoked = false;
+  if (cfg && opts.revoke !== false && !(await inUse(sb, grant.external_user_id, userId))) {
+    try {
+      revoked = await revokeGrant(cfg, userId, grant);
+    } catch (e) {
+      console.error("whoop revoke (pending) failed:", errCode(e));
     }
   }
-  await check(sb.from("connections").delete().eq("user_id", userId).eq("provider", PROVIDER).eq("status", "pending"));
+  // only the grant read above: a newer one that came back from WHOOP meanwhile stays
+  await check(sb.from("whoop_pending").delete().eq("user_id", userId).eq("confirm_hash", grant.confirm_hash));
+  return revoked;
 }
 
-/** Unconfirmed links whose code ran out (reconciliation run; the daily purge is the backstop). */
+/** Unconfirmed grants whose code ran out (reconciliation run; the daily purge is the backstop). */
 async function removeExpiredPending(sb: SupabaseClient, cfg: Config) {
-  const { data } = await sb
-    .from("whoop_tokens")
-    .select("user_id, connections!inner(status)")
-    .eq("connections.status", "pending")
-    .lt("confirm_until", new Date().toISOString())
-    .limit(CLEANUP_MAX);
+  const { data } = await sb.from("whoop_pending").select("user_id").lt("confirm_until", new Date().toISOString()).limit(CLEANUP_MAX);
   for (const r of (data ?? []) as { user_id: string }[]) await removePending(sb, cfg, r.user_id).catch((e) => console.error("whoop cleanup failed:", errCode(e)));
 }
 
@@ -479,28 +527,30 @@ async function firstSync(sb: SupabaseClient, cfg: Config, userId: string) {
 }
 
 /**
- * The app confirms the link with the code from the callback, with the person's login. Only her own
- * pending link becomes connected; a wrong or foreign code removes the pending link it points to.
+ * The app confirms the grant with the code from the callback, with the person's login. Only her own
+ * grant becomes her link; a wrong or foreign code removes the grant it points to.
  */
 async function confirm(sb: SupabaseClient, cfg: Config, userId: string, code: unknown) {
   const ownPending = async () => {
-    const { data } = await sb.from("connections").select("status").eq("user_id", userId).eq("provider", PROVIDER).maybeSingle();
-    return data?.status === "pending";
+    const { data } = await sb.from("whoop_pending").select("user_id").eq("user_id", userId).maybeSingle();
+    return !!data;
   };
   if (typeof code !== "string" || !CONFIRM_CODE_RE.test(code)) {
-    if (await ownPending()) await removePending(sb, cfg, userId);
+    await removePending(sb, cfg, userId);
     return { ok: false, reason: "mismatch" };
   }
-  const { data: tok, error } = await sb
-    .from("whoop_tokens")
-    .select("user_id, confirm_until, pending_external_user_id")
-    .eq("confirm_hash", await hashConfirmCode(code))
-    .maybeSingle();
+  const hash = await hashConfirmCode(code);
+  // the grant this code belongs to, else the link it already confirmed (a repeated request)
+  const { data: p, error } = await sb.from("whoop_pending").select("user_id, confirm_until").eq("confirm_hash", hash).maybeSingle();
   if (error) throw error;
-  let found: { user_id: string; status: string; confirm_until: string | null } | null = null;
-  if (tok) {
-    const { data: c } = await sb.from("connections").select("status").eq("user_id", tok.user_id).eq("provider", PROVIDER).maybeSingle();
-    found = { user_id: tok.user_id, status: c?.status ?? "missing", confirm_until: tok.confirm_until };
+  let found: PendingLink | null = p ? { user_id: p.user_id, status: "pending", confirm_until: p.confirm_until } : null;
+  if (!found) {
+    const { data: t, error: tError } = await sb.from("whoop_tokens").select("user_id, confirm_until").eq("confirm_hash", hash).maybeSingle();
+    if (tError) throw tError;
+    if (t) {
+      const { data: c } = await sb.from("connections").select("status").eq("user_id", t.user_id).eq("provider", PROVIDER).maybeSingle();
+      found = { user_id: t.user_id, status: c?.status ?? "missing", confirm_until: t.confirm_until };
+    }
   }
   const decision = confirmOutcome(found, userId, !found || found.user_id !== userId ? await ownPending() : false, Date.now());
   if (decision.outcome === "mismatch" || decision.outcome === "expired") {
@@ -510,34 +560,62 @@ async function confirm(sb: SupabaseClient, cfg: Config, userId: string, code: un
   }
   if (decision.outcome === "already") return { ok: true, ...(await status(sb, cfg, userId)) };
 
-  // connect: only this person's pending link (a parallel confirm finds nothing left to update)
-  const externalId = tok!.pending_external_user_id ?? null;
-  const { data: updated, error: upError } = await sb
-    .from("connections")
-    .update({ status: "connected", external_user_id: externalId, connected_at: new Date().toISOString(), last_error: null })
-    .eq("user_id", userId)
-    .eq("provider", PROVIDER)
-    .eq("status", "pending")
-    .select("user_id");
-  if (upError) {
-    if ((upError as { code?: string }).code === "23505") {
-      // that WHOOP account got linked to another member in the meantime: no revoke (it is theirs now)
-      await removePending(sb, cfg, userId, { revoke: false });
-      return { ok: false, reason: "taken" };
+  // claim it in one statement: only her own grant with this code, while the code is valid (a parallel
+  // confirmation, or a newer grant arriving now, can't be mixed into it)
+  const now = new Date().toISOString();
+  const claim = async () => {
+    const { data, error: claimError } = await sb.from("whoop_pending").delete().eq("user_id", userId).eq("confirm_hash", hash).gt("confirm_until", now).select(GRANT_COLS);
+    if (claimError) throw claimError;
+    return (data?.[0] as PendingGrant | undefined) ?? null;
+  };
+  const g = await claim();
+  if (!g) {
+    // a parallel request of hers got it first: answer like it, once it has written the link
+    for (let i = 0; i < 3; i++) {
+      const { data: t } = await sb.from("whoop_tokens").select("confirm_hash").eq("user_id", userId).maybeSingle();
+      if (t?.confirm_hash === hash) return { ok: true, ...(await status(sb, cfg, userId)) };
+      await sleep(400);
     }
+    return { ok: false, reason: "mismatch" };
+  }
+  // that WHOOP account got linked to another member in the meantime: no revoke (the access is theirs)
+  if (await linkedElsewhere(sb, g.external_user_id, userId)) return { ok: false, reason: "taken" };
+
+  const { data: prev } = await sb.from("connections").select("external_user_id").eq("user_id", userId).eq("provider", PROVIDER).maybeSingle();
+  // consent_ai is not part of it: a new link starts with false, a reconnect keeps her choice
+  const { error: upError } = await sb
+    .from("connections")
+    .upsert({ user_id: userId, provider: PROVIDER, status: "connected", external_user_id: g.external_user_id, connected_at: now, last_error: null }, { onConflict: "user_id,provider" });
+  if (upError) {
+    if ((upError as { code?: string }).code === "23505") return { ok: false, reason: "taken" }; // linked elsewhere just now
     throw upError;
   }
-  if (!updated?.length) {
-    const st = await status(sb, cfg, userId);
-    return st.connected ? { ok: true, ...st } : { ok: false, reason: "mismatch" };
+  // the grant's tokens (sealed for her already) replace the link's; the code's hash stays as a marker
+  await check(
+    sb.from("whoop_tokens").upsert(
+      {
+        user_id: userId,
+        provider: PROVIDER,
+        access_token: g.access_token,
+        refresh_token: g.refresh_token,
+        expires_at: g.expires_at,
+        scope: g.scope,
+        refresh_lock: null,
+        refresh_lock_until: null,
+        confirm_hash: hash,
+        confirm_until: g.confirm_until,
+        updated_at: now,
+      },
+      { onConflict: "user_id" },
+    ),
+  );
+  if (prev?.external_user_id && prev.external_user_id !== g.external_user_id) {
+    await check(sb.from("whoop_days").delete().eq("user_id", userId)); // another WHOOP account: start afresh
   }
-  await check(sb.from("whoop_tokens").update({ pending_external_user_id: null }).eq("user_id", userId));
-  // other members' pending links to the same WHOOP account (e.g. a forged consent link): removed without
-  // a revoke, which would end the link just confirmed
-  if (externalId) {
-    const { data: others } = await sb.from("whoop_tokens").select("user_id").eq("pending_external_user_id", externalId).neq("user_id", userId).limit(CLEANUP_MAX);
-    for (const o of (others ?? []) as { user_id: string }[]) await removePending(sb, cfg, o.user_id, { revoke: false });
-  }
+  // other members' grants for the same WHOOP account (e.g. a forged consent link): removed without a
+  // revoke, which would end the link just confirmed
+  const { data: others } = await sb.from("whoop_pending").select("user_id").eq("external_user_id", g.external_user_id).neq("user_id", userId).limit(CLEANUP_MAX);
+  for (const o of (others ?? []) as { user_id: string }[]) await removePending(sb, cfg, o.user_id, { revoke: false });
   await firstSync(sb, cfg, userId);
   return { ok: true, ...(await status(sb, cfg, userId)) };
 }
@@ -546,34 +624,38 @@ async function confirm(sb: SupabaseClient, cfg: Config, userId: string, code: un
 async function disconnect(sb: SupabaseClient, cfg: Config | null, userId: string) {
   let revoked = false;
   const { data: conn } = await sb.from("connections").select("status").eq("user_id", userId).eq("provider", PROVIDER).maybeSingle();
-  // a link never confirmed: revoked only when no one else links that WHOOP account (see removePending)
-  if (conn?.status === "pending") await removePending(sb, cfg, userId);
-  else if (cfg && conn) {
+  if (cfg && conn) {
     try {
       revoked = await apiFor(sb, cfg, userId).revoke();
     } catch (e) {
       console.error("whoop revoke failed:", errCode(e));
     }
   }
+  // a grant never confirmed: revoked only when no one (her own link included) uses that WHOOP account
+  revoked = (await removePending(sb, cfg, userId).catch((e) => (console.error("whoop pending removal failed:", errCode(e)), false))) || revoked;
   // the connection first: tokens and days hang on it (on delete cascade), so a sync still running
   // cannot write anything back; the explicit deletes below only make sure
   await check(sb.from("connections").delete().eq("user_id", userId).eq("provider", PROVIDER));
   await check(sb.from("whoop_tokens").delete().eq("user_id", userId));
   await check(sb.from("whoop_days").delete().eq("user_id", userId));
+  await check(sb.from("whoop_pending").delete().eq("user_id", userId));
   await check(sb.from("whoop_oauth_states").delete().eq("user_id", userId));
+  // what the coach said with WHOOP values in mind goes too
+  await clearWhoopMessages(sb, userId);
   return { ok: true, revoked };
 }
 
 /**
  * For the function "account": before an account is deleted, WHOOP access is revoked as far as possible
  * and every WHOOP row deleted (the cascade would delete the rows, but not end the access at WHOOP).
- * A pending link is only revoked when no one else has that WHOOP account linked.
+ * An unconfirmed grant is only revoked when no one else has that WHOOP account linked.
  */
 export async function disconnectWhoopForAccount(userId: string): Promise<{ revoked: boolean }> {
   const sb = admin();
   const cfg = config();
   const { data: conn } = await sb.from("connections").select("status").eq("user_id", userId).eq("provider", PROVIDER).maybeSingle();
-  if (!conn) return { revoked: false };
+  const { data: grant } = await sb.from("whoop_pending").select("user_id").eq("user_id", userId).maybeSingle();
+  if (!conn && !grant) return { revoked: false };
   return { revoked: (await disconnect(sb, cfg, userId)).revoked };
 }
 
@@ -625,7 +707,7 @@ export async function handleApp(req: Request): Promise<Response> {
 export async function handleCallback(req: Request): Promise<Response> {
   const cfg = config();
   // never "connected" from here: the browser that comes back may not be the person who started (CSRF)
-  const back = (result: "confirm" | "error" | "denied", code?: string) =>
+  const back = (result: "confirm" | "error" | "denied" | "taken", code?: string) =>
     new Response(null, {
       status: 302,
       headers: {
@@ -669,33 +751,31 @@ export async function handleCallback(req: Request): Promise<Response> {
     if (!externalId) return back("error");
 
     // one WHOOP account belongs to one member (webhooks name the WHOOP user only); no revoke here: the
-    // access is the other member's
+    // access is the other member's. The app says so ("taken").
     if (await linkedElsewhere(sb, externalId, userId)) {
       console.error("whoop callback: account already linked to another member");
-      return back("error");
-    }
-    const { data: prev } = await sb.from("connections").select("external_user_id").eq("user_id", userId).eq("provider", PROVIDER).maybeSingle();
-    if (prev?.external_user_id && prev.external_user_id !== externalId) {
-      await check(sb.from("whoop_days").delete().eq("user_id", userId)); // a different WHOOP account: start afresh
+      return back("taken");
     }
 
-    // a PENDING link: nothing is synced and webhooks don't reach it (external_user_id stays empty) until
-    // the person confirms in the app. consent_ai is not part of the upsert: new links start with false,
-    // a reconnect keeps the choice.
+    // The grant waits apart (whoop_pending) until the person confirms it in her app: nothing syncs with
+    // it, webhooks don't reach it, and a link she has now stays exactly as it is. An earlier grant of a
+    // different WHOOP account that she never confirmed is ended first; a newer one replaces it.
+    const { data: earlier } = await sb.from("whoop_pending").select("external_user_id").eq("user_id", userId).maybeSingle();
+    if (earlier && earlier.external_user_id !== externalId) await removePending(sb, cfg, userId);
     const confirmCode = randomConfirmCode();
+    const sealed = await tokenRow(cfg, userId, tok, "new");
     await check(
-      sb.from("connections").upsert(
-        { user_id: userId, provider: PROVIDER, status: "pending", external_user_id: null, last_error: null },
-        { onConflict: "user_id,provider" },
-      ),
-    );
-    await check(
-      sb.from("whoop_tokens").upsert(
+      sb.from("whoop_pending").upsert(
         {
-          ...(await tokenRow(cfg, userId, tok, "new")),
-          pending_external_user_id: externalId,
+          user_id: userId,
+          external_user_id: externalId,
+          access_token: sealed.access_token,
+          refresh_token: sealed.refresh_token ?? null,
+          expires_at: tok.expires_at,
+          scope: tok.scope,
           confirm_hash: await hashConfirmCode(confirmCode),
           confirm_until: new Date(Date.now() + CONFIRM_TTL_MS).toISOString(),
+          created_at: new Date().toISOString(),
         },
         { onConflict: "user_id" },
       ),
@@ -727,7 +807,7 @@ async function processEvent(sb: SupabaseClient, cfg: Config, userId: string, ev:
       if (!w) return; // older than what is kept
     } catch (e) {
       console.error("whoop webhook fetch failed:", errCode(e));
-      if (needsReconnect(e)) await markNeedsReconnect(sb, userId, e);
+      if (needsReconnect(e) && !tokenMissing(e)) await markNeedsReconnect(sb, userId, e);
       return;
     }
   }

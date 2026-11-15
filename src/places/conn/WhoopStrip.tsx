@@ -1,8 +1,10 @@
 // The last 14 (or 7) WHOOP days as a calm strip: three thin bar rows (Erholung, Schlaf, Belastung), one hue,
-// the newest value on the right. Tap a day to read its values; the rows carry spoken summaries.
+// the newest value on the right. Tap a day to read its values, also the rest of what is kept for it
+// (HRV, Ruhepuls, Schlafleistung, Trainings: what the coach reads, with consent); the rows carry spoken
+// summaries. Each bar's tap area covers the gap next to it.
 import { useState } from "react";
 import { shortDay } from "../../lib/dates";
-import { average, latest, sleepLabel, strainLabel, whoopStrip, type StripDay } from "../../lib/connections";
+import { average, latest, sleepLabel, strainLabel, whoopDayDetails, whoopStrip, type StripDay } from "../../lib/connections";
 import type { WhoopDay } from "../../lib/types";
 
 type Key = "recovery" | "sleep" | "strain";
@@ -24,6 +26,7 @@ export function WhoopStrip({ days, today, n = 14 }: { days: WhoopDay[]; today: s
   const [sel, setSel] = useState<number | null>(null);
   const pick = (i: number) => setSel((s) => (s === i ? null : i));
   const shown: StripDay | null = sel === null ? null : strip[sel];
+  const details = shown ? whoopDayDetails(shown.source) : [];
 
   return (
     <div className="cx-strip">
@@ -67,6 +70,11 @@ export function WhoopStrip({ days, today, n = 14 }: { days: WhoopDay[]; today: s
           </div>
         );
       })}
+      {shown && (
+        <p className="cx-strip-more" aria-live="polite">
+          {shown.source ? (details.length ? details.join(" · ") : "Sonst nichts gespeichert.") : "Keine Werte an diesem Tag."}
+        </p>
+      )}
     </div>
   );
 }

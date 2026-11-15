@@ -9,10 +9,11 @@ vi.mock("../src/lib/backend", () => ({
     whoopStatus: () => new Promise<WhoopStatus | null>((r) => pending.push(r)),
     nolioStatus: () => Promise.resolve(null),
     onAuthChange: () => () => {},
+    currentUserId: () => Promise.resolve(null),
   },
 }));
 
-const { connStore } = await import("../src/places/conn/store");
+const { connStore, watchLogin } = await import("../src/places/conn/store");
 
 const status = (s: Partial<WhoopStatus>): WhoopStatus => ({
   available: true,
@@ -55,5 +56,18 @@ describe("connection store", () => {
     pending.shift()!(status({ connected: true, status: "connected" }));
     await load;
     expect(connStore.whoop().value).toBeUndefined();
+  });
+
+  it("resets only when another person logs in, not on the same person's auth events (resume, token refresh)", async () => {
+    let emit: (id: string | null) => void = () => {};
+    const resets: number[] = [];
+    watchLogin({ onAuthChange: (cb) => ((emit = cb), () => {}), currentUserId: () => Promise.resolve("anna") }, () => resets.push(1));
+    await Promise.resolve();
+    emit("anna"); // INITIAL_SESSION / SIGNED_IN on return to the app
+    emit("anna"); // TOKEN_REFRESHED
+    expect(resets).toHaveLength(0);
+    emit(null); // signed out
+    emit("ben");
+    expect(resets).toHaveLength(2);
   });
 });

@@ -29,7 +29,10 @@ export interface SpaceState {
   yearGoal: string | null; // Jahr filtered to one goal
   detail: Detail | null;
   detailOrigin: HTMLElement | null;
+  /** the Du row asked for by go("du", { duSection }) or a deep link; Du opens it on every request */
   duSection: DuSection | null;
+  /** counts those requests: the same row asked for again (e.g. a second "Verbindungen ansehen") opens it again */
+  duRequest: number;
   tour: TourStep | null;
   highlight: string | null; // id that glows once; cleared after 1.6 s
   typing: boolean;

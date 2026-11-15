@@ -12,20 +12,23 @@
 -- - disconnecting revokes the access at WHOOP and deletes all WHOOP rows of the person (deleting the
 --   account does the same first, in the function "account").
 -- Linking is confirmed in the app (CSRF fix): the OAuth callback cannot tell who is in the browser, so it
--- keeps the tokens as a PENDING link plus a single-use code (only its SHA-256 is stored, valid 10 minutes)
--- and sends the browser back to the app; the app confirms the code with the person's login, and only
--- her own pending link becomes connected. Unconfirmed links are removed (and revoked) by the
--- reconciliation run, at the latest by the daily purge.
+-- keeps the new grant apart, in whoop_pending, plus a single-use code (only its SHA-256 is stored, valid
+-- 10 minutes) and sends the browser back to the app; the app confirms the code with the person's login,
+-- and only then does her own pending grant move into connections and whoop_tokens. Nothing reads or
+-- syncs a pending grant, and it never touches a link that is already connected. Unconfirmed grants are
+-- removed (and revoked) by the reconciliation run, at the latest by the daily purge.
+-- Coach replies written while WHOOP values were in the coach's context are marked (messages.whoop): the
+-- coach gets them back only while the person still allows WHOOP for the coach, and they are cleared when
+-- she disconnects WHOOP and after 14 days (whoop_purge).
 -- WHOOP workouts never become goal time (training hours come from Nolio): whoop_days keeps only a
 -- daily workout count and minutes.
 
--- ---------- connections (one row per person and provider) ----------
+-- ---------- connections (one row per person and provider; only confirmed links) ----------
 create table public.connections (
   user_id uuid not null references auth.users (id) on delete cascade,
   provider text not null check (provider in ('whoop')),
-  -- pending: back from WHOOP, not yet confirmed in the app (nothing is synced, webhooks don't match it)
-  status text not null default 'pending' check (status in ('pending', 'connected', 'needs_reconnect')),
-  external_user_id text check (external_user_id is null or external_user_id ~ '^[0-9]{1,20}$'), -- WHOOP user id, set when confirmed
+  status text not null default 'connected' check (status in ('connected', 'needs_reconnect')),
+  external_user_id text check (external_user_id is null or external_user_id ~ '^[0-9]{1,20}$'), -- WHOOP user id
   consent_ai boolean not null default false,       -- "Coach darf WHOOP-Daten sehen": off until the person turns it on
   consent_ai_changed_at timestamptz,               -- set by the trigger below
   connected_at timestamptz not null default now(),
@@ -88,10 +91,8 @@ create table public.whoop_tokens (
   scope text check (scope is null or length(scope) <= 500),
   refresh_lock uuid,                -- single-flight refresh: who is refreshing right now …
   refresh_lock_until timestamptz,   -- … and until when the lease holds
-  -- link confirmation: the WHOOP user id waiting for the app's confirmation, the SHA-256 (base64url) of
-  -- the single-use code and until when it is valid. After the confirmation the hash stays only as a
-  -- marker (a repeated request of the same person answers the status); a new link replaces it.
-  pending_external_user_id text check (pending_external_user_id is null or pending_external_user_id ~ '^[0-9]{1,20}$'),
+  -- the SHA-256 (base64url) of the code this link was confirmed with, and until when that code was
+  -- valid: only a marker, so that a repeated confirmation of the same person answers the status
   confirm_hash text check (confirm_hash is null or confirm_hash ~ '^[A-Za-z0-9_-]{43}$'),
   confirm_until timestamptz,
   updated_at timestamptz not null default now(),
@@ -99,9 +100,31 @@ create table public.whoop_tokens (
   foreign key (user_id, provider) references public.connections (user_id, provider) on delete cascade
 );
 create unique index whoop_tokens_confirm_idx on public.whoop_tokens (confirm_hash) where confirm_hash is not null;
-create index whoop_tokens_pending_idx on public.whoop_tokens (pending_external_user_id) where pending_external_user_id is not null;
 alter table public.whoop_tokens enable row level security;
 revoke all on public.whoop_tokens from anon, authenticated;
+
+-- ---------- grants back from WHOOP, not yet confirmed in the app: service role only ----------
+-- Kept apart from connections and whoop_tokens, so that no sync, refresh or webhook ever uses a grant
+-- nobody confirmed (a forged consent link), and a link that is connected stays as it is until its owner
+-- confirms the new one. One per person: a newer grant replaces it. Confirming claims it in one statement
+-- (delete … returning, only her own row with that code, while it is valid) and moves it into whoop_tokens
+-- (the tokens are sealed for this person already).
+create table public.whoop_pending (
+  user_id uuid primary key references auth.users (id) on delete cascade,
+  external_user_id text not null check (external_user_id ~ '^[0-9]{1,20}$'),   -- the WHOOP user of this grant
+  access_token text not null check (access_token like 'v1.%'),                 -- sealed, never plain
+  refresh_token text check (refresh_token is null or refresh_token like 'v1.%'), -- sealed
+  expires_at timestamptz not null,
+  scope text check (scope is null or length(scope) <= 500),
+  confirm_hash text not null check (confirm_hash ~ '^[A-Za-z0-9_-]{43}$'),     -- SHA-256 of the single-use code
+  confirm_until timestamptz not null,                                          -- the code is valid 10 minutes
+  created_at timestamptz not null default now()
+);
+create unique index whoop_pending_confirm_idx on public.whoop_pending (confirm_hash);
+create index whoop_pending_external_idx on public.whoop_pending (external_user_id);
+create index whoop_pending_until_idx on public.whoop_pending (confirm_until);
+alter table public.whoop_pending enable row level security;
+revoke all on public.whoop_pending from anon, authenticated;
 
 -- Single-flight refresh. WHOOP's refresh tokens rotate and a second concurrent refresh fails, so exactly
 -- one caller may refresh at a time: the row is locked (select … for update), a short lease is written and
@@ -152,6 +175,7 @@ alter table public.whoop_oauth_states enable row level security;
 revoke all on public.whoop_oauth_states from anon, authenticated;
 
 -- ---------- daily summaries (the person's local day), at most 14 days ----------
+-- Only what the app shows (Du › Verbindungen) or the coach reads (with consent): nothing else is stored.
 create table public.whoop_days (
   user_id uuid not null references auth.users (id) on delete cascade,
   provider text not null default 'whoop' check (provider = 'whoop'),
@@ -159,15 +183,9 @@ create table public.whoop_days (
   recovery_score smallint check (recovery_score between 0 and 100),         -- %
   hrv_ms numeric(4, 1) check (hrv_ms between 0 and 999),                    -- HRV (RMSSD), ms
   resting_hr smallint check (resting_hr between 20 and 250),                -- bpm
-  spo2 numeric(4, 1) check (spo2 between 50 and 100),                       -- %, WHOOP 4.0 and newer
-  skin_temp numeric(3, 1) check (skin_temp between 20 and 45),              -- °C, WHOOP 4.0 and newer
   sleep_minutes smallint check (sleep_minutes between 0 and 1440),          -- asleep (light + deep + REM), naps excluded
   sleep_performance smallint check (sleep_performance between 0 and 100),   -- %
-  sleep_need_minutes smallint check (sleep_need_minutes between 0 and 1440),
-  respiratory_rate numeric(3, 1) check (respiratory_rate between 1 and 60), -- breaths per minute
   day_strain numeric(3, 1) check (day_strain between 0 and 21),
-  kilojoule integer check (kilojoule between 0 and 100000),
-  steps integer check (steps between 0 and 200000),
   workout_count smallint not null default 0 check (workout_count between 0 and 100),
   workout_minutes smallint not null default 0 check (workout_minutes between 0 and 1440),
   updated_at timestamptz not null default now(),
@@ -190,15 +208,25 @@ create index whoop_webhook_seen_at_idx on public.whoop_webhook_seen (seen_at);
 alter table public.whoop_webhook_seen enable row level security;
 revoke all on public.whoop_webhook_seen from anon, authenticated;
 
+-- ---------- coach replies that had WHOOP values in their context ----------
+-- Set by the function "coach" on its reply while the WHOOP line was in the context. Such a reply goes
+-- back to the coach only while she allows WHOOP for the coach; disconnecting WHOOP and the daily purge
+-- (after 14 days) replace its text with WHOOP_CLEARED_TEXT and clear the mark.
+alter table public.messages add column whoop boolean not null default false;
+create index messages_whoop_idx on public.messages (user_id) where whoop;
+
 -- ---------- daily purge ----------
 -- Summaries older than 14 days (today and the 13 days before stay), trace ids older than 2 days,
--- OAuth states older than 10 minutes, and links never confirmed in the app (their tokens go with them;
--- the reconciliation run normally removes them sooner and revokes them at WHOOP first).
+-- OAuth states older than 10 minutes, grants never confirmed in the app (the reconciliation run normally
+-- removes them sooner and revokes them at WHOOP first), and the text of coach replies with WHOOP values
+-- older than 14 days. The cleared text is the same as WHOOP_CLEARED_TEXT in _shared/whoop.ts.
 create function public.whoop_purge() returns void language sql set search_path = '' as $$
   delete from public.whoop_days where day < current_date - 13;
   delete from public.whoop_webhook_seen where seen_at < now() - interval '2 days';
   delete from public.whoop_oauth_states where created_at < now() - interval '10 minutes';
-  delete from public.connections where provider = 'whoop' and status = 'pending' and updated_at < now() - interval '1 day';
+  delete from public.whoop_pending where created_at < now() - interval '1 day';
+  update public.messages set content = 'Diese Antwort enthielt Werte von WHOOP und wurde gelöscht.', whoop = false
+    where whoop and created_at < now() - interval '14 days';
 $$;
 revoke execute on function public.whoop_purge() from public, anon, authenticated;
 

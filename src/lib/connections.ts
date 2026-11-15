@@ -2,10 +2,12 @@
 // the connection chooser in onboarding and the demo backend. No DOM, no storage (see whoopReturn.ts).
 import type { NolioStatus, WhoopDay, WhoopStatus } from "./types";
 import { addDays } from "./plan";
+import { hoursMinutes } from "./dates";
 
 // ---------- the return from WHOOP (#du/verbindungen?whoop=…) ----------
 
-export type WhoopReturnResult = "confirm" | "connected" | "error" | "denied";
+/** taken: that WHOOP account is already linked to another member of the app */
+export type WhoopReturnResult = "confirm" | "connected" | "error" | "denied" | "taken";
 
 export interface WhoopReturn {
   result: WhoopReturnResult;
@@ -47,6 +49,7 @@ export function parseWhoopHash(hash: string, now = Date.now()): { ret: WhoopRetu
     }
   } else if (w === "connected") result = "connected";
   else if (w === "denied") result = "denied";
+  else if (w === "taken") result = "taken";
   return { ret: { result, code, at: now }, hash: base === "#" ? "" : base };
 }
 
@@ -61,7 +64,7 @@ export function readWhoopReturn(raw: string | null, now = Date.now()): WhoopRetu
   }
   const r = j as Partial<WhoopReturn> | null;
   if (!r || typeof r !== "object" || typeof r.at !== "number") return null;
-  if (!["confirm", "connected", "error", "denied"].includes(String(r.result))) return null;
+  if (!["confirm", "connected", "error", "denied", "taken"].includes(String(r.result))) return null;
   if (now - r.at > WHOOP_RETURN_TTL_MS || r.at - now > 60_000) return null;
   if (r.result === "confirm" && !(typeof r.code === "string" && WHOOP_CODE_RE.test(r.code))) return null;
   return { result: r.result as WhoopReturnResult, code: r.result === "confirm" ? (r.code as string) : null, at: r.at };
@@ -148,7 +151,10 @@ export interface StripDay {
   recovery: number | null; // %
   sleep: number | null; // minutes
   strain: number | null; // 0–21
+  /** the day's summary as stored (also what the coach reads, with consent); null = no summary */
+  source: WhoopDay | null;
 }
+export type StripMetric = "recovery" | "sleep" | "strain";
 
 /** The last `n` days up to today, oldest first; days without a summary stay as gaps (null). */
 export function whoopStrip(days: WhoopDay[], today: string, n = 14): StripDay[] {
@@ -157,13 +163,28 @@ export function whoopStrip(days: WhoopDay[], today: string, n = 14): StripDay[] 
   for (let i = n - 1; i >= 0; i--) {
     const day = addDays(today, -i);
     const d = by.get(day);
-    out.push({ day, recovery: d?.recovery_score ?? null, sleep: d?.sleep_minutes ?? null, strain: d?.day_strain ?? null });
+    out.push({ day, recovery: d?.recovery_score ?? null, sleep: d?.sleep_minutes ?? null, strain: d?.day_strain ?? null, source: d ?? null });
   }
   return out;
 }
 
+/**
+ * The rest of a day's stored values, for the tapped day of the strip: HRV, resting heart rate, sleep
+ * performance and the workouts. With the bars this is everything that is kept, and all the coach reads.
+ */
+export function whoopDayDetails(d: WhoopDay | null | undefined): string[] {
+  if (!d) return [];
+  const n = (v: number | null | undefined) => (v === null || v === undefined || !Number.isFinite(v) ? null : Math.round(v));
+  const out: string[] = [];
+  if (n(d.hrv_ms) !== null) out.push(`HRV ${n(d.hrv_ms)} ms`);
+  if (n(d.resting_hr) !== null) out.push(`Ruhepuls ${n(d.resting_hr)}`);
+  if (n(d.sleep_performance) !== null) out.push(`Schlafleistung ${n(d.sleep_performance)} %`);
+  if (d.workout_count > 0) out.push(`${d.workout_count} ${d.workout_count === 1 ? "Training" : "Trainings"}, ${hoursMinutes(d.workout_minutes)}`);
+  return out;
+}
+
 /** the newest value of a strip metric, with its day */
-export function latest<K extends keyof Omit<StripDay, "day">>(strip: StripDay[], key: K): { day: string; value: number } | null {
+export function latest<K extends StripMetric>(strip: StripDay[], key: K): { day: string; value: number } | null {
   for (let i = strip.length - 1; i >= 0; i--) {
     const v = strip[i][key];
     if (v !== null) return { day: strip[i].day, value: v };
@@ -172,7 +193,7 @@ export function latest<K extends keyof Omit<StripDay, "day">>(strip: StripDay[],
 }
 
 /** the average of a strip metric over the days that have it */
-export function average<K extends keyof Omit<StripDay, "day">>(strip: StripDay[], key: K): number | null {
+export function average<K extends StripMetric>(strip: StripDay[], key: K): number | null {
   const xs = strip.map((d) => d[key]).filter((v): v is number => v !== null);
   return xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null;
 }
@@ -204,9 +225,17 @@ export const SERVICE_LINES = {
   polar: "Würde Trainings, Schlaf und Erholung von deiner Polar-Uhr lesen.",
   garmin: "Würde Trainings, Schlaf und Erholung von deiner Garmin-Uhr lesen.",
   garminViaNolio: "Deine Garmin-Trainings kommen schon über Nolio zu mir.",
-  strava:
-    "Strava erlaubt nicht, seine Daten an einen KI-Coach weiterzugeben. Darum verbinde ich es nicht. Verbinde lieber deine Uhr direkt: WHOOP, später Polar, oder Garmin über Nolio.",
+  strava: "Strava erlaubt nicht, seine Daten an einen KI-Coach weiterzugeben. Darum verbinde ich es nicht.",
 } as const;
+
+/** Strava's line in Du › Verbindungen: the way round it names only what can be connected right now. */
+export function stravaLine(o: { whoop: boolean; nolio: boolean }): string {
+  const ways = [o.whoop ? "WHOOP direkt" : null, o.nolio ? "Garmin über Nolio" : null].filter(Boolean);
+  return ways.length ? `${SERVICE_LINES.strava} Verbinde lieber ${ways.join(" oder ")}.` : SERVICE_LINES.strava;
+}
+
+/** WHOOP can be connected (or is) on this server: not "Bald verfügbar", not unreachable */
+export const whoopOffered = (k: WhoopRowKind) => k === "connect" || k === "pending" || k === "reconnect" || k === "connected";
 
 /** the one-line reason in the onboarding chooser when a service can't be connected (yet) */
 export function unavailableReason(key: ServiceKey, o: { nolio?: boolean } = {}): string {

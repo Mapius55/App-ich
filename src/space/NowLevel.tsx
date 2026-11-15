@@ -134,6 +134,20 @@ export function NowLevel({ profile, palette, weather, focus, onSlot }: NowLevelP
     onSlotRef.current({ size: Math.max(0, Math.floor(Math.min(el.clientWidth, height, 300))), cx: left + el.clientWidth / 2, cy: top + delta + height / 2 });
   }, [colorsOpen]);
 
+  // The tour's block replaces greeting and focus in one render (step 2 → 3 when Jetzt is back, a new
+  // step, the end): the layout is final already, so the circle gets its slot at once and glides
+  // straight there, instead of sitting over the new caption until the observer above settles.
+  const tourShown = tourHere ? tour : null;
+  const tourWas = useRef(tourShown);
+  useLayoutEffect(() => {
+    if (tourWas.current === tourShown) return;
+    tourWas.current = tourShown;
+    const el = slotRef.current;
+    if (!el) return;
+    const { left, top } = docOffset(el);
+    onSlotRef.current({ size: Math.max(0, Math.floor(Math.min(el.clientWidth, el.clientHeight, 300))), cx: left + el.clientWidth / 2, cy: top + el.clientHeight / 2 });
+  }, [tourShown]);
+
   // (the slot never captures the pointer: vertical drags scroll, sideways drags page)
   const press = (down: boolean) => () => pressOrb(down);
 

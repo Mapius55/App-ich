@@ -393,12 +393,12 @@ export function diffGoalTime(
 
 const MOMENT: Record<string, string> = { morning: "morgens", noon: "mittags", afternoon: "nachmittags", evening: "abends" };
 
-/** "1:30 h · 12 km" */
+/** "1 Std 30 · 12 km", "45 Min", "1 Std" (the app's units, as in „1 Std 30 geplant“) */
 export function volumeLabel(secs: number | null, km: number | null): string | null {
   const parts: string[] = [];
   if (secs !== null && secs >= 60) {
     const m = Math.round(secs / 60);
-    parts.push(m >= 60 ? `${Math.floor(m / 60)}:${String(m % 60).padStart(2, "0")} h` : `${m} min`);
+    parts.push(m >= 60 ? `${Math.floor(m / 60)} Std${m % 60 ? ` ${m % 60}` : ""}` : `${m} Min`);
   }
   if (km !== null && km > 0) parts.push(`${String(round(km, 1)).replace(".", ",")} km`);
   return parts.length ? parts.join(" · ") : null;

@@ -192,15 +192,9 @@ export interface WhoopDay {
   recovery_score: number | null; // %
   hrv_ms: number | null;
   resting_hr: number | null;
-  spo2: number | null;
-  skin_temp: number | null;
   sleep_minutes: number | null;
-  sleep_performance: number | null;
-  sleep_need_minutes: number | null;
-  respiratory_rate: number | null;
+  sleep_performance: number | null; // %
   day_strain: number | null; // 0–21
-  kilojoule: number | null;
-  steps: number | null;
   workout_count: number;
   workout_minutes: number;
 }

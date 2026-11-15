@@ -9,7 +9,8 @@
   gap: 10px;
   text-align: center;
 }
-.space .tour-block { margin-top: 18px; width: 100%; max-width: 30rem; animation: tour-in 300ms var(--ease-out) both; }
+/* the block's fade waits a moment: the circle glides out of its way first (NowLevel reports the new slot at once) */
+.space .tour-block { margin-top: 18px; width: 100%; max-width: 30rem; animation: tour-in 300ms var(--ease-out) 120ms both; }
 .tour-caption .tour-caption-inner { animation: tour-in 300ms var(--ease-out) both; }
 @keyframes tour-in { from { opacity: 0; } }
 
