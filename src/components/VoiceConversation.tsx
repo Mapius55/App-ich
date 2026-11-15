@@ -4,8 +4,10 @@ import type { CoachContext, CoachEvent, Goal } from "../lib/types";
 import type { OrbState } from "./Portal";
 import { pulseOrb } from "../lib/orbSignals";
 import { eventWhen, minutesLabel, shortDay } from "../lib/dates";
-import { perWeekLabel } from "../lib/plan";
+import { dayOf, perWeekLabel } from "../lib/plan";
 import { isAudioUnlocked, listenOnce, Speaker, splitSentences, unlockAudio, type ListenHandle } from "../lib/voice";
+import * as coachBus from "../space/coachBus";
+import { targetOf, type Target } from "../space/state";
 
 // The conversation as pure voice: the coach speaks (no text on screen), you
 // tap the white button and talk; the app hears when you're done and sends.
@@ -19,6 +21,8 @@ interface Toast {
   title: string;
   when?: string;
   icon?: "calendar" | "goal" | "check";
+  /** what "Ansehen" opens (space only) */
+  target?: Target;
 }
 
 // goal_saved covers new goals (created: true) and changed ones; a step ticked a
@@ -59,7 +63,25 @@ interface Props {
   kickoff?: string | null;
   /** Called when the kickoff went out, so it isn't sent again later. */
   onKickoffSent?: () => void;
+  /** "layer": the space's single, always-mounted conversation (asks come from coachBus, not kickoff) */
+  variant?: "screen" | "layer";
+  /** the smaller dock away from Jetzt (mic 56, round 48) */
+  compact?: boolean;
+  /** while true the greeting and queued asks wait (e.g. during the tour) */
+  hold?: boolean;
+  /** "untilFirstMessage": "Tippe und sprich" only until the person's first message of the day */
+  idleHint?: "always" | "untilFirstMessage";
+  /** asked before a toast: true = the change is visible where the person is (it glows instead) */
+  suppressToast?(t: Target): boolean;
+  /** the toast's "Ansehen" */
+  onOpenTarget?(t: Target): void;
+  /** something is happening in the status area (phase, heard words, error, toasts) */
+  onActivity?(active: boolean): void;
+  /** the typed field opened or closed */
+  onTyping?(on: boolean): void;
 }
+
+const dayOfIso = (iso: string) => dayOf(new Date(iso));
 
 const STATUS: Record<Phase, string> = {
   idle: "Tippe und sprich",
@@ -69,7 +91,25 @@ const STATUS: Record<Phase, string> = {
   speaking: "",
 };
 
-export function VoiceConversation({ mode, thread, context, onEvent, onOrbState, extra, leftButton, kickoff, onKickoffSent }: Props) {
+export function VoiceConversation({
+  mode,
+  thread,
+  context,
+  onEvent,
+  onOrbState,
+  extra,
+  leftButton,
+  kickoff,
+  onKickoffSent,
+  variant = "screen",
+  compact = false,
+  hold = false,
+  idleHint = "always",
+  suppressToast,
+  onOpenTarget,
+  onActivity,
+  onTyping,
+}: Props) {
   const [phase, setPhase] = useState<Phase>("idle");
   const [speaking, setSpeaking] = useState(false);
   const [heard, setHeard] = useState("");
@@ -94,6 +134,17 @@ export function VoiceConversation({ mode, thread, context, onEvent, onOrbState, 
   const kickoffSent = useRef(false);
   const onKickoffSentRef = useRef(onKickoffSent);
   onKickoffSentRef.current = onKickoffSent;
+  const layer = variant === "layer";
+  const holdRef = useRef(hold);
+  holdRef.current = hold;
+  const suppressRef = useRef(suppressToast);
+  suppressRef.current = suppressToast;
+  // the greeting waits while held (layer mode); asks from the space queue here
+  const [greetPending, setGreetPending] = useState(false);
+  const asks = useRef<string[]>([]);
+  const [askTick, setAskTick] = useState(0);
+  // has the person said anything today? ("Tippe und sprich" goes after the first message)
+  const [spoke, setSpoke] = useState(false);
 
   // what the portal shows
   const shown: Phase = speaking ? "speaking" : phase;
@@ -118,6 +169,8 @@ export function VoiceConversation({ mode, thread, context, onEvent, onOrbState, 
   }, [locked]);
 
   const toast = (t: Omit<Toast, "id">) => {
+    // the space: a change already visible where the person is glows instead of toasting
+    if (t.target && suppressRef.current?.(t.target)) return;
     const id = Date.now() + Math.random();
     setToasts((xs) => [...xs, { ...t, id }]);
     setTimeout(() => setToasts((xs) => xs.filter((x) => x.id !== id)), 7000);
@@ -131,6 +184,7 @@ export function VoiceConversation({ mode, thread, context, onEvent, onOrbState, 
         return;
       }
       lastMessage.current = message;
+      if (message) setSpoke(true);
       speaker.current.reset();
       setError(null);
       setNote(null);
@@ -152,7 +206,7 @@ export function VoiceConversation({ mode, thread, context, onEvent, onOrbState, 
           } else if (e.type === "error") {
             setError(e.message);
           } else if (e.type === "event_created" || e.type === "event_updated") {
-            toast({ label: e.type === "event_created" ? "Im Kalender „I am“" : "Termin geändert", title: e.event.title, when: eventWhen(e.event) });
+            toast({ label: e.type === "event_created" ? "Im Kalender „I am“" : "Termin geändert", title: e.event.title, when: eventWhen(e.event), target: targetOf(e, dayOfIso) ?? undefined });
             pulseOrb(0.5);
             onEventRef.current(e);
           } else if (e.type === "event_deleted") {
@@ -160,14 +214,14 @@ export function VoiceConversation({ mode, thread, context, onEvent, onOrbState, 
             onEventRef.current(e);
           } else if (e.type === "goal_saved") {
             const t = goalToast(e, toasted.current);
-            if (t) toast(t);
+            if (t) toast({ ...t, target: targetOf(e, dayOfIso) ?? undefined });
             pulseOrb(0.4);
             onEventRef.current(e);
           } else if (e.type === "time_logged") {
             // the goal_saved that follows for the same goal needs no second toast
             toasted.current.set(e.goal_id, Date.now());
             if (e.minutes > 0) {
-              toast({ label: `+${minutesLabel(e.minutes)}`, title: e.title, icon: "check" });
+              toast({ label: `+${minutesLabel(e.minutes)}`, title: e.title, icon: "check", target: targetOf(e, dayOfIso) ?? undefined });
               pulseOrb(0.4);
             }
             onEventRef.current(e);
@@ -175,11 +229,11 @@ export function VoiceConversation({ mode, thread, context, onEvent, onOrbState, 
             toast({ label: "Ziel entfernt", title: e.title, icon: "goal" });
             onEventRef.current(e);
           } else if (e.type === "habit_saved") {
-            toast({ label: "Gewohnheit", title: e.habit.title, when: perWeekLabel(e.habit.per_week), icon: "check" });
+            toast({ label: "Gewohnheit", title: e.habit.title, when: perWeekLabel(e.habit.per_week), icon: "check", target: targetOf(e, dayOfIso) ?? undefined });
             pulseOrb(0.4);
             onEventRef.current(e);
           } else if (e.type === "habit_logged") {
-            toast({ label: e.done ? "Abgehakt" : "Wieder offen", title: e.title, icon: "check" });
+            toast({ label: e.done ? "Abgehakt" : "Wieder offen", title: e.title, icon: "check", target: targetOf(e, dayOfIso) ?? undefined });
             if (e.done) pulseOrb(0.4);
             onEventRef.current(e);
           } else if (e.type !== "done") {
@@ -206,12 +260,18 @@ export function VoiceConversation({ mode, thread, context, onEvent, onOrbState, 
         if (!alive) return;
         const lastA = [...msgs].reverse().find((m) => m.role === "assistant" && !m.hidden);
         if (lastA) setLastReply(lastA.content);
+        setSpoke(msgs.some((m) => m.role === "user" && !m.hidden));
         if (msgs.length === 0 && started.current !== thread) {
           started.current = thread;
-          // with a kickoff waiting, it opens the day instead of the greeting
-          const k = kickoffRef.current;
-          if (k && !kickoffSent.current) sendKickoff(k);
-          else run();
+          if (layer) {
+            // a queued ask opens the day instead of the greeting; a held greeting waits
+            if (!asks.current.length) setGreetPending(true);
+          } else {
+            // with a kickoff waiting, it opens the day instead of the greeting
+            const k = kickoffRef.current;
+            if (k && !kickoffSent.current) sendKickoff(k);
+            else run();
+          }
         }
         setReady(true);
       })
@@ -230,17 +290,39 @@ export function VoiceConversation({ mode, thread, context, onEvent, onOrbState, 
     run(text);
   };
 
-  // Once the parent cleared the kickoff, a later one may go out (the space keeps this mounted).
+  // Once the parent cleared the kickoff, a later one may go out.
   useEffect(() => {
     if (!kickoff) kickoffSent.current = false;
   }, [kickoff]);
 
   // A kickoff goes out once, when the conversation is loaded and quiet.
   useEffect(() => {
-    if (!kickoff || kickoffSent.current || !ready || phase !== "idle" || speaking) return;
+    if (layer || !kickoff || kickoffSent.current || !ready || phase !== "idle" || speaking) return;
     sendKickoff(kickoff);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [kickoff, ready, phase, speaking]);
+
+  // Layer mode: asks from anywhere in the space ("Mit dem Coach planen") queue here
+  useEffect(() => {
+    if (!layer) return;
+    return coachBus.onAsk((text) => {
+      asks.current.push(text);
+      setAskTick((n) => n + 1);
+    });
+  }, [layer]);
+
+  // …and go out one at a time once the conversation is loaded, quiet and not held
+  useEffect(() => {
+    if (!layer || !ready || hold || phase !== "idle" || speaking) return;
+    if (asks.current.length) {
+      setGreetPending(false);
+      sendKickoff(asks.current.shift()!);
+    } else if (greetPending) {
+      setGreetPending(false);
+      run();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [layer, askTick, ready, hold, phase, speaking, greetPending]);
 
   const talk = async () => {
     await unlockAudio();
@@ -294,13 +376,26 @@ export function VoiceConversation({ mode, thread, context, onEvent, onOrbState, 
     [...sentences, rest].forEach((s) => speaker.current.say(s));
   };
 
+  const idleText = idleHint === "always" || !spoke ? STATUS.idle : "";
   const status =
-    locked && speaking ? "Tippe irgendwo, um mich zu hören" : shown === "speaking" ? "" : note ?? STATUS[shown];
+    locked && speaking ? "Tippe irgendwo, um mich zu hören" : shown === "speaking" ? "" : note ?? (shown === "idle" ? idleText : STATUS[shown]);
+
+  const activity = shown !== "idle" || !!heard || !!error || !!note || toasts.length > 0;
+  const onActivityRef = useRef(onActivity);
+  onActivityRef.current = onActivity;
+  useEffect(() => {
+    onActivityRef.current?.(activity);
+  }, [activity]);
+  const onTypingRef = useRef(onTyping);
+  onTypingRef.current = onTyping;
+  useEffect(() => {
+    onTypingRef.current?.(typing);
+  }, [typing]);
 
   return (
-    <div className="voice">
+    <div className={`voice${layer ? " layer" : ""}${compact ? " compact" : ""}`} data-phase={shown} data-typed={typing || undefined}>
       <div className="voice-status" aria-live="polite">
-        {status && <span className={`voice-status-text ${shown}`}>{status}</span>}
+        {status && <span className={`voice-status-text ${shown}${!note && shown === "idle" ? " idle-hint" : ""}`}>{status}</span>}
         {heard && <p className="voice-heard">„{heard}“</p>}
         {error && (
           <div className="msg-error" role="alert">
@@ -344,6 +439,19 @@ export function VoiceConversation({ mode, thread, context, onEvent, onOrbState, 
               <span className="event-card-title">{t.title}</span>
               {t.when && <span className="event-card-when">{t.when}</span>}
             </span>
+            {t.target && onOpenTarget && (
+              <button
+                type="button"
+                className="event-card-open"
+                onClick={() => {
+                  const target = t.target!;
+                  setToasts((xs) => xs.filter((x) => x.id !== t.id));
+                  onOpenTarget(target);
+                }}
+              >
+                Ansehen
+              </button>
+            )}
           </div>
         ))}
       </div>

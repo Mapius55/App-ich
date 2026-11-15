@@ -19,3 +19,7 @@ verify_jwt = false
 
 [functions.voice]
 verify_jwt = false
+
+# Nolio sync for the owner only: called by pg_cron (shared secret) and by the app (checks the login itself).
+[functions.nolio]
+verify_jwt = false
