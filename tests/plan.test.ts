@@ -7,12 +7,16 @@ import {
   goalProgress,
   habitStreak,
   habitWeek,
+  isoWeek,
   monthGrid,
   perWeekLabel,
   streakLabel,
   weekDays,
   weekStart,
+  weekdayIndex,
+  yearMonths,
 } from "../src/lib/plan";
+import { dayTitle, daySubline, hoursMinutes, spokenMinutes, weekRange, weekTitle } from "../src/lib/dates";
 import type { Goal } from "../src/lib/types";
 
 describe("days and weeks", () => {
@@ -170,5 +174,78 @@ describe("year view", () => {
     expect(w.at(-1)![0]).toBe("2026-11-09");
     expect(w[0][0]).toBe("2025-11-10"); // 52 weeks before this Monday
     expect(w.every((x) => x.length === 7)).toBe(true);
+  });
+});
+
+describe("calendar year", () => {
+  it("ISO weeks around New Year 2026/27 and 2027/28", () => {
+    expect(isoWeek("2026-11-14")).toBe(46);
+    expect(isoWeek("2026-11-16")).toBe(47);
+    expect(isoWeek("2025-12-29")).toBe(1); // Monday of the week with 1 January 2026 (a Thursday)
+    expect(isoWeek("2026-01-01")).toBe(1);
+    expect(isoWeek("2026-12-28")).toBe(53); // 2026 has 53 weeks
+    expect(isoWeek("2026-12-31")).toBe(53);
+    expect(isoWeek("2027-01-01")).toBe(53);
+    expect(isoWeek("2027-01-03")).toBe(53);
+    expect(isoWeek("2027-01-04")).toBe(1);
+    expect(isoWeek("2027-12-31")).toBe(52); // 2027 has 52
+    expect(isoWeek("2028-01-02")).toBe(52);
+    expect(isoWeek("2028-01-03")).toBe(1);
+  });
+
+  it("yearMonths: 12 months of 6 Monday-first weeks", () => {
+    const ms = yearMonths(2026);
+    expect(ms.map((m) => m.month)).toEqual(["2026-01", "2026-02", "2026-03", "2026-04", "2026-05", "2026-06", "2026-07", "2026-08", "2026-09", "2026-10", "2026-11", "2026-12"]);
+    for (const m of ms) {
+      expect(m.cells).toHaveLength(42);
+      expect(weekdayIndex(m.cells[0].day)).toBe(0);
+      // consecutive days, the month's own days marked
+      m.cells.forEach((c, i) => i && expect(daysBetween(m.cells[i - 1].day, c.day)).toBe(1));
+      const own = m.cells.filter((c) => c.inMonth);
+      expect(own[0].day).toBe(`${m.month}-01`);
+      expect(own.every((c) => c.day.startsWith(m.month))).toBe(true);
+    }
+    expect(ms[1].cells.filter((c) => c.inMonth)).toHaveLength(28);
+    expect(ms[0].cells.filter((c) => c.inMonth)).toHaveLength(31);
+    expect(ms[1].cells[0].day).toBe("2026-01-26"); // 1 Feb 2026 is a Sunday
+    for (const [i, m] of ms.entries()) expect(m.cells.slice(0, monthGrid(`${m.month}-01`).length), String(i)).toEqual(monthGrid(`${m.month}-01`)); // starts like monthGrid
+    expect(yearMonths(2028)[1].cells.filter((c) => c.inMonth)).toHaveLength(29);
+  });
+});
+
+describe("titles and sublines for the space", () => {
+  it("day titles and sublines", () => {
+    expect(dayTitle("2026-11-14", "2026-11-14")).toBe("HEUTE");
+    expect(dayTitle("2026-11-15", "2026-11-14")).toBe("MORGEN");
+    expect(dayTitle("2026-11-13", "2026-11-14")).toBe("GESTERN");
+    expect(dayTitle("2026-11-18", "2026-11-14")).toBe("MITTWOCH");
+    expect(dayTitle("2026-11-17", "2026-11-14")).toBe("DIENSTAG");
+    expect(daySubline("2026-11-14", "2026-11-14")).toBe("Samstag, 14. November");
+    expect(daySubline("2027-03-01", "2026-11-14")).toBe("Montag, 1. März 2027");
+  });
+
+  it("week ranges and titles", () => {
+    expect(weekRange("2026-11-18")).toBe("16.–22. November");
+    expect(weekRange("2026-12-01")).toBe("30. November – 6. Dezember");
+    expect(weekRange("2026-12-30")).toBe("28. Dezember 2026 – 3. Januar 2027");
+    expect(weekTitle("2026-11-12", "2026-11-14")).toBe("DIESE WOCHE");
+    expect(weekTitle("2026-11-16", "2026-11-14")).toBe("NÄCHSTE WOCHE");
+    expect(weekTitle("2026-11-08", "2026-11-14")).toBe("LETZTE WOCHE");
+    expect(weekTitle("2026-11-30", "2026-11-14")).toBe("KW 49");
+    expect(weekTitle("2027-01-01", "2026-11-14")).toBe("KW 53");
+  });
+
+  it("hours and minutes, written and spoken", () => {
+    expect(hoursMinutes(465)).toBe("7 Std 45");
+    expect(hoursMinutes(120)).toBe("2 Std");
+    expect(hoursMinutes(45)).toBe("45 Min");
+    expect(hoursMinutes(0)).toBe("0 Min");
+    expect(hoursMinutes(12720)).toBe("212 Std");
+    expect(hoursMinutes(60 * 1234)).toBe("1'234 Std");
+    expect(spokenMinutes(105)).toBe("1 Stunde 45");
+    expect(spokenMinutes(465)).toBe("7 Stunden 45");
+    expect(spokenMinutes(60)).toBe("1 Stunde");
+    expect(spokenMinutes(45)).toBe("45 Minuten");
+    expect(spokenMinutes(1)).toBe("1 Minute");
   });
 });

@@ -75,7 +75,9 @@ export function useLevels(o: { initial: Level; onSettle: (level: Level) => void;
   }, []);
 
   useEffect(() => {
-    document.documentElement.classList.toggle("space-nosnap", !o.snap);
+    const root = document.documentElement;
+    root.classList.toggle("space-nosnap", !o.snap);
+    return () => root.classList.remove("space-nosnap");
   }, [o.snap]);
 
   const scrollToLevel = useCallback(

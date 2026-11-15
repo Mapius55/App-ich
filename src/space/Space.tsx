@@ -3,7 +3,7 @@
 // Phase 0 skeleton: stacked snapped sections, settle → state, hash sync, sides by
 // buttons, the docked circle, the dock's left slot, voice mounted once.
 // Phase 1 (A) adds the pager, docking, Portal pause, resume, tour nudges.
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { backend } from "../lib/backend";
 import type { Coords } from "../lib/location";
 import type { Palette } from "../lib/palette";
@@ -235,8 +235,8 @@ export function Space(props: SpaceProps) {
     if (props.startTour && !initial.deepLink) setTourState((t) => t ?? 1);
   }, [props.startTour, initial.deepLink]);
 
-  // html data attributes: the test contract and the CSS hooks
-  useEffect(() => {
+  // html data attributes: the test contract and the CSS hooks (the class before the first scroll)
+  useLayoutEffect(() => {
     const root = document.documentElement;
     root.classList.add("space-on");
     return () => {
@@ -346,22 +346,31 @@ export function Space(props: SpaceProps) {
   }, [close, go, goLevel, setTour]);
 
   // "Mit dem Coach planen" etc.: coachBus → the conversation's kickoff, one at a time
+  // (phase 1 replaces this bridge with VoiceConversation's own coachBus subscription)
   const [kickoff, setKickoff] = useState<string | null>(null);
+  const kickoffRef = useRef<string | null>(null);
   const asks = useRef<string[]>([]);
+  const pump = useCallback(() => {
+    if (kickoffRef.current !== null || !asks.current.length) return;
+    kickoffRef.current = asks.current.shift()!;
+    setKickoff(kickoffRef.current);
+  }, []);
   useEffect(
     () =>
       coachBus.onAsk((text) => {
         asks.current.push(text);
-        setKickoff((k) => k ?? asks.current.shift() ?? null);
+        pump();
       }),
-    [],
+    [pump],
   );
-  const onKickoffSent = useCallback(() => setKickoff(null), []);
+  const onKickoffSent = useCallback(() => {
+    kickoffRef.current = null;
+    setKickoff(null);
+  }, []);
+  // the next ask goes out only after a render with no kickoff (the conversation re-arms on null)
   useEffect(() => {
-    if (kickoff || !asks.current.length) return;
-    const t = setTimeout(() => setKickoff(asks.current.shift() ?? null), 0);
-    return () => clearTimeout(t);
-  }, [kickoff]);
+    if (kickoff === null) pump();
+  }, [kickoff, pump]);
 
   // the coach sees where the person is
   const contextRef = useRef(props.context);
@@ -445,7 +454,7 @@ export function Space(props: SpaceProps) {
       <div className="detail-root">
         <DetailHost />
       </div>
-      <div className="space-voice" data-compact={place !== "jetzt" || level > 0 || undefined}>
+      <div className="voice-layer" data-compact={place !== "jetzt" || level > 0 || undefined}>
         <VoiceConversation
           mode="checkin"
           thread={today}
