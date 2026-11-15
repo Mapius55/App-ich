@@ -147,8 +147,8 @@ void main() {
 
 /** the flat colour-flow look (no highlight, no shading) for places without WebGL */
 export function orbFallbackBackground(colors: string[]): string {
-  const [c0, c1, c2] = [colors[0], colors[1] ?? colors[0], colors[2] ?? colors[0]];
-  return `radial-gradient(70% 70% at 22% 28%, ${c1} 0%, transparent 70%), radial-gradient(70% 70% at 78% 72%, ${c2} 0%, transparent 70%), linear-gradient(135deg, ${c0}, ${c2})`;
+  const [c0, c1, c2, c4] = [colors[0], colors[1] ?? colors[0], colors[2] ?? colors[0], colors[4] ?? colors[2] ?? colors[0]];
+  return `radial-gradient(120% 70% at 0% 100%, ${c1} 0%, transparent 60%), radial-gradient(80% 120% at 100% 0%, ${c4} 0%, transparent 60%), radial-gradient(70% 70% at 70% 80%, ${c2} 0%, transparent 70%), ${c0}`;
 }
 
 interface Live {

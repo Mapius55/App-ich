@@ -1,7 +1,18 @@
-// STUB (phase 0): Builder C replaces the body; the props are final.
+// Du (§3.6): the left side of Jetzt. The name, the coach's summary, five collapsible
+// rows (what I know, body, connections, notifications, settings) and a footer with
+// today's colours and "Abmelden". The dock "+" notes something about you.
+import { useCallback, useEffect, useRef, useState } from "react";
+import { backend } from "../lib/backend";
 import type { Coords } from "../lib/location";
 import type { Palette } from "../lib/palette";
-import type { Profile } from "../lib/types";
+import type { Memory, Profile } from "../lib/types";
+import { useSpace, type DuSection } from "../space/state";
+import { BodySection } from "./BodySection";
+import { Connections } from "./Connections";
+import { DuRow } from "./DuRow";
+import { MemoryList } from "./MemoryList";
+import { NotificationsSection, notifyValue } from "./NotificationsSection";
+import { SettingsSection } from "./SettingsSection";
 
 export interface YouPlaceProps {
   titleId: string;
@@ -13,13 +24,113 @@ export interface YouPlaceProps {
   onCoords(c: Coords | null): void;
 }
 
-export function YouPlace(props: YouPlaceProps) {
+const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
+
+export function YouPlace({ titleId, active, profile, palette, hasCoords, onProfile, onCoords }: YouPlaceProps) {
+  const { duSection, reduced, registerAdd } = useSpace();
+  const [openRow, setOpenRow] = useState<DuSection | null>(duSection);
+  const [memories, setMemories] = useState<Memory[] | null>(null);
+  const [memError, setMemError] = useState<string | null>(null);
+  const [adding, setAdding] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const reveal = useRef<DuSection | null>(duSection);
+
+  // the memories: fresh on every visit (the coach notes things while you talk)
+  const loadMemories = useCallback(() => {
+    backend
+      .listMemories()
+      .then((m) => {
+        setMemories(m);
+        setMemError(null);
+      })
+      .catch((e) => setMemError(message(e)));
+  }, []);
+  useEffect(() => {
+    if (active) loadMemories();
+  }, [active, loadMemories]);
+
+  // go("du", { duSection }) and #du/verbindungen: open that row and bring it up
+  useEffect(() => {
+    if (!duSection) return;
+    setOpenRow(duSection);
+    reveal.current = duSection;
+  }, [duSection]);
+
+  // a row that should come into view: put it where the title sits (after it opened)
+  useEffect(() => {
+    const id = reveal.current;
+    if (!id || openRow !== id) return;
+    reveal.current = null;
+    const t = requestAnimationFrame(() => {
+      const root = rootRef.current;
+      const side = root?.closest<HTMLElement>(".side");
+      const row = root?.querySelector<HTMLElement>(`[data-section="${id}"]`);
+      const title = root?.querySelector<HTMLElement>(".pl-title");
+      if (!side || !row || !title) return;
+      const top = row.getBoundingClientRect().top - title.getBoundingClientRect().top;
+      side.scrollTo({ top: Math.max(0, side.scrollTop + top), behavior: reduced ? "auto" : "smooth" });
+    });
+    return () => cancelAnimationFrame(t);
+  }, [openRow, reduced]);
+
+  const openSection = (id: DuSection) => {
+    reveal.current = id;
+    setOpenRow(id);
+  };
+  const toggle = (id: DuSection) => (openRow === id ? setOpenRow(null) : setOpenRow(id));
+
+  // the dock "+" here: "Etwas über dich notieren" (the memories with the add form)
+  useEffect(() => {
+    registerAdd("du", () => {
+      reveal.current = "memories";
+      setOpenRow("memories");
+      setAdding(true);
+    });
+    return () => registerAdd("du", null);
+  }, [registerAdd]);
+
+  const name = profile.display_name?.trim() || "Du";
+  const row = (id: DuSection) => ({ id, open: openRow === id, dim: openRow !== null && openRow !== id, onToggle: () => toggle(id) });
+
   return (
-    <div className="stub" data-active={props.active || undefined}>
-      <h2 id={props.titleId} className="stub-title" tabIndex={-1}>
-        {props.profile.display_name?.trim() || "Du"}
+    <div ref={rootRef} className="pl du" data-active={active || undefined}>
+      <h2 id={titleId} className="pl-title" tabIndex={-1}>
+        {name}
       </h2>
-      <p className="stub-sub">Du (Platzhalter)</p>
+      {profile.summary?.trim() && <p className="du-summary">{profile.summary.trim()}</p>}
+
+      <div className="du-rows">
+        <DuRow {...row("memories")} title="Was ich über dich weiss" value={memories ? String(memories.length) : null}>
+          <MemoryList items={memories} error={memError} onItems={(fn) => setMemories((xs) => fn(xs ?? []))} adding={adding} setAdding={setAdding} />
+        </DuRow>
+        <DuRow {...row("body")} title="Dein Körper" value="Noch nicht verbunden">
+          <BodySection onConnections={() => openSection("connections")} />
+        </DuRow>
+        <DuRow {...row("connections")} title="Verbindungen" value="iPhone-Kalender">
+          <Connections />
+        </DuRow>
+        <DuRow {...row("notifications")} title="Benachrichtigungen" value={notifyValue(profile)}>
+          <NotificationsSection profile={profile} onProfile={onProfile} />
+        </DuRow>
+        <DuRow {...row("settings")} title="Einstellungen">
+          <SettingsSection profile={profile} hasCoords={hasCoords} onProfile={onProfile} onCoords={onCoords} />
+        </DuRow>
+      </div>
+
+      <footer className="du-foot">
+        <p className="du-colors">
+          <span className="du-colors-label">Farben heute:</span>{" "}
+          <span className="du-colors-names">{palette.names.join(" · ")}</span>
+          <span className="du-swatches" aria-hidden="true">
+            {palette.colors.map((c, i) => (
+              <span key={i} className="du-swatch" style={{ background: c }} />
+            ))}
+          </span>
+        </p>
+        <button type="button" className="pl-quiet du-signout" onClick={() => backend.signOut()}>
+          Abmelden
+        </button>
+      </footer>
     </div>
   );
 }

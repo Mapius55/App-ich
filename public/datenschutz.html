@@ -1,0 +1,322 @@
+<!doctype html>
+<html lang="de-CH">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#05060a" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="robots" content="noindex" />
+    <link rel="icon" href="icon.svg" type="image/svg+xml" />
+    <title>Datenschutz · I am</title>
+    <style>
+      :root {
+        --bg-top: #05060a;
+        --bg-bottom: #0a0c14;
+        --text: #fbf8f4;
+        --text-soft: rgba(251, 248, 244, 0.7);
+        --text-faint: rgba(251, 248, 244, 0.5);
+        --line: rgba(255, 255, 255, 0.14);
+        --glass: rgba(255, 255, 255, 0.05);
+        --accent: #ffb38a;
+        --accent-2: #8a7fe0;
+        --serif: "Bodoni Moda", "Didot", "Bodoni 72", ui-serif, Georgia, serif;
+        --sans: "Inter Tight", "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+        color-scheme: dark;
+      }
+      * { box-sizing: border-box; }
+      html { -webkit-text-size-adjust: 100%; }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font-family: var(--sans);
+        font-size: 16.5px;
+        line-height: 1.6;
+        color: var(--text);
+        background: var(--bg-top);
+        background-image:
+          radial-gradient(60rem 30rem at 15% -10%, rgba(138, 127, 224, 0.16), transparent 60%),
+          radial-gradient(50rem 28rem at 100% 0%, rgba(255, 179, 138, 0.1), transparent 60%),
+          linear-gradient(var(--bg-top), var(--bg-bottom));
+        background-attachment: fixed;
+        -webkit-font-smoothing: antialiased;
+      }
+      main {
+        max-width: 42rem;
+        margin: 0 auto;
+        padding: calc(env(safe-area-inset-top, 0px) + 2.5rem) 16px calc(env(safe-area-inset-bottom, 0px) + 4rem);
+      }
+      a { color: var(--text); text-decoration-color: var(--accent); text-underline-offset: 3px; }
+      a:focus-visible { outline: 1px solid rgba(255, 255, 255, 0.4); outline-offset: 3px; border-radius: 4px; }
+      .back {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+        padding: 0.45rem 0.9rem;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        background: var(--glass);
+        color: var(--text-soft);
+        font-size: 0.85rem;
+        text-decoration: none;
+      }
+      .back:hover { color: var(--text); }
+      .label {
+        display: inline-block;
+        margin: 2.2rem 0 0.4rem;
+        padding: 0.2rem 0.7rem;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        font-size: 0.72rem;
+        font-weight: 600;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: var(--text-soft);
+      }
+      h1 {
+        margin: 0.4rem 0 0.6rem;
+        font-size: clamp(2.2rem, 8vw, 3.2rem);
+        font-weight: 800;
+        letter-spacing: 0.01em;
+        line-height: 1.05;
+        text-transform: uppercase;
+      }
+      .lead { font-family: var(--serif); font-size: 1.22rem; line-height: 1.5; color: var(--text); margin: 0 0 0.4rem; }
+      .meta { color: var(--text-faint); font-size: 0.85rem; margin: 0; }
+      h2 { margin: 0.2rem 0 0.7rem; font-size: 1.3rem; font-weight: 700; line-height: 1.25; }
+      h3 { margin: 1.4rem 0 0.3rem; font-size: 1rem; font-weight: 600; }
+      p, li { color: var(--text-soft); }
+      p { margin: 0.5rem 0; }
+      strong { color: var(--text); font-weight: 600; }
+      ul { margin: 0.4rem 0; padding-left: 1.2rem; }
+      li { margin: 0.3rem 0; }
+      li::marker { color: var(--accent); }
+      section { padding-bottom: 0.4rem; border-bottom: 1px solid var(--line); }
+      section:last-of-type { border-bottom: 0; }
+      .card {
+        margin: 1rem 0;
+        padding: 1rem 1.1rem;
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        background: var(--glass);
+      }
+      .card p:first-child, .card ul:first-child { margin-top: 0; }
+      .card p:last-child, .card ul:last-child { margin-bottom: 0; }
+      .path {
+        white-space: nowrap;
+        padding: 0.05rem 0.45rem;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        font-size: 0.88em;
+        color: var(--text);
+      }
+      .attribution { font-size: 0.8rem; letter-spacing: 0.04em; color: var(--text-faint); }
+      footer { margin-top: 2.5rem; color: var(--text-faint); font-size: 0.85rem; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <a class="back" href="./">← Zur App</a>
+
+      <span class="label">I am</span>
+      <h1>Datenschutz</h1>
+      <p class="lead">Was die App speichert, wozu, wer es sieht und wie du es wieder löschst.</p>
+      <p class="meta">Stand: November 2026</p>
+
+      <div class="card">
+        <ul>
+          <li><strong>Deine Daten gehören dir.</strong> Jede Person sieht nur ihre eigenen Daten.</li>
+          <li><strong>Keine Werbung, kein Tracking, kein Verkauf</strong> von Daten.</li>
+          <li>Der Coach ist eine KI: <strong>Claude von Anthropic (USA)</strong>. Er bekommt, was er für das Gespräch braucht.</li>
+          <li><strong>WHOOP-Daten</strong> speichert die App nur als Tageswerte und <strong>höchstens 14 Tage</strong>. Der Coach sieht sie nur, wenn du es ausdrücklich erlaubst.</li>
+          <li>Du kannst alles <strong>ansehen, herunterladen, Verbindungen trennen</strong> und dein <strong>Konto mit allen Daten löschen</strong>.</li>
+        </ul>
+      </div>
+
+      <section>
+        <span class="label">Verantwortlich</span>
+        <h2>Wer hinter der App steht</h2>
+        <p>
+          „I am“ ist eine kleine, private App. Verantwortlich ist die Person, die sie betreibt und dir den Zugang gegeben hat.
+          Fragen zum Datenschutz, Wünsche nach Auskunft oder Löschung richtest du direkt an sie.
+        </p>
+      </section>
+
+      <section>
+        <span class="label">Was gespeichert wird</span>
+        <h2>Was die App über dich speichert</h2>
+
+        <h3>Dein Konto</h3>
+        <p>
+          Benutzername und Passwort (das Passwort nur als verschlüsselter Prüfwert, nie im Klartext), dein Name, falls du ihn angibst,
+          deine Zeitzone und die Zeiten, zu denen du Nachrichten vom Coach möchtest.
+        </p>
+
+        <h3>Gespräche und was der Coach sich merkt</h3>
+        <p>
+          Deine Gespräche mit dem Coach, die Erinnerungen unter <span class="path">Was ich über dich weiss</span>, Stimmung und Fokus pro Tag,
+          eine kurze Zusammenfassung über dich und deine Lieblingsnatur (für die Farben).
+        </p>
+
+        <h3>Ziele und Kalender</h3>
+        <p>
+          Ziele, Etappen, Gewohnheiten, die Zeit, die du in deine Ziele steckst, und deine Kalendereinträge.
+          Für das Kalender-Abo auf dem Handy gibt es einen privaten Link, den du in der App erneuern kannst.
+        </p>
+
+        <h3>Ort, nur wenn du ihn teilst</h3>
+        <p>
+          Dein Standort wird auf etwa einen Kilometer gerundet, dazu ein Ortsname. Er dient für Sonnenstand, Wetter und Farben.
+        </p>
+
+        <h3>Benachrichtigungen</h3>
+        <p>Pro Gerät, auf dem du Nachrichten erlaubst, eine technische Adresse, die dein Browser dafür vergibt.</p>
+
+        <h3>Aus Verbindungen</h3>
+        <div class="card">
+          <p>
+            <strong>Nolio</strong> (nur wenn für dein Konto eingerichtet): abgeschlossene Trainings (Tag, Sportart, Dauer, Distanz,
+            Belastung, Empfinden, Gerät) sowie die Trainings und Wettkämpfe, die dein Trainer plant. Daraus entstehen die Zeit für deine
+            Ziele und die Einträge im Kalender. Trainings, die über Strava oder WHOOP zu Nolio kamen, bleiben ohne Messwerte.
+          </p>
+        </div>
+        <div class="card">
+          <p>
+            <strong>WHOOP</strong> (nur wenn du WHOOP verbindest): pro Tag eine Zusammenfassung mit Erholung, Herzfrequenzvariabilität (HRV),
+            Ruhepuls, Sauerstoffsättigung und Hauttemperatur (nur bei neueren Geräten), Schlafdauer, Schlafleistung, Schlafbedarf,
+            Atemfrequenz, Tagesbelastung, Energieverbrauch, Schritten sowie Anzahl und Dauer der Workouts.
+          </p>
+          <p>
+            <strong>Nicht gespeichert</strong> werden einzelne Workouts, Sportarten, Herzfrequenzkurven, Rohdaten sowie Name und E-Mail aus
+            deinem WHOOP-Profil. Die App behält nur deine WHOOP-Kennnummer, damit sie Meldungen von WHOOP dir zuordnen kann.
+          </p>
+          <p>
+            Die Tageswerte werden <strong>nach 14 Tagen automatisch gelöscht</strong>. Die Zugangsschlüssel zu WHOOP sind zusätzlich
+            verschlüsselt und nur für den Server lesbar. WHOOP-Workouts zählen nicht als Zeit für deine Ziele (die kommt aus Nolio),
+            damit nichts doppelt zählt. Unter <span class="path">Du → Verbindungen</span> siehst du jederzeit alles, was gesammelt wurde.
+          </p>
+          <p class="attribution">Daten von WHOOP</p>
+        </div>
+      </section>
+
+      <section>
+        <span class="label">Wozu</span>
+        <h2>Wofür die Daten da sind</h2>
+        <ul>
+          <li>damit der Coach dich kennt und dich im Alltag begleiten kann,</li>
+          <li>für Erinnerungen, Kalender, Ziele und Gewohnheiten,</li>
+          <li>für die Farben der App (Sonnenstand, Wetter, Jahreszeit).</li>
+        </ul>
+        <p>
+          Nicht dafür: Werbung, Profile für andere, Verkauf von Daten oder Analyse-Werkzeuge. Die App setzt keine Cookies für Werbung
+          oder Statistik.
+        </p>
+      </section>
+
+      <section>
+        <span class="label">Der Coach</span>
+        <h2>Claude von Anthropic (USA)</h2>
+        <p>
+          Die Antworten des Coaches schreibt <strong>Claude</strong>, eine KI von Anthropic mit Sitz in den USA. Für jede Antwort schickt
+          der Server die Angaben, die für das Gespräch nötig sind: das Gespräch des Tages, deine Erinnerungen und die Zusammenfassung über
+          dich, Stimmung und Fokus, kommende Termine, Ziele und Gewohnheiten (auch die Zeit aus Nolio), Tageszeit, Ortsname und Wetter.
+          Die Daten werden dafür in die USA übermittelt. Laut den Geschäftsbedingungen von Anthropic für diesen Zugang werden sie nicht
+          zum Trainieren der Modelle verwendet.
+        </p>
+        <div class="card">
+          <p>
+            <strong>WHOOP und der Coach:</strong> Der Coach sieht WHOOP-Daten nur, wenn du unter
+            <span class="path">Du → Verbindungen</span> ausdrücklich einschaltest, dass er sie sehen darf. Ab Werk ist das aus.
+            Auch dann bekommt er nur eine kurze Zusammenfassung, zum Beispiel „Erholung 72 %, Schlaf 7 Std 10“, nie einzelne Messreihen.
+            Du kannst es jederzeit wieder ausschalten.
+          </p>
+        </div>
+        <p>
+          Der Coach ist kein Arzt. Er gibt keine medizinischen Ratschläge und stellt keine Diagnosen. Werte von WHOOP sind für ihn nur eine
+          Orientierung für Energie, Schlaf und Belastung. Bei gesundheitlichen Fragen wende dich an eine Fachperson.
+        </p>
+      </section>
+
+      <section>
+        <span class="label">Stimme</span>
+        <h2>Sprechen mit dem Coach</h2>
+        <p>
+          Im Sprachmodus spricht der Coach mit einer Stimme von <strong>ElevenLabs</strong> (Anbieter mit Sitz in den USA): Seine Antworten
+          gehen als Text an ElevenLabs und kommen als Ton zurück. Deine Sprachaufnahme geht an ElevenLabs, um sie in Text umzuwandeln.
+          Die App speichert keine Tonaufnahmen, nur den Text des Gesprächs. Ohne ElevenLabs spricht die Stimme deines Geräts.
+          Der Mikrofon-Knopf beim Tippen nutzt die Spracherkennung deines Browsers.
+        </p>
+      </section>
+
+      <section>
+        <span class="label">Wo die Daten liegen</span>
+        <h2>Dienste, die die App nutzt</h2>
+        <ul>
+          <li>
+            <strong>Supabase</strong>: Datenbank, Login und Server-Funktionen, auf Servern in Europa. Alles wird verschlüsselt übertragen
+            und verschlüsselt gespeichert. Jede Person sieht nur ihre eigenen Zeilen.
+          </li>
+          <li>
+            <strong>GitHub Pages</strong> (GitHub, USA) liefert die Dateien der App aus. Dabei sieht GitHub technisch deine IP-Adresse,
+            aber keine Inhalte aus der App.
+          </li>
+          <li><strong>Google Fonts</strong>: Die Schriften der App werden von Google geladen. Dabei erfährt Google deine IP-Adresse.</li>
+          <li><strong>Open-Meteo</strong>: Für das Wetter fragt dein Browser mit dem gerundeten Standort nach, ohne Konto und ohne Namen.</li>
+          <li><strong>Anthropic</strong> (Coach) und <strong>ElevenLabs</strong> (Stimme), wie oben beschrieben.</li>
+          <li><strong>WHOOP</strong> und <strong>Nolio</strong>, nur wenn verbunden.</li>
+          <li>
+            <strong>Auf deinem Gerät</strong> bleiben die Anmeldung und ein paar Einstellungen im Speicher des Browsers, etwa der gerundete
+            Ort und ein Zwischenspeicher fürs Wetter.
+          </li>
+        </ul>
+      </section>
+
+      <section>
+        <span class="label">Wie lange</span>
+        <h2>Aufbewahrung</h2>
+        <ul>
+          <li>Konto, Gespräche, Erinnerungen, Ziele und Kalender: solange dein Konto besteht.</li>
+          <li>Der Coach räumt seine Erinnerungen täglich auf und löscht, was unwichtig, zu persönlich, doppelt oder lange vorbei ist.</li>
+          <li><strong>WHOOP-Tageswerte: höchstens 14 Tage</strong>, danach löscht die App sie täglich automatisch.</li>
+          <li>Technische Hilfsdaten für die WHOOP-Verbindung: Anmeldecodes 10 Minuten, Kennungen von WHOOP-Meldungen 2 Tage.</li>
+          <li>
+            Löschst du dein Konto, ist alles sofort weg. Sicherungskopien beim Anbieter der Datenbank werden nach kurzer Zeit überschrieben.
+          </li>
+        </ul>
+      </section>
+
+      <section>
+        <span class="label">Deine Kontrolle</span>
+        <h2>Ansehen, mitnehmen, löschen</h2>
+        <ul>
+          <li><strong>Ansehen:</strong> <span class="path">Du → Was ich über dich weiss</span> und <span class="path">Du → Verbindungen</span> (WHOOP-Tageswerte).</li>
+          <li><strong>Herunterladen:</strong> <span class="path">Du → Einstellungen → Deine Daten → Herunterladen</span>.</li>
+          <li>
+            <strong>WHOOP trennen:</strong> <span class="path">Du → Verbindungen → WHOOP trennen</span>. Die App widerruft den Zugriff bei
+            WHOOP und löscht alle WHOOP-Daten. Die Erlaubnis für den Coach kannst du dort auch einzeln ausschalten.
+          </li>
+          <li><strong>Konto löschen:</strong> <span class="path">Du → Einstellungen → Konto löschen</span> löscht dein Konto mit allen Daten endgültig.</li>
+        </ul>
+        <p>
+          Du hast das Recht auf Auskunft, Berichtigung, Löschung und Herausgabe deiner Daten. Wende dich dafür an die Person, die die App
+          betreibt. Beschweren kannst du dich beim Eidgenössischen Datenschutz- und Öffentlichkeitsbeauftragten (EDÖB) oder, wenn du in der
+          EU lebst, bei der Datenschutzbehörde deines Landes.
+        </p>
+      </section>
+
+      <section>
+        <span class="label">Sicherheit</span>
+        <h2>Wie die Daten geschützt sind</h2>
+        <p>
+          Verbindungen laufen verschlüsselt (HTTPS), die Datenbank speichert verschlüsselt, und Regeln in der Datenbank sorgen dafür, dass
+          jede Person nur ihre eigenen Daten lesen kann. Die Schlüssel für Claude, ElevenLabs, Nolio und WHOOP liegen nur auf dem Server,
+          nie in der App oder auf deinem Handy.
+        </p>
+      </section>
+
+      <footer>
+        <p>Ändert sich etwas Wesentliches, steht es hier, mit neuem Datum.</p>
+        <p>WHOOP ist eine Marke von WHOOP, Inc. „I am“ ist ein unabhängiges Projekt und nicht mit WHOOP verbunden.</p>
+      </footer>
+    </main>
+  </body>
+</html>

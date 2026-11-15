@@ -356,22 +356,27 @@ export function Space(props: SpaceProps) {
   }, []);
 
   // after programmatic or keyboard navigation: focus the new heading (or the flashed row)
-  const focusAfterNav = useCallback(async (flashed?: string) => {
+  const focusAfterNav = useCallback(async (to: Pick<SpaceState, "place" | "level">, flashed?: string) => {
     if (stateRef.current.tour || stateRef.current.detail) return;
     await nextFrame();
     await nextFrame();
     const s = stateRef.current;
+    if (s.place !== to.place || (to.place === "jetzt" && s.level !== to.level)) return; // moved on meanwhile
     if (flashed) {
       const hit = document.querySelector<HTMLElement>(".space .lvl[aria-current] .is-flash, .space .side[data-shown] .is-flash");
       const target = hit && (hit.matches("button, [tabindex], a[href]") ? hit : hit.querySelector<HTMLElement>("button, [tabindex], a[href]"));
       if (target) return target.focus({ preventScroll: true });
     }
-    headingOf(s)?.focus({ preventScroll: true });
+    headingOf(to)?.focus({ preventScroll: true });
   }, []);
 
   // move the pager to a place and settle there
   const pagerTo = useCallback(
     async (p: Place, ms: number) => {
+      // arriving on a side: its title rises 8 px, 60 ms behind the layer
+      const side = p === "ziele" ? zieleRef.current : p === "du" ? duRef.current : null;
+      if (side && stateRef.current.place !== p && !stateRef.current.reduced)
+        side.querySelector("h2")?.animate([{ transform: "translate3d(0,8px,0)", opacity: 0.4 }, { transform: "none", opacity: 1 }], { duration: Math.max(ms, 240), delay: 60, easing: "cubic-bezier(.2,.75,.2,1)", fill: "backwards" });
       await animatePager(baseX(p), stateRef.current.reduced ? 0 : ms);
       if (stateRef.current.place === p) releasePager(p);
       else setPlace(p);
@@ -388,7 +393,7 @@ export function Space(props: SpaceProps) {
       else setDuSection(null);
       if (stateRef.current.place !== p || motion.current.x !== baseX(p)) await pagerTo(p, GO_MS);
       if (o?.highlight) flash(o.highlight);
-      focusAfterNav(o?.highlight);
+      focusAfterNav({ place: p, level: stateRef.current.level }, o?.highlight);
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [close, flash, pagerTo, focusAfterNav],
@@ -405,7 +410,7 @@ export function Space(props: SpaceProps) {
       }
       await levels.scrollToLevel(l, stateRef.current.reduced ? "auto" : "smooth");
       if (o?.highlight) flash(o.highlight);
-      focusAfterNav(o?.highlight);
+      focusAfterNav({ place: "jetzt", level: l }, o?.highlight);
     },
     [close, flash, pagerTo, levels.scrollToLevel, focusAfterNav],
   );

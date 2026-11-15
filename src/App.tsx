@@ -119,6 +119,7 @@ export default function App() {
     r.setProperty("--orb-0", palette.orb[0]);
     r.setProperty("--orb-1", palette.orb[1]);
     r.setProperty("--orb-2", palette.orb[2]);
+    r.setProperty("--orb-4", palette.orb[4] ?? palette.orb[2]);
     document.documentElement.dataset.sky = palette.isDark ? "dark" : "light";
   }, [palette]);
 

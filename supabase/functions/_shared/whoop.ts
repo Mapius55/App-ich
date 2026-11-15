@@ -565,7 +565,7 @@ export function b64url(bytes: Uint8Array): string {
   for (const b of bytes) s += String.fromCharCode(b);
   return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
-export function fromB64url(s: string): Uint8Array {
+export function fromB64url(s: string): Uint8Array<ArrayBuffer> {
   const b = atob(s.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((s.length + 3) % 4));
   return Uint8Array.from(b, (c) => c.charCodeAt(0));
 }
@@ -807,7 +807,8 @@ export function whoopClient(opts: WhoopClientOptions) {
     let waited429 = false;
     let retried5xx = false;
     for (;;) {
-      const used = await token();
+      const pending = token();
+      const used = await pending;
       let res: Response;
       try {
         res = await opts.fetch(url.toString(), {
@@ -821,13 +822,15 @@ export function whoopClient(opts: WhoopClientOptions) {
       if (res.status === 401 && !retried401 && opts.onUnauthorized) {
         retried401 = true;
         await res.body?.cancel();
-        // only the first request that sees the old token refreshes; the others wait for that result
-        if ((await token().catch(() => null)) === used) {
-          const refresh = opts.onUnauthorized;
-          share(refresh().then((t) => {
-            if (!t) throw new WhoopError(401);
-            return t;
-          }));
+        // only the first request that still holds the old token refreshes (synchronous identity check,
+        // no await in between); the others pick up that refresh on their next round
+        if (current === pending) {
+          share(
+            opts.onUnauthorized().then((t) => {
+              if (!t) throw new WhoopError(401);
+              return t;
+            }),
+          );
         }
         continue;
       }

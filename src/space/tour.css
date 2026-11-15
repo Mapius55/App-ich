@@ -1,10 +1,101 @@
-/* The short tour (owned by Builder C). Scope every rule under .space / .tour-caption. */
+/* The short tour (owned by Builder C). Scoped under .space / .tour-caption.
+   No modal, no dimming, no box: a pill, one Bodoni line, one sans line, two buttons. */
 
-/* stub styles (phase 0), replace freely */
-.space .tour-block { display: flex; flex-direction: column; align-items: center; gap: 12px; margin-top: 24px; }
-.space .tour-row { display: flex; gap: 10px; }
+.space .tour-block,
+.tour-caption .tour-caption-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  text-align: center;
+}
+.space .tour-block { margin-top: 18px; width: 100%; max-width: 30rem; animation: tour-in 300ms var(--ease-out) both; }
+.tour-caption .tour-caption-inner { animation: tour-in 300ms var(--ease-out) both; }
+@keyframes tour-in { from { opacity: 0; } }
+
+.space .tour-pill,
+.tour-caption .tour-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--glass);
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+.space .tour-text,
+.tour-caption .tour-text { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.space .tour-serif,
+.tour-caption .tour-serif {
+  margin: 0;
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 23px;
+  line-height: 1.25;
+  color: var(--text);
+  text-wrap: balance;
+}
+.space .tour-sans,
+.tour-caption .tour-sans { margin: 0; max-width: 34ch; font-size: 0.9375rem; line-height: 1.42; color: var(--text-soft); text-wrap: pretty; }
+.space .tour-glyph,
+.tour-caption .tour-glyph { display: inline-block; margin-right: 6px; color: var(--text); font-weight: 600; }
+
+.space .tour-row,
+.tour-caption .tour-row { display: flex; align-items: center; justify-content: center; gap: 10px; margin-top: 4px; }
+.space .tour-skip,
+.tour-caption .tour-skip {
+  min-height: 44px;
+  padding: 0 10px;
+  border: 0;
+  background: none;
+  color: var(--text-soft);
+  font-size: 0.9375rem;
+  font-weight: 500;
+}
+.space .tour-go,
+.tour-caption .tour-go {
+  min-height: 44px;
+  padding: 0 22px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--text);
+  color: #0a0a0f;
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  transition: transform 0.2s var(--ease-out);
+}
+.space .tour-go:active,
+.tour-caption .tour-go:active { transform: scale(0.96); }
+
+/* the caption floats above the dock (step 2 on Tag, on a side during step 3);
+   a soft fade behind it keeps it readable over the content, without a box */
 .tour-caption {
-  position: fixed; z-index: 7; left: 0; right: 0;
-  bottom: calc(var(--dock-bottom) + var(--mic) + 64px);
-  display: flex; justify-content: center; align-items: center; gap: 10px;
+  position: fixed;
+  z-index: 7;
+  left: 0;
+  right: 0;
+  bottom: calc(var(--dock-bottom) + var(--mic) + 12px);
+  padding: 44px var(--gutter) 10px;
+  background: linear-gradient(to bottom, transparent, color-mix(in srgb, var(--bg-bottom) 88%, transparent) 40px);
+  pointer-events: none;
+}
+.tour-caption .tour-caption-inner { max-width: 30rem; margin: 0 auto; pointer-events: auto; }
+
+/* small phones: the block takes less room from the circle */
+@media (max-height: 700px) {
+  .space .tour-block { margin-top: 10px; gap: 6px; }
+  .space .tour-serif,
+  .tour-caption .tour-serif { font-size: 20px; }
+  .space .tour-sans,
+  .tour-caption .tour-sans { font-size: 0.875rem; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .space .tour-block,
+  .tour-caption .tour-caption-inner { animation: none; }
 }

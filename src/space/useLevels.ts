@@ -28,7 +28,7 @@ export function useLevels(o: { initial: Level; onSettle: (level: Level) => void;
   mountedRef.current = mounted;
   const cb = useRef(o);
   cb.current = o;
-  const waiters = useRef<(() => void)[]>([]);
+  const waiters = useRef<{ level: Level; done: () => void }[]>([]);
 
   const height = () => sections.current[0]?.offsetHeight || window.innerHeight;
   const top = (l: Level) => sections.current[l]?.offsetTop ?? l * height();
@@ -60,9 +60,10 @@ export function useLevels(o: { initial: Level; onSettle: (level: Level) => void;
     const level = clampLevel(Math.round(progress()));
     cb.current.onSettle(level);
     cb.current.onMotion?.(false);
-    const w = waiters.current;
-    waiters.current = [];
-    w.forEach((f) => f());
+    // a programmatic move resolves when it arrived (an earlier scroll's end does not count)
+    const arrived = waiters.current.filter((w) => w.level === level);
+    waiters.current = waiters.current.filter((w) => w.level !== level);
+    arrived.forEach((w) => w.done());
   }, [progress]);
 
   useEffect(() => {
@@ -151,9 +152,12 @@ export function useLevels(o: { initial: Level; onSettle: (level: Level) => void;
           done = true;
           resolve();
         };
-        waiters.current.push(finish);
+        waiters.current.push({ level, done: finish });
         window.setTimeout(() => {
-          if (!done) settle();
+          if (done) return;
+          waiters.current = waiters.current.filter((w) => w.done !== finish);
+          settle();
+          finish();
         }, 1500);
         window.scrollTo({ top: target, behavior });
       }),

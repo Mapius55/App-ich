@@ -73,13 +73,16 @@ grant execute on function public.set_whoop_consent(boolean) to authenticated;
 -- ---------- tokens: service role only (RLS on, no policies) ----------
 create table public.whoop_tokens (
   user_id uuid primary key references auth.users (id) on delete cascade,
+  provider text not null default 'whoop' check (provider = 'whoop'),
   access_token text not null check (access_token like 'v1.%'),                       -- sealed, never plain
   refresh_token text check (refresh_token is null or refresh_token like 'v1.%'),     -- sealed; rotates on every refresh
   expires_at timestamptz not null,
   scope text check (scope is null or length(scope) <= 500),
   refresh_lock uuid,                -- single-flight refresh: who is refreshing right now …
   refresh_lock_until timestamptz,   -- … and until when the lease holds
-  updated_at timestamptz not null default now()
+  updated_at timestamptz not null default now(),
+  -- no tokens without a connection; deleting the connection (disconnect) deletes them
+  foreign key (user_id, provider) references public.connections (user_id, provider) on delete cascade
 );
 alter table public.whoop_tokens enable row level security;
 revoke all on public.whoop_tokens from anon, authenticated;
@@ -132,6 +135,7 @@ revoke all on public.whoop_oauth_states from anon, authenticated;
 -- ---------- daily summaries (the person's local day), at most 14 days ----------
 create table public.whoop_days (
   user_id uuid not null references auth.users (id) on delete cascade,
+  provider text not null default 'whoop' check (provider = 'whoop'),
   day date not null,
   recovery_score smallint check (recovery_score between 0 and 100),         -- %
   hrv_ms numeric(4, 1) check (hrv_ms between 0 and 999),                    -- HRV (RMSSD), ms
@@ -148,7 +152,10 @@ create table public.whoop_days (
   workout_count smallint not null default 0 check (workout_count between 0 and 100),
   workout_minutes smallint not null default 0 check (workout_minutes between 0 and 1440),
   updated_at timestamptz not null default now(),
-  primary key (user_id, day)
+  primary key (user_id, day),
+  -- no summaries without a connection: a sync still running when the person disconnects cannot write
+  -- them back, and deleting the connection deletes them
+  foreign key (user_id, provider) references public.connections (user_id, provider) on delete cascade
 );
 alter table public.whoop_days enable row level security;
 create policy "own whoop days: read" on public.whoop_days for select using (auth.uid() = user_id);

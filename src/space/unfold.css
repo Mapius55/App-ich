@@ -1,16 +1,129 @@
-/* Unfold: forms that grow from their row (owned by Builder C). Scope every rule under .space / .detail-root. */
+/* Unfold: forms that grow from their row (owned by Builder C). Scoped under .detail-root.
+   The panel has no border and no backdrop blur; only transform and opacity animate (JS, WAAPI). */
 
-/* stub styles (phase 0), replace freely */
+/* above the space (sides z 2, circle z 3), below the voice layer (z 6) so the dock stays live */
+.detail-root { position: relative; z-index: 5; }
 .detail-root .unfold-scrim { position: fixed; inset: 0; z-index: 0; touch-action: none; }
 .detail-root .unfold {
-  position: fixed; z-index: 1;
-  left: 12px; right: 12px; top: var(--lvl-title-top);
-  bottom: calc(var(--dock-bottom) + var(--mic) + 12px);
-  max-width: 536px; margin: 0 auto;
-  padding: 18px var(--gutter);
+  position: fixed;
+  z-index: 1;
+  left: 12px;
+  right: 12px;
+  top: var(--lvl-title-top);
+  /* x 12–378, down to the dock top − 12; with the keyboard up it follows --kb */
+  bottom: max(calc(var(--kb) + 8px), calc(var(--dock-bottom) + var(--mic) + 12px));
+  max-width: 536px;
+  margin: 0 auto;
   border-radius: 22px;
   background: color-mix(in srgb, var(--bg-bottom) 94%, transparent);
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.45);
-  overflow-y: auto; overscroll-behavior: contain;
-  display: flex; flex-direction: column; align-items: center; gap: 10px;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.5), 0 2px 12px rgba(0, 0, 0, 0.22);
+  overflow: hidden;
+  transform-origin: 0 0;
+  outline: none;
+}
+.detail-root .unfold-content { height: 100%; display: flex; flex-direction: column; }
+
+/* header: grip, kind pill, the form's big title; pulling it down closes */
+.detail-root .unfold-head { flex: none; display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 8px 16px 0; touch-action: none; cursor: grab; }
+.detail-root .unfold-grip { width: 38px; height: 4px; border-radius: 2px; background: var(--line-strong); }
+.detail-root .unfold-kind {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--glass);
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1.2;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+/* the form inside: title box (part of the header), then the scrolling body */
+.detail-root .uf-form { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.detail-root .uf-titlebox { flex: none; padding: 4px 16px 8px; touch-action: none; }
+.detail-root .uf-title {
+  width: 100%;
+  min-height: 44px;
+  padding: 6px 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  outline: none;
+  color: var(--text);
+  text-align: center;
+  font-family: var(--sans);
+  font-weight: 800;
+  font-size: 1.625rem;
+  line-height: 1.12;
+  letter-spacing: -0.01em;
+  text-transform: uppercase;
+  text-overflow: ellipsis;
+}
+.detail-root .uf-title::placeholder { color: color-mix(in srgb, var(--text) 32%, transparent); text-transform: none; font-weight: 600; }
+.detail-root .uf-title:focus { box-shadow: inset 0 -1px 0 var(--line-strong); }
+.detail-root .unfold-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
+  padding: 8px 16px 0;
+  text-align: left;
+}
+.detail-root .unfold-body.sheet-form { gap: 16px; }
+.detail-root .btn { min-height: 44px; }
+.detail-root .plain-input,
+.detail-root select,
+.detail-root input[type="date"],
+.detail-root input[type="time"] { min-height: 48px; }
+.detail-root .segmented button { min-height: 44px; }
+
+/* quiet links to elsewhere: "Ziel ansehen", "Im Jahr ansehen" */
+.detail-root .uf-link {
+  align-self: flex-start;
+  min-height: 44px;
+  margin-top: -8px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font-size: 0.9375rem;
+  font-weight: 500;
+}
+
+/* the actions stay at the bottom of the body */
+.detail-root .uf-actions {
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 2px -16px 0;
+  padding: 14px 16px 14px;
+  background: linear-gradient(to bottom, transparent, color-mix(in srgb, var(--bg-bottom) 96%, transparent) 14px);
+}
+.detail-root .uf-actions:empty { padding: 6px 16px; }
+.detail-root .uf-actions .btn.primary { min-width: 132px; }
+.detail-root .uf-error { flex-basis: 100%; text-align: left; }
+.detail-root .uf-ask,
+.detail-root .confirm-inline {
+  flex-basis: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 10px;
+  font-size: 0.9375rem;
+  animation: plan-fade 0.3s ease both;
+}
+.detail-root .confirm-inline .btn { padding-left: 10px; padding-right: 10px; }
+.detail-root .uf-ask .row { gap: 4px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .detail-root .uf-ask,
+  .detail-root .confirm-inline { animation: none; }
 }

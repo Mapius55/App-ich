@@ -1,8 +1,12 @@
-import { useId, useState } from "react";
+import { useContext, useEffect, useId, useRef, useState } from "react";
 import { backend } from "../../lib/backend";
 import { dayOf, durationLabel, goalEffort, hoursLabel } from "../../lib/plan";
 import { shortDay } from "../../lib/dates";
 import type { Goal, GoalStatus } from "../../lib/types";
+import { closeDecision } from "../../space/closeDecision";
+import { ConfirmDelete as ConfirmInline } from "../../space/ConfirmDelete";
+import { SpaceContext, type CloseVia } from "../../space/state";
+import { Unfold, useUnfold, useUnfoldClose } from "../../space/Unfold";
 import { ConfirmDelete, Sheet } from "./Sheet";
 import { IconClose, IconPlus } from "./icons";
 
@@ -44,16 +48,29 @@ function hoursProblem(key: HoursKey, n: number | null): string | null {
   return null;
 }
 
-interface Props {
+const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
+
+export interface GoalFormProps {
   goal: Goal | null; // null = new goal
   /** opened from "Aufwand schätzen": start in the effort fields */
   focusEffort?: boolean;
-  onClose: () => void;
-  /** after saving or deleting: reload from the backend */
-  onChanged: () => void;
+  /** "sheet": the old bottom sheet (flag off); "detail": inside an Unfold */
+  variant: "sheet" | "detail";
+  /** sheet only: closes the sheet */
+  close?: () => void;
+  /** after saving or deleting (with the stored goal when saved) */
+  onChanged: (saved?: Goal) => void;
+  /** detail: whether there are local edits (a coach update then waits) */
+  onDirty?: (dirty: boolean) => void;
+  /** detail: the goal no longer exists (deleted elsewhere): closing never saves */
+  gone?: boolean;
 }
 
-export function GoalSheet({ goal, focusEffort, onClose, onChanged }: Props) {
+/** The goal form body: shared by the old sheet and the Unfold detail. */
+export function GoalForm({ goal, focusEffort, variant, close, onChanged, onDirty, gone }: GoalFormProps) {
+  const detail = variant === "detail";
+  const space = useContext(SpaceContext);
+  const unfold = useUnfold();
   const [title, setTitle] = useState(goal?.title ?? "");
   const [target, setTarget] = useState(goal?.target_date ?? "");
   const [why, setWhy] = useState(goal?.why ?? "");
@@ -72,6 +89,18 @@ export function GoalSheet({ goal, focusEffort, onClose, onChanged }: Props) {
   );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [asking, setAsking] = useState(false);
+
+  // detail: the values as loaded, to tell local edits apart
+  const values = JSON.stringify([title, target, why, status, hours, steps.filter((x) => !x.removed).map((x) => [x.id ?? "", x.title])]);
+  const loaded = useRef(values);
+  const dirty = values !== loaded.current;
+  useEffect(() => onDirty?.(dirty), [dirty, onDirty]);
+  const release = useRef(false); // saved, discarded or deleted: closing needs nothing more
+  const askRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (asking) askRef.current?.focus({ preventScroll: true });
+  }, [asking]);
 
   const parsed = { effort: parseHours(hours.effort), weekly: parseHours(hours.weekly), prior: parseHours(hours.prior) };
   const valid = (n: number | null) => (n === null || Number.isNaN(n) ? null : n);
@@ -88,47 +117,100 @@ export function GoalSheet({ goal, focusEffort, onClose, onChanged }: Props) {
   );
   const tracked = goal ? Math.round((goal.time.logged_minutes + goal.time.block_minutes) / 6) / 10 : 0;
 
-  const save = async (close: () => void) => {
-    const t = title.trim();
-    if (!t) {
-      setError("Wie heisst dein Ziel?");
-      return;
-    }
+  /** what is missing or wrong, else null */
+  const problem = (): string | null => {
+    if (!title.trim()) return "Wie heisst dein Ziel?";
     for (const f of HOURS_FIELDS) {
-      const problem = hoursProblem(f.key, parsed[f.key]);
-      if (problem) return setError(problem);
+      const p = hoursProblem(f.key, parsed[f.key]);
+      if (p) return p;
+    }
+    return null;
+  };
+
+  /** stores the goal and its steps; the stored goal */
+  const store = async (): Promise<Goal> => {
+    const input = {
+      title: title.trim(),
+      target_date: target || null,
+      why: why.trim() || null,
+      effort_hours: parsed.effort || null,
+      weekly_hours: parsed.weekly || null,
+      prior_hours: parsed.prior ?? 0,
+    };
+    if (!goal) {
+      const ms = steps.filter((s) => !s.removed && s.title.trim()).map((s) => ({ title: s.title.trim(), due_date: null }));
+      return backend.addGoal(input, ms);
+    }
+    const saved = await backend.updateGoal(goal.id, { ...input, status });
+    const before = new Map(goal.milestones.map((m) => [m.id, m]));
+    for (const s of steps) {
+      const t2 = s.title.trim();
+      if (s.id && (s.removed || !t2)) await backend.deleteMilestone(s.id);
+      else if (s.id && t2 !== before.get(s.id)?.title) await backend.updateMilestone(s.id, { title: t2 });
+      else if (!s.id && !s.removed && t2) await backend.addMilestone(goal.id, { title: t2, due_date: null });
+    }
+    return saved;
+  };
+
+  // the old sheet: save, then close
+  const save = async (closeSheet: () => void) => {
+    const p = problem();
+    if (p) return setError(p);
+    setBusy(true);
+    setError(null);
+    try {
+      await store();
+      onChanged();
+      closeSheet();
+    } catch (e) {
+      setError(message(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // the detail: store it; false keeps the panel open with the error
+  const commit = async (): Promise<boolean> => {
+    const p = problem();
+    if (p) {
+      setError(p);
+      return false;
     }
     setBusy(true);
     setError(null);
     try {
-      const input = {
-        title: t,
-        target_date: target || null,
-        why: why.trim() || null,
-        effort_hours: parsed.effort || null,
-        weekly_hours: parsed.weekly || null,
-        prior_hours: parsed.prior ?? 0,
-      };
-      if (!goal) {
-        const ms = steps.filter((s) => !s.removed && s.title.trim()).map((s) => ({ title: s.title.trim(), due_date: null }));
-        await backend.addGoal(input, ms);
-      } else {
-        await backend.updateGoal(goal.id, { ...input, status });
-        const before = new Map(goal.milestones.map((m) => [m.id, m]));
-        for (const s of steps) {
-          const t2 = s.title.trim();
-          if (s.id && (s.removed || !t2)) await backend.deleteMilestone(s.id);
-          else if (s.id && t2 !== before.get(s.id)?.title) await backend.updateMilestone(s.id, { title: t2 });
-          else if (!s.id && !s.removed && t2) await backend.addMilestone(goal.id, { title: t2, due_date: null });
-        }
-      }
-      onChanged();
-      close();
+      const saved = await store();
+      release.current = true;
+      onChanged(saved);
+      return true;
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(message(e));
+      return false;
     } finally {
       setBusy(false);
     }
+  };
+
+  // every close path of the Unfold asks here first (D6)
+  useUnfoldClose(async (via: CloseVia) => {
+    if (gone || release.current) return true;
+    if (busy) return false;
+    const p = problem();
+    const action = closeDecision({ isNew: !goal, dirty, valid: !p, titled: !!title.trim() }, via);
+    if (action === "close") return true;
+    if (action === "ask") {
+      setAsking(true);
+      return false;
+    }
+    if (action === "stay") {
+      setError(p);
+      return false;
+    }
+    return commit();
+  });
+
+  const add = async () => {
+    if (await commit()) unfold?.requestClose("done");
   };
 
   const statusField = goal && (
@@ -146,131 +228,263 @@ export function GoalSheet({ goal, focusEffort, onClose, onChanged }: Props) {
 
   const setStep = (key: string, patch: Partial<Draft>) => setSteps((xs) => xs.map((x) => (x.key === key ? { ...x, ...patch } : x)));
 
-  return (
-    <Sheet title={goal ? "Ziel" : "Neues Ziel"} onClose={onClose}>
-      {(close) => (
-        <form
-          className="sheet-form"
-          onSubmit={(e) => {
-            e.preventDefault();
-            save(close);
-          }}
-          onChange={() => error && setError(null)}
-        >
-          {finished && statusField}
+  const titleInput = (
+    <input
+      className={detail ? "uf-title" : "plain-input"}
+      value={title}
+      onChange={(e) => setTitle(e.target.value)}
+      placeholder="z.B. Halbmarathon"
+      maxLength={200}
+      aria-label={detail ? "Worauf arbeitest du hin?" : undefined}
+      enterKeyHint={detail ? "done" : undefined}
+      data-autofocus={goal ? undefined : true}
+    />
+  );
 
-          <label className="sheet-field">
-            <span>Worauf arbeitest du hin?</span>
-            <input
-              className="plain-input"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="z.B. Halbmarathon"
-              maxLength={200}
-              data-autofocus={goal ? undefined : true}
-            />
-          </label>
+  const targetField = (
+    <label className="sheet-field">
+      <span>Bis wann? (optional)</span>
+      <span className="row">
+        <input type="date" value={target} onChange={(e) => setTarget(e.target.value)} />
+        {target && (
+          <button type="button" className="dock-round small" onClick={() => setTarget("")} aria-label="Datum entfernen">
+            <IconClose />
+          </button>
+        )}
+      </span>
+    </label>
+  );
 
-          <label className="sheet-field">
-            <span>Bis wann? (optional)</span>
-            <span className="row">
-              <input type="date" value={target} onChange={(e) => setTarget(e.target.value)} />
-              {target && (
-                <button type="button" className="dock-round small" onClick={() => setTarget("")} aria-label="Datum entfernen">
+  const rest = (
+    <>
+      <fieldset className="sheet-field effort-fields" aria-describedby={hintId}>
+        <legend>Aufwand (optional)</legend>
+        <div className="effort-box">
+          {HOURS_FIELDS.map((f, i) => (
+            <label key={f.key} className="effort-row">
+              <span>{f.label}</span>
+              <input
+                type="text"
+                inputMode="decimal"
+                autoComplete="off"
+                enterKeyHint={i < 2 ? "next" : "done"}
+                value={hours[f.key]}
+                onChange={(e) => setHours((h) => ({ ...h, [f.key]: e.target.value }))}
+                placeholder={f.placeholder}
+                aria-invalid={!!hoursProblem(f.key, parsed[f.key])}
+                data-autofocus={focusEffort && i === 0 ? true : undefined}
+              />
+            </label>
+          ))}
+        </div>
+        <p id={hintId} className="sheet-hint">
+          {effortHint(effort, target, tracked)}
+        </p>
+      </fieldset>
+
+      <label className="sheet-field">
+        <span>Warum ist es dir wichtig? (optional)</span>
+        <textarea value={why} onChange={(e) => setWhy(e.target.value)} rows={2} maxLength={1000} />
+      </label>
+
+      {!finished && statusField}
+
+      <div className="sheet-field">
+        <span>Etappen</span>
+        <ul className="sheet-steps">
+          {steps
+            .filter((s) => !s.removed)
+            .map((s, i) => (
+              <li key={s.key}>
+                <input
+                  className="plain-input"
+                  value={s.title}
+                  onChange={(e) => setStep(s.key, { title: e.target.value })}
+                  placeholder={`Etappe ${i + 1}`}
+                  aria-label={`Etappe ${i + 1}`}
+                  maxLength={200}
+                />
+                <button type="button" className="dock-round small" onClick={() => setStep(s.key, { removed: true })} aria-label={`Etappe ${s.title || i + 1} entfernen`}>
                   <IconClose />
                 </button>
-              )}
-            </span>
-          </label>
+              </li>
+            ))}
+        </ul>
+        <button type="button" className="milestone-add" onClick={() => setSteps((xs) => [...xs, { key: `new-${Date.now()}`, title: "" }])}>
+          <IconPlus size={16} />
+          Etappe hinzufügen
+        </button>
+      </div>
+    </>
+  );
 
-          <fieldset className="sheet-field effort-fields" aria-describedby={hintId}>
-            <legend>Aufwand (optional)</legend>
-            <div className="effort-box">
-              {HOURS_FIELDS.map((f, i) => (
-                <label key={f.key} className="effort-row">
-                  <span>{f.label}</span>
-                  <input
-                    type="text"
-                    inputMode="decimal"
-                    autoComplete="off"
-                    enterKeyHint={i < 2 ? "next" : "done"}
-                    value={hours[f.key]}
-                    onChange={(e) => setHours((h) => ({ ...h, [f.key]: e.target.value }))}
-                    placeholder={f.placeholder}
-                    aria-invalid={!!hoursProblem(f.key, parsed[f.key])}
-                    data-autofocus={focusEffort && i === 0 ? true : undefined}
-                  />
-                </label>
-              ))}
-            </div>
-            <p id={hintId} className="sheet-hint">
-              {effortHint(effort, target, tracked)}
+  if (!detail)
+    return (
+      <form
+        className="sheet-form"
+        onSubmit={(e) => {
+          e.preventDefault();
+          save(close ?? (() => {}));
+        }}
+        onChange={() => error && setError(null)}
+      >
+        {finished && statusField}
+
+        <label className="sheet-field">
+          <span>Worauf arbeitest du hin?</span>
+          {titleInput}
+        </label>
+
+        {targetField}
+        {rest}
+
+        <div className="sheet-actions">
+          {error && (
+            <p className="form-error sheet-error" role="alert">
+              {error}
             </p>
-          </fieldset>
+          )}
+          {goal && (
+            <ConfirmDelete
+              label="Löschen"
+              question="Ziel mit allen Etappen löschen?"
+              onConfirm={async () => {
+                try {
+                  await backend.deleteGoal(goal.id);
+                  onChanged();
+                  close?.();
+                } catch (e) {
+                  setError(message(e));
+                }
+              }}
+            />
+          )}
+          <span className="spacer" />
+          <button type="submit" className="btn primary" disabled={busy}>
+            {goal ? "Speichern" : "Hinzufügen"}
+          </button>
+        </div>
+      </form>
+    );
 
-          <label className="sheet-field">
-            <span>Warum ist es dir wichtig? (optional)</span>
-            <textarea value={why} onChange={(e) => setWhy(e.target.value)} rows={2} maxLength={1000} />
-          </label>
+  return (
+    <form
+      className="uf-form"
+      onSubmit={(e) => {
+        e.preventDefault();
+        unfold?.requestClose("done");
+      }}
+      onChange={() => {
+        if (error) setError(null);
+        if (asking) setAsking(false);
+      }}
+      noValidate
+    >
+      <div className="uf-titlebox" data-unfold-head="">
+        {titleInput}
+      </div>
+      <div className="unfold-body sheet-form">
+        {finished && statusField}
+        {targetField}
+        {rest}
+        {detail && space && goal && (
+          <button type="button" className="uf-link" onClick={() => space.goLevel(3, { yearGoal: goal.id })}>
+            Im Jahr ansehen
+          </button>
+        )}
+        <div className="uf-actions">
+          {error && (
+            <p className="form-error uf-error" role="alert">
+              {error}
+            </p>
+          )}
+          {asking ? (
+            <div className="uf-ask" role="alert">
+              <span>Noch nicht eingetragen.</span>
+              <span className="row">
+                <button
+                  type="button"
+                  className="btn quiet"
+                  onClick={() => {
+                    release.current = true;
+                    unfold?.requestClose("done");
+                  }}
+                >
+                  Verwerfen
+                </button>
+                <button ref={askRef} type="button" className="btn primary" disabled={busy} onClick={add}>
+                  Hinzufügen
+                </button>
+              </span>
+            </div>
+          ) : (
+            <>
+              {goal && (
+                <ConfirmInline
+                  label="Löschen"
+                  question="Ziel mit allen Etappen löschen?"
+                  onConfirm={async () => {
+                    try {
+                      await backend.deleteGoal(goal.id);
+                      release.current = true;
+                      onChanged();
+                      unfold?.requestClose("done");
+                    } catch (e) {
+                      setError(message(e));
+                    }
+                  }}
+                />
+              )}
+              <span className="spacer" />
+              {!goal && (
+                <button type="button" className="btn primary" disabled={busy} onClick={add}>
+                  Hinzufügen
+                </button>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+    </form>
+  );
+}
 
-          {!finished && statusField}
+interface Props {
+  goal: Goal | null; // null = new goal
+  /** opened from "Aufwand schätzen": start in the effort fields */
+  focusEffort?: boolean;
+  onClose: () => void;
+  /** after saving or deleting: reload from the backend */
+  onChanged: () => void;
+}
 
-          <div className="sheet-field">
-            <span>Etappen</span>
-            <ul className="sheet-steps">
-              {steps
-                .filter((s) => !s.removed)
-                .map((s, i) => (
-                  <li key={s.key}>
-                    <input
-                      className="plain-input"
-                      value={s.title}
-                      onChange={(e) => setStep(s.key, { title: e.target.value })}
-                      placeholder={`Etappe ${i + 1}`}
-                      aria-label={`Etappe ${i + 1}`}
-                      maxLength={200}
-                    />
-                    <button type="button" className="dock-round small" onClick={() => setStep(s.key, { removed: true })} aria-label={`Etappe ${s.title || i + 1} entfernen`}>
-                      <IconClose />
-                    </button>
-                  </li>
-                ))}
-            </ul>
-            <button type="button" className="milestone-add" onClick={() => setSteps((xs) => [...xs, { key: `new-${Date.now()}`, title: "" }])}>
-              <IconPlus size={16} />
-              Etappe hinzufügen
-            </button>
-          </div>
-
-          <div className="sheet-actions">
-            {error && (
-              <p className="form-error sheet-error" role="alert">
-                {error}
-              </p>
-            )}
-            {goal && (
-              <ConfirmDelete
-                label="Löschen"
-                question="Ziel mit allen Etappen löschen?"
-                onConfirm={async () => {
-                  try {
-                    await backend.deleteGoal(goal.id);
-                    onChanged();
-                    close();
-                  } catch (e) {
-                    setError(e instanceof Error ? e.message : String(e));
-                  }
-                }}
-              />
-            )}
-            <span className="spacer" />
-            <button type="submit" className="btn primary" disabled={busy}>
-              {goal ? "Speichern" : "Hinzufügen"}
-            </button>
-          </div>
-        </form>
-      )}
+/** the old bottom sheet (flag off) */
+export function GoalSheet({ goal, focusEffort, onClose, onChanged }: Props) {
+  return (
+    <Sheet title={goal ? "Ziel" : "Neues Ziel"} onClose={onClose}>
+      {(close) => <GoalForm goal={goal} focusEffort={focusEffort} variant="sheet" close={close} onChanged={() => onChanged()} />}
     </Sheet>
+  );
+}
+
+export interface GoalDetailProps {
+  goal: Goal | null;
+  focusEffort?: boolean;
+  origin: HTMLElement | null;
+  onRequestClose(via: CloseVia): Promise<boolean>;
+  onChanged: (saved?: Goal) => void;
+  onDirty?: (dirty: boolean) => void;
+  gone?: boolean;
+  /** remounts the form with fresh values (a coach update while there are no local edits) */
+  version?: string;
+}
+
+/** the goal as an Unfold (flag on) */
+export function GoalDetail({ goal, focusEffort, origin, onRequestClose, onChanged, onDirty, gone, version }: GoalDetailProps) {
+  return (
+    <Unfold kindLabel={goal ? "Ziel" : "Neues Ziel"} origin={origin} onRequestClose={onRequestClose}>
+      <GoalForm key={version} goal={goal} focusEffort={focusEffort} variant="detail" onChanged={onChanged} onDirty={onDirty} gone={gone} />
+    </Unfold>
   );
 }
 

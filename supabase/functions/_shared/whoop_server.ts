@@ -131,7 +131,7 @@ async function timeZoneOf(sb: SupabaseClient, userId: string): Promise<string> {
 
 const ctx = (userId: string, kind: "access" | "refresh") => `${userId}:${kind}`;
 
-async function exchange(cfg: Config, body: URLSearchParams): Promise<TokenSet> {
+async function exchange(body: URLSearchParams): Promise<TokenSet> {
   let res: Response;
   try {
     res = await fetch(WHOOP_TOKEN_URL, {
@@ -161,7 +161,9 @@ async function exchange(cfg: Config, body: URLSearchParams): Promise<TokenSet> {
   return t;
 }
 
-async function saveTokens(sb: SupabaseClient, cfg: Config, userId: string, t: TokenSet) {
+/** The sealed row. A new grant (callback) replaces the refresh token even when WHOOP sent none; a refresh
+ *  keeps the stored one if WHOOP did not rotate it. */
+async function tokenRow(cfg: Config, userId: string, t: TokenSet, grant: "new" | "refresh") {
   const row: Record<string, unknown> = {
     user_id: userId,
     access_token: await sealToken(t.access_token, cfg.tokenKey, ctx(userId, "access")),
@@ -172,6 +174,7 @@ async function saveTokens(sb: SupabaseClient, cfg: Config, userId: string, t: To
     updated_at: new Date().toISOString(),
   };
   if (t.refresh_token) row.refresh_token = await sealToken(t.refresh_token, cfg.tokenKey, ctx(userId, "refresh"));
+  else if (grant === "new") row.refresh_token = null;
   return row;
 }
 
@@ -197,7 +200,7 @@ function accessToken(sb: SupabaseClient, cfg: Config, userId: string, force = fa
       },
       async save(_lock, t) {
         // access and the rotated refresh token in one statement, which also releases the lock
-        const row = await saveTokens(sb, cfg, userId, t);
+        const row = await tokenRow(cfg, userId, t, "refresh");
         delete row.user_id;
         for (let attempt = 0; ; attempt++) {
           const { error } = await sb.from("whoop_tokens").update(row).eq("user_id", userId);
@@ -209,7 +212,7 @@ function accessToken(sb: SupabaseClient, cfg: Config, userId: string, force = fa
       async release(lock) {
         await sb.from("whoop_tokens").update({ refresh_lock: null, refresh_lock_until: null }).eq("user_id", userId).eq("refresh_lock", lock);
       },
-      exchange: (refreshToken) => exchange(cfg, tokenRequestBody({ grant: "refresh_token", refreshToken, clientId: cfg.clientId, clientSecret: cfg.clientSecret })),
+      exchange: (refreshToken) => exchange(tokenRequestBody({ grant: "refresh_token", refreshToken, clientId: cfg.clientId, clientSecret: cfg.clientSecret })),
       sleep,
     },
     { force },
@@ -300,16 +303,16 @@ async function syncAll(sb: SupabaseClient, cfg: Config) {
   const { data, error } = await sb.from("connections").select("user_id, last_sync_at").eq("provider", PROVIDER).eq("status", "connected");
   if (error) throw error;
   const full = new Date().getUTCHours() < 3;
-  let ok = 0;
+  let synced = 0;
   let failed = 0;
   for (const c of data ?? []) {
     const { tz, w } = await windowFor(sb, c.user_id, c.last_sync_at, full);
     const r = await syncAndRecord(sb, cfg, c.user_id, w, tz);
-    if (r.ok) ok++;
+    if (r.ok) synced++;
     else failed++;
     if (!r.ok && r.retryAfter) break; // rate limited: the next run continues
   }
-  return { ok, failed, total: data?.length ?? 0 };
+  return { synced, failed, total: data?.length ?? 0 };
 }
 
 // ---------- routes for the app ----------
@@ -377,10 +380,12 @@ async function disconnect(sb: SupabaseClient, cfg: Config | null, userId: string
       console.error("whoop revoke failed:", errCode(e));
     }
   }
+  // the connection first: tokens and days hang on it (on delete cascade), so a sync still running
+  // cannot write anything back; the explicit deletes below only make sure
+  await check(sb.from("connections").delete().eq("user_id", userId).eq("provider", PROVIDER));
   await check(sb.from("whoop_tokens").delete().eq("user_id", userId));
   await check(sb.from("whoop_days").delete().eq("user_id", userId));
   await check(sb.from("whoop_oauth_states").delete().eq("user_id", userId));
-  await check(sb.from("connections").delete().eq("user_id", userId).eq("provider", PROVIDER));
   return { ok: true, revoked };
 }
 
@@ -456,7 +461,7 @@ export async function handleCallback(req: Request): Promise<Response> {
     if (params.get("error") || !code || code.length > 2000) return back(false); // e.g. access_denied
     const userId = st.user_id;
 
-    const tok = await exchange(cfg, tokenRequestBody({ grant: "authorization_code", code, redirectUri: cfg.redirectUri, clientId: cfg.clientId, clientSecret: cfg.clientSecret }));
+    const tok = await exchange(tokenRequestBody({ grant: "authorization_code", code, redirectUri: cfg.redirectUri, clientId: cfg.clientId, clientSecret: cfg.clientSecret }));
     if (!tok.refresh_token) console.error("whoop callback: no refresh token (offline scope missing?)");
 
     // who this is at WHOOP: only the numeric id is kept (to match webhooks), not name or e-mail
@@ -483,14 +488,15 @@ export async function handleCallback(req: Request): Promise<Response> {
       await check(sb.from("whoop_days").delete().eq("user_id", userId)); // a different WHOOP account: start afresh
     }
 
-    await check(sb.from("whoop_tokens").upsert(await saveTokens(sb, cfg, userId, tok), { onConflict: "user_id" }));
-    // consent_ai is not part of the upsert: new connections start with false, a reconnect keeps the choice
+    // the connection first (tokens and days reference it). consent_ai is not part of the upsert: new
+    // connections start with false, a reconnect keeps the choice
     await check(
       sb.from("connections").upsert(
         { user_id: userId, provider: PROVIDER, status: "connected", external_user_id: externalId, connected_at: new Date().toISOString(), last_error: null },
         { onConflict: "user_id,provider" },
       ),
     );
+    await check(sb.from("whoop_tokens").upsert(await tokenRow(cfg, userId, tok, "new"), { onConflict: "user_id" }));
 
     // the last 14 days, so the app can show them right away (bounded wait; the cron catches up otherwise)
     const tz = await timeZoneOf(sb, userId);
