@@ -27,8 +27,38 @@ export function audioContext(): AudioContext {
   return ctx;
 }
 
+// iOS: Web Audio follows the ring/silent switch, and after the microphone was on,
+// sound may come out of the quiet earpiece. The Audio Session API (Safari 16.4+)
+// fixes both: "playback" plays through the speaker even when the phone is silent,
+// "play-and-record" while listening.
+type SessionType = "playback" | "play-and-record" | "auto";
+function setAudioSession(type: SessionType) {
+  try {
+    const session = (navigator as unknown as { audioSession?: { type: string } }).audioSession;
+    if (session && session.type !== type) session.type = type;
+  } catch {
+    /* not supported */
+  }
+}
+
+/** iOS may suspend or interrupt the audio context (another app, the lock screen, a call). */
+async function ensureRunning(): Promise<boolean> {
+  const c = audioContext();
+  if (c.state !== "running") await c.resume().catch(() => {});
+  return c.state === "running";
+}
+if (typeof document !== "undefined") {
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible" && ctx && ctx.state !== "running") {
+      setAudioSession("playback");
+      void ctx.resume().catch(() => {});
+    }
+  });
+}
+
 /** Call from a tap. Plays a silent sound so iOS allows audio afterwards. */
 export async function unlockAudio(): Promise<void> {
+  setAudioSession("playback");
   const c = audioContext();
   if (c.state === "suspended") await c.resume().catch(() => {});
   const src = c.createBufferSource();
@@ -82,7 +112,8 @@ export function splitSentences(buffer: string, minLength = 1): [string[], string
 type SpeakerState = "idle" | "speaking";
 
 export class Speaker {
-  private queue: Promise<AudioBuffer | string | null>[] = [];
+  /** per sentence: its text and, with the server voice, the decoded audio (null = phone voice) */
+  private queue: Promise<{ text: string; buf: AudioBuffer | null } | null>[] = [];
   private playing = false;
   private current: AudioBufferSourceNode | null = null;
   private generation = 0;
@@ -115,17 +146,17 @@ export class Speaker {
     if (!this.playing) void this.playNext(gen);
   }
 
-  private async prepare(text: string, gen: number): Promise<AudioBuffer | string | null> {
+  private async prepare(text: string, gen: number): Promise<{ text: string; buf: AudioBuffer | null } | null> {
     if (this.useServer === null) this.useServer = await serverVoiceReady();
     if (gen !== this.generation) return null;
-    if (!this.useServer) return text; // phone voice
+    if (!this.useServer) return { text, buf: null }; // phone voice
     try {
       const data = await backend.speak(text);
       if (gen !== this.generation) return null;
-      return await audioContext().decodeAudioData(data);
+      return { text, buf: await audioContext().decodeAudioData(data) };
     } catch (e) {
       console.warn("Stimme nicht verfügbar, nehme Handy-Stimme", e);
-      return text;
+      return { text, buf: null };
     }
   }
 
@@ -143,19 +174,28 @@ export class Speaker {
     const item = await next;
     if (gen !== this.generation) return;
     if (item === null) return this.playNext(gen);
-    if (typeof item === "string") {
-      await this.speakWithPhone(item);
+    if (!item.buf) {
+      await this.speakWithPhone(item.text);
       if (gen === this.generation) void this.playNext(gen);
       return;
     }
     const c = audioContext();
+    // back to the speaker (after the microphone) and wake the context if iOS paused it
+    setAudioSession("playback");
+    if (!(await ensureRunning())) {
+      // can't play the recorded voice right now: let the phone voice try instead
+      await this.speakWithPhone(item.text);
+      if (gen === this.generation) void this.playNext(gen);
+      return;
+    }
+    if (gen !== this.generation) return;
     if (!this.analyser) {
       this.analyser = c.createAnalyser();
       this.analyser.fftSize = 512;
       this.analyser.connect(c.destination);
     }
     const src = c.createBufferSource();
-    src.buffer = item;
+    src.buffer = item.buf;
     src.connect(this.analyser);
     src.onended = () => {
       if (this.current === src) this.current = null;
@@ -277,6 +317,7 @@ export function listenOnce(opts: {
       throw new Error("Dieses Gerät kann hier keine Sprache aufnehmen. Tippe stattdessen auf die Tastatur.");
     }
 
+    setAudioSession("play-and-record");
     const stream = await navigator.mediaDevices.getUserMedia({
       audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
     });
@@ -329,6 +370,7 @@ export function listenOnce(opts: {
     });
     stream.getTracks().forEach((t) => t.stop());
     source.disconnect();
+    setAudioSession("playback"); // the reply should come from the speaker, not the earpiece
     voice.level = 0;
     if (!done || cancelled) return "";
     opts.onPhase?.("transcribing");
