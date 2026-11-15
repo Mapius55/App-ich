@@ -65,6 +65,9 @@
 .space .pl-add { margin-top: 18px; }
 .space .pl-section { margin-top: 36px; display: flex; flex-direction: column; }
 .space .btn { min-height: 44px; }
+.space .pl-quiet,
+.space .gb-title,
+.space .hw-name { min-width: 44px; }
 .space .plain-input { min-height: 44px; }
 
 /* in-place expansion: grid rows 0fr → 1fr (320 ms open, 240 ms close), children rise staggered */
@@ -349,6 +352,7 @@
 .space .iphone-inline { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; }
 .space .iphone-inline .hint { margin: 0; font-size: 0.875rem; }
 .space .iphone-inline .steps { font-size: 0.875rem; }
+.space .iphone-inline a.btn { display: inline-flex; align-items: center; min-height: 44px; text-decoration: none; }
 
 /* notifications and settings */
 .space .du-notify,

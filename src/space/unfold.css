@@ -15,7 +15,8 @@
   max-width: 536px;
   margin: 0 auto;
   border-radius: 22px;
-  background: color-mix(in srgb, var(--bg-bottom) 94%, transparent);
+  /* 98 %, not the spec's 94 %: at 94 % the dimmed world's titles still read through */
+  background: color-mix(in srgb, var(--bg-bottom) 98%, transparent);
   box-shadow: 0 24px 70px rgba(0, 0, 0, 0.5), 0 2px 12px rgba(0, 0, 0, 0.22);
   overflow: hidden;
   transform-origin: 0 0;
@@ -79,6 +80,7 @@
 .detail-root input[type="date"],
 .detail-root input[type="time"] { min-height: 48px; }
 .detail-root .segmented button { min-height: 44px; }
+.detail-root .dock-round.small { width: 44px; height: 44px; }
 
 /* quiet links to elsewhere: "Ziel ansehen", "Im Jahr ansehen" */
 .detail-root .uf-link {
@@ -104,7 +106,7 @@
   gap: 8px;
   margin: 2px -16px 0;
   padding: 14px 16px 14px;
-  background: linear-gradient(to bottom, transparent, color-mix(in srgb, var(--bg-bottom) 96%, transparent) 14px);
+  background: linear-gradient(to bottom, color-mix(in srgb, var(--bg-bottom) 0%, transparent), var(--bg-bottom) 16px);
 }
 .detail-root .uf-actions:empty { padding: 6px 16px; }
 .detail-root .uf-actions .btn.primary { min-width: 132px; }

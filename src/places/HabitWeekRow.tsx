@@ -8,12 +8,14 @@ import { IconCheck } from "../components/plan/icons";
 import { planData } from "../space/data";
 import { useFresh, useSeenWhenVisible } from "../space/fresh";
 import { useSpace } from "../space/state";
+import { useRevealWhenFresh } from "./reveal";
 
-export function HabitWeekRow({ habit, today, goalTitle, flash }: { habit: Habit; today: string; goalTitle: string | null; flash: boolean }) {
-  const { open } = useSpace();
+export function HabitWeekRow({ habit, today, goalTitle, flash, active }: { habit: Habit; today: string; goalTitle: string | null; flash: boolean; active: boolean }) {
+  const { open, reduced } = useSpace();
   const ref = useRef<HTMLLIElement>(null);
   const fresh = useFresh(habit.id);
   useSeenWhenVisible(ref, habit.id);
+  useRevealWhenFresh(ref, fresh, active, reduced);
   const week = habitWeek(habit, today);
   const streak = streakLabel(habitStreak(habit, today));
   const reached = week.doneThisWeek >= week.target;

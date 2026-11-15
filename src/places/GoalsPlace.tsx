@@ -5,21 +5,12 @@ import { shortDay } from "../lib/dates";
 import { usePlanData } from "../space/data";
 import { useSpace } from "../space/state";
 import { GoalBlock } from "./GoalBlock";
+import { revealInSide } from "./reveal";
 import { HabitWeekRow } from "./HabitWeekRow";
 
 export interface GoalsPlaceProps {
   titleId: string;
   active: boolean; // Ziele is the settled place
-}
-
-/** scroll an item to the middle of its side layer (never the document: that would change the level) */
-export function revealInSide(el: Element | null, reduced: boolean): void {
-  const side = el?.closest<HTMLElement>(".side");
-  if (!el || !side) return;
-  const r = el.getBoundingClientRect();
-  const s = side.getBoundingClientRect();
-  const top = side.scrollTop + (r.top - s.top) - Math.max(0, (side.clientHeight - r.height) / 2);
-  side.scrollTo({ top: Math.max(0, top), behavior: reduced ? "auto" : "smooth" });
 }
 
 export function GoalsPlace({ titleId, active }: GoalsPlaceProps) {
@@ -65,7 +56,7 @@ export function GoalsPlace({ titleId, active }: GoalsPlaceProps) {
 
       <div className="pl-goals">
         {shown.map((g) => (
-          <GoalBlock key={g.id} goal={g} today={today} flash={highlight === g.id} />
+          <GoalBlock key={g.id} goal={g} today={today} flash={highlight === g.id} active={active} />
         ))}
       </div>
 
@@ -81,7 +72,7 @@ export function GoalsPlace({ titleId, active }: GoalsPlaceProps) {
         {habits && habits.length > 0 && (
           <ul className="pl-habits">
             {habits.map((h) => (
-              <HabitWeekRow key={h.id} habit={h} today={today} goalTitle={goalTitle(h.goal_id)} flash={highlight === h.id} />
+              <HabitWeekRow key={h.id} habit={h} today={today} goalTitle={goalTitle(h.goal_id)} flash={highlight === h.id} active={active} />
             ))}
           </ul>
         )}

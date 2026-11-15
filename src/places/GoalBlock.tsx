@@ -9,6 +9,7 @@ import { IconCheck, IconPlus } from "../components/plan/icons";
 import { planData } from "../space/data";
 import { useFresh, useSeenWhenVisible } from "../space/fresh";
 import { useSpace } from "../space/state";
+import { useRevealWhenFresh } from "./reveal";
 
 /** "So, 6. Dez · noch 22 Tage", or null for an open-ended goal */
 export function goalMeta(goal: Pick<Goal, "target_date">, today: string): string | null {
@@ -119,11 +120,12 @@ function AddStep({ goal, first }: { goal: Goal; first: boolean }) {
   );
 }
 
-export function GoalBlock({ goal, today, flash }: { goal: Goal; today: string; flash: boolean }) {
-  const { open } = useSpace();
+export function GoalBlock({ goal, today, flash, active }: { goal: Goal; today: string; flash: boolean; active: boolean }) {
+  const { open, reduced } = useSpace();
   const ref = useRef<HTMLElement>(null);
   const fresh = useFresh(goal.id);
   useSeenWhenVisible(ref, goal.id);
+  useRevealWhenFresh(ref, fresh, active, reduced);
   const [expanded, setExpanded] = useState(false);
   const [justDone, setJustDone] = useState<string | null>(null);
   const timer = useRef(0);

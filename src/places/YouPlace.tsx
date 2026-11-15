@@ -24,6 +24,7 @@ export interface YouPlaceProps {
   onCoords(c: Coords | null): void;
 }
 
+const ORDER: DuSection[] = ["memories", "body", "connections", "notifications", "settings"];
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 export function YouPlace({ titleId, active, profile, palette, hasCoords, onProfile, onCoords }: YouPlaceProps) {
@@ -56,28 +57,39 @@ export function YouPlace({ titleId, active, profile, palette, hasCoords, onProfi
     reveal.current = duSection;
   }, [duSection]);
 
-  // a row that should come into view: put it where the title sits (after it opened)
+  // a row that should come into view: put it where the title sits, once the row that
+  // closed above it has folded away (its 240 ms), else on the next frame
+  const closedAbove = useRef(false);
   useEffect(() => {
     const id = reveal.current;
     if (!id || openRow !== id) return;
     reveal.current = null;
-    const t = requestAnimationFrame(() => {
+    const go = () => {
       const root = rootRef.current;
       const side = root?.closest<HTMLElement>(".side");
       const row = root?.querySelector<HTMLElement>(`[data-section="${id}"]`);
       const title = root?.querySelector<HTMLElement>(".pl-title");
       if (!side || !row || !title) return;
       const top = row.getBoundingClientRect().top - title.getBoundingClientRect().top;
-      side.scrollTo({ top: Math.max(0, side.scrollTop + top), behavior: reduced ? "auto" : "smooth" });
-    });
-    return () => cancelAnimationFrame(t);
+      if (Math.abs(top) > 4) side.scrollTo({ top: Math.max(0, side.scrollTop + top), behavior: reduced ? "auto" : "smooth" });
+    };
+    const wait = closedAbove.current && !reduced;
+    closedAbove.current = false;
+    const t = wait ? window.setTimeout(go, 260) : requestAnimationFrame(go);
+    return () => (wait ? clearTimeout(t) : cancelAnimationFrame(t));
   }, [openRow, reduced]);
 
   const openSection = (id: DuSection) => {
+    closedAbove.current = openRow !== null && ORDER.indexOf(openRow) < ORDER.indexOf(id);
     reveal.current = id;
     setOpenRow(id);
   };
-  const toggle = (id: DuSection) => (openRow === id ? setOpenRow(null) : setOpenRow(id));
+  // a row that opens comes up only when the one closing above it would pull it out of place
+  const toggle = (id: DuSection) => {
+    if (openRow === id) return setOpenRow(null);
+    if (openRow !== null && ORDER.indexOf(openRow) < ORDER.indexOf(id)) openSection(id);
+    else setOpenRow(id);
+  };
 
   // the dock "+" here: "Etwas über dich notieren" (the memories with the add form)
   useEffect(() => {
