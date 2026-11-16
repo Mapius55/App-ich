@@ -84,7 +84,7 @@ describe("coach tools", () => {
   it("the daily coach's tools: wochenblick and note_offer only in the daily conversation; tidying keeps its three", () => {
     expect(tool("wochenblick")).toContain("gemacht");
     expect(tool("wochenblick")).toContain("will_nicht");
-    expect(tool("note_offer")).toContain('enum: ["experiment", "begleitung", "blockmuster"]');
+    expect(tool("note_offer")).toContain('enum: ["experiment", "begleitung", "blockmuster", "plan_b"]');
     expect(source.match(/if \(ctx\.mode !== "checkin"\) throw new ToolInputError\("nur im täglichen Gespräch"\);/g)).toHaveLength(2);
     expect(source).toContain('TOOLS.filter((t) => ["remember", "update_memory", "forget"].includes(t.name))');
   });

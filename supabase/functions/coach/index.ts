@@ -25,6 +25,7 @@ import {
 import {
   birthYearProblem,
   BLOCK_NO_NEXT,
+  blockNoNext,
   doneDateProblem,
   draftStream,
   finalVersion,
@@ -58,8 +59,10 @@ import {
   localClock,
   NUDGE_LONG_DAYS,
   NUDGE_NOT_NOW_DAYS,
+  OBSTACLE_MAX,
   openWeekBlocks,
   PATTERN_DAYS,
+  PLAN_B_MAX,
   reviewWeek,
   streakLabel,
   SUPPORT_EVERY_DAYS,
@@ -362,6 +365,12 @@ const TOOLS: Anthropic.Beta.BetaTool[] = [
           description: "Nur bei einem Traum: true, wenn ihr ihn gerade zusammen plant und du nach ihrem Ja speicherst (sie will ihn wahr machen oder hat dich darum gebeten). Nicht, wenn sie nur nennt, wann.",
         },
         why: { type: "string", description: "Leer, um es zu entfernen." },
+        obstacle: { type: "string", description: "Was ihr bei diesem Ziel dazwischenkommen könnte, kurz und in ihren Worten, z.B. „Regen“. Leer entfernt es." },
+        plan_b: {
+          type: "string",
+          description:
+            "Ihr Plan B: ein Wenn-dann-Satz in ihren Worten, in der Ich-Form, z.B. „Wenn es regnet, laufe ich auf dem Laufband.“ Erst nach ihrem Ja; sie sieht ihn im Ziel. Leer entfernt ihn.",
+        },
         target_date: { type: "string", description: "YYYY-MM-DD oder leer, um das Datum zu entfernen." },
         status: { type: "string", enum: [...GOAL_STATUS] },
         effort_hours: { type: ["number", "null"], description: "Geschätzter Gesamtaufwand in Stunden; null entfernt die Schätzung." },
@@ -498,12 +507,12 @@ const TOOLS: Anthropic.Beta.BetaTool[] = [
   {
     name: "note_offer",
     description:
-      "Hält fest, dass du etwas angeboten hast, das nur selten kommt: experiment (ein kleines Experiment, höchstens einmal pro Woche), begleitung (der einmalige Hinweis auf Menschen in ihrem Leben oder eine Fachperson) oder blockmuster (du hast angeboten, die Blöcke eines Ziels nach ihrem Muster anzupassen; mit goal_id, höchstens einmal pro Woche und Ziel).",
+      "Hält fest, dass du etwas angeboten hast, das nur selten kommt: experiment (ein kleines Experiment, höchstens einmal pro Woche), begleitung (der einmalige Hinweis auf Menschen in ihrem Leben oder eine Fachperson), blockmuster (du hast angeboten, die Blöcke eines Ziels nach ihrem Muster anzupassen; mit goal_id, höchstens einmal pro Woche und Ziel) oder plan_b (du hast gefragt, was ihr bei einem Ziel dazwischenkommen könnte; mit goal_id, einmal pro Ziel).",
     input_schema: {
       type: "object",
       properties: {
-        what: { type: "string", enum: ["experiment", "begleitung", "blockmuster"] },
-        goal_id: { type: "string", description: "Nur bei blockmuster: das Ziel, dessen Blöcke du anpassen wolltest." },
+        what: { type: "string", enum: ["experiment", "begleitung", "blockmuster", "plan_b"] },
+        goal_id: { type: "string", description: "Nur bei blockmuster und plan_b: das Ziel, um das es ging." },
       },
       required: ["what"],
       additionalProperties: false,
@@ -632,6 +641,9 @@ const toGoal = (row: Row, time: GoalTimeSum = NO_TIME) => ({
   kind: row.kind === "dream" ? ("dream" as const) : ("goal" as const),
   done_at: (row.done_at as string | null | undefined) ?? null,
   memory: (row.memory as string | null | undefined) ?? null,
+  // Plan B (its migration; before it: none)
+  obstacle: (row.obstacle as string | null | undefined) ?? null,
+  plan_b: (row.plan_b as string | null | undefined) ?? null,
   target_date: (row.target_date as string | null) ?? null,
   effort_hours: numOrNull(row.effort_hours),
   weekly_hours: numOrNull(row.weekly_hours),
@@ -972,6 +984,11 @@ async function runTool(
       if (input.title !== undefined) patch.title = str(input.title, 200, "title");
       const why = optText(input.why, 1000, "why");
       if (why !== undefined) patch.why = why;
+      // her Plan B in her words (a stored one also notes that it was asked: trigger goals_plan_b_asked)
+      const obstacle = optText(input.obstacle, OBSTACLE_MAX, "obstacle");
+      if (obstacle !== undefined) patch.obstacle = obstacle;
+      const planB = optText(input.plan_b, PLAN_B_MAX, "plan_b");
+      if (planB !== undefined) patch.plan_b = planB;
       const target = optDate(input.target_date, "target_date");
       if (target !== undefined) patch.target_date = target;
       if (input.status !== undefined) patch.status = oneOf(input.status, GOAL_STATUS, "status");
@@ -1239,7 +1256,8 @@ async function runTool(
           remaining_hours: e.remaining,
           needed_per_week: e.neededPerWeek,
           feasibility: e.feasibility,
-          ...(eventId && minutes === 0 ? { naechster_schritt: BLOCK_NO_NEXT } : {}),
+          // her «Nein»: the protocol, with her Plan B for this goal when there is one (a quiet reminder)
+          ...(eventId && minutes === 0 ? { naechster_schritt: blockNoNext(goal.kind === "dream" ? null : goal.plan_b) } : {}),
           // a dream without an estimate gets no «Aufwand noch nicht geschätzt» to fill in (as create/update_goal)
           ...(goal.kind !== "dream" || goal.effort_hours ? { aufwand: effortLine(goal, day) } : {}),
           ...(hint ? { hint } : {}),
@@ -1263,7 +1281,15 @@ async function runTool(
     }
     case "note_offer": {
       if (ctx.mode !== "checkin") throw new ToolInputError("nur im täglichen Gespräch");
-      const what = oneOf(input.what, ["experiment", "begleitung", "blockmuster"] as const, "what");
+      const what = oneOf(input.what, ["experiment", "begleitung", "blockmuster", "plan_b"] as const, "what");
+      if (what === "plan_b") {
+        // once per goal (goals.plan_b_asked_at, the server's clock): the context never asks again for it
+        const goalId = uuid(input.goal_id, "goal_id");
+        const res = await sb.from("goals").update({ plan_b_asked_at: new Date().toISOString() }).eq("id", goalId).select("id");
+        if (res.error) throw res.error;
+        if (!res.data?.length) throw new ToolInputError("Ziel nicht gefunden");
+        return JSON.stringify({ ok: true, notiert: "Notiert. Nach einem Plan B für dieses Ziel fragst du nicht nochmals." });
+      }
       if (what === "blockmuster") {
         // per goal (goals.pattern_asked_at, the server's clock): the pattern line then says it came this week
         const goalId = uuid(input.goal_id, "goal_id");
@@ -1392,13 +1418,22 @@ type CoachProfile = {
   support_hint_at?: string | null;
 };
 
+type PlanBRow = { obstacle: string | null; plan_b: string | null; plan_b_asked_at: string };
+
+/** A goal's Plan B for the context: without a row none and never asked; without the rows (unknown) never asked. */
+const planBOf = (rows: Map<string, PlanBRow> | null | undefined, id: string): Pick<ContextGoal, "obstacle" | "plan_b" | "plan_b_asked_at"> => {
+  if (!rows) return { plan_b_asked_at: undefined };
+  const r = rows.get(id);
+  return { obstacle: r?.obstacle ?? null, plan_b: r?.plan_b ?? null, plan_b_asked_at: r?.plan_b_asked_at ?? null };
+};
+
 /**
  * What the daily conversation needs on top of the rest (the opener, a pause, the Wochenblick, the «once»
  * marks). Every query only enriches the context: on an error (e.g. a column before its migration) a fallback.
  * `day`: her today (the thread).
  */
 async function loadDaily(sb: SupabaseClient, userId: string, day: string) {
-  const [lastSeen, lastSpoke, lastTalk, talk, profile, openers, todayLog, followed, asked, resting, patternAsked] = await Promise.all([
+  const [lastSeen, lastSpoke, lastTalk, talk, profile, openers, todayLog, followed, asked, resting, patternAsked, planB] = await Promise.all([
     // the last day before today with a conversation, however long ago (a pause)
     soft<{ thread: string }[]>(sb.from("messages").select("thread").lt("thread", day).order("id", { ascending: false }).limit(1), [], "last seen"),
     // her own last message before today and when (the Wochenblick: a greeting she never answered is no conversation);
@@ -1436,6 +1471,13 @@ async function loadDaily(sb: SupabaseClient, userId: string, day: string) {
       null,
       "pattern asked",
     ),
+    // Plan B per goal: what could get in the way, her if-then sentence, when the coach asked (a stored Plan B sets
+    // it too, so these are all goals with any); null: unknown (e.g. before the column), then never asked
+    soft<{ id: string; obstacle: string | null; plan_b: string | null; plan_b_asked_at: string }[] | null>(
+      sb.from("goals").select("id, obstacle, plan_b, plan_b_asked_at").not("plan_b_asked_at", "is", null).limit(200),
+      null,
+      "plan b",
+    ),
   ]);
   const talkCounts: Record<string, number> = {};
   for (const r of talk) talkCounts[String(r.thread)] = (talkCounts[String(r.thread)] ?? 0) + 1;
@@ -1452,6 +1494,9 @@ async function loadDaily(sb: SupabaseClient, userId: string, day: string) {
     asked: new Map(asked.map((r) => [String(r.id), String(r.overdue_asked_for)])),
     resting: new Map(resting.map((r) => [String(r.id), String(r.nudge_after)])),
     patternAsked: patternAsked ? new Map(patternAsked.map((r) => [String(r.id), String(r.pattern_asked_at)])) : null,
+    planB: planB
+      ? new Map(planB.map((r) => [String(r.id), { obstacle: r.obstacle ?? null, plan_b: r.plan_b ?? null, plan_b_asked_at: String(r.plan_b_asked_at) }]))
+      : null,
   };
 }
 
@@ -1671,6 +1716,8 @@ async function converse({ sb, userId, body, send }: { sb: SupabaseClient; userId
       nudge_after: dailyCtx?.resting.get(goal.id) ?? null,
       // adapting its blocks offered lately (undefined: unknown, then never offered)
       pattern_asked_at: dailyCtx?.patternAsked ? (dailyCtx.patternAsked.get(goal.id) ?? null) : undefined,
+      // her Plan B, and whether the coach asked for one (undefined: unknown, then never asked)
+      ...planBOf(dailyCtx?.planB, goal.id),
       milestones: goal.milestones.map((m) => ({ ...m, overdue_asked_for: dailyCtx?.asked.get(String(m.id)) ?? null })),
     };
   });

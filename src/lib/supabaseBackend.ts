@@ -57,6 +57,9 @@ const toGoal = (row: GoalRow, time: GoalMinutes = NO_TIME): Goal => ({
   done_at: row.done_at ?? null,
   memory: row.memory ?? null,
   reminded_at: row.reminded_at ?? null,
+  obstacle: row.obstacle ?? null,
+  plan_b: row.plan_b ?? null,
+  plan_b_asked_at: row.plan_b_asked_at ?? null,
   effort_hours: toNumber(row.effort_hours),
   weekly_hours: toNumber(row.weekly_hours),
   prior_hours: toNumber(row.prior_hours) ?? 0,
@@ -72,6 +75,9 @@ const goalRow = <T extends Partial<GoalInput>>(g: T): T => {
   let out = g;
   if ((g.prior_hours as number | null | undefined) === null) out = { ...out, prior_hours: 0 };
   if (typeof g.memory === "string" && !g.memory.trim()) out = { ...out, memory: null };
+  // an emptied Plan B (or obstacle) means none; the trigger goals_plan_b_asked notes the question for a new one
+  if (typeof g.plan_b === "string" && !g.plan_b.trim()) out = { ...out, plan_b: null };
+  if (typeof g.obstacle === "string" && !g.obstacle.trim()) out = { ...out, obstacle: null };
   return out;
 };
 

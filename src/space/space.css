@@ -199,6 +199,22 @@ html.space-on #root { height: auto; }
 }
 /* the orb slot: an empty measuring box; the OrbLayer draws the circle over it */
 .space .now-orb { flex: 1; min-height: 0; width: 100%; margin: 18px 0 10px; touch-action: pan-y pinch-zoom; -webkit-touch-callout: none; user-select: none; -webkit-user-select: none; }
+/* what she did today, only what is confirmed («Heute: 40 Min für Halbmarathon Zürich · Dehnen»): one quiet
+   line between the circle's slot and the door, in the flow, so the slot gives way (never over the circle) */
+.space .now-win {
+  flex: none;
+  max-width: 100%;
+  margin: -2px 0 0;
+  padding: 0 4px;
+  color: var(--text-soft);
+  font-size: 14px;
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-variant-numeric: tabular-nums;
+  transition: opacity var(--t-fast) ease, visibility var(--t-fast);
+}
 .space .now-door {
   flex: none;
   min-height: 44px;
@@ -222,8 +238,8 @@ html.space-on #root { height: auto; }
    an error, a toast, a note above «Nochmal hören») the door gives way, like «WOCHE ⌄» on the levels
    (time.css). A single status line or a one-line echo under it («Tippe auf den Kreis zum Hören»,
    «Ich denke nach …», the coach speaking) fits below it: the door stays in place and tappable. */
-html[data-typed] .space .now-door,
-html:has(.voice-layer :is(.voice-heard[data-wraps], .msg-error, .toasts > *, .voice-status-text:not(.idle-hint) ~ .voice-replay)) .space .now-door {
+html[data-typed] .space :is(.now-door, .now-win),
+html:has(.voice-layer :is(.voice-heard[data-wraps], .msg-error, .toasts > *, .voice-status-text:not(.idle-hint) ~ .voice-replay)) .space :is(.now-door, .now-win) {
   opacity: 0;
   visibility: hidden;
 }
@@ -368,6 +384,7 @@ html.space-on:not([data-place="jetzt"]) .voice-layer .voice-replay { display: no
      layers for the whole step: starting and ending the nudge, right while the person swipes, creates none) */
   html[data-tour="1"][data-place="jetzt"][data-level="0"] .space .now-top > :not(.now-pills):not(.tour-block),
   html[data-tour="1"][data-place="jetzt"][data-level="0"] .space .now-door,
+  html[data-tour="1"][data-place="jetzt"][data-level="0"] .space .now-win,
   html[data-tour="1"][data-place="jetzt"][data-level="0"] .space .orb-nudge { animation: tour-lift 1.1s 0.9s 2 both; will-change: transform; }
   .space .tour-finger {
     position: absolute;
@@ -454,4 +471,5 @@ html.space-on:not([data-place="jetzt"]) .voice-layer .voice-replay { display: no
   .space .now-greeting { font-size: 24px; margin-top: 14px; }
   .space .now-focus { font-size: 16px; }
   .space .now-orb { margin: 12px 0 6px; }
+  .space .now-win { font-size: 13px; }
 }

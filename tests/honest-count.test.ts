@@ -344,7 +344,9 @@ describe("the coach: one batched question, a «Nein» protocol, the pattern at m
 
   it("log_time answers a «Nein» with the protocol, gives confirmed hours as done; note_offer notes the pattern per goal", () => {
     const source = readFileSync(new URL("../supabase/functions/coach/index.ts", import.meta.url), "utf8");
-    expect(source).toContain("...(eventId && minutes === 0 ? { naechster_schritt: BLOCK_NO_NEXT } : {}),");
+    expect(source).toContain('...(eventId && minutes === 0 ? { naechster_schritt: blockNoNext(goal.kind === "dream" ? null : goal.plan_b) } : {}),');
+    // when reading the goal failed after the save: the protocol without a Plan B
+    expect(source).toContain("...(eventId && minutes === 0 ? { naechster_schritt: BLOCK_NO_NEXT } : {})");
     expect(source).toContain("done_hours: Math.round((e.done - e.provisional) * 10) / 10,");
     expect(source).toContain("...(e.provisional > 0 ? { vorlaeufig_hours: e.provisional } : {}),");
     expect(source).toContain('.update({ pattern_asked_at: new Date().toISOString() }).eq("id", goalId).select("id")');

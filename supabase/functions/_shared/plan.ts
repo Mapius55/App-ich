@@ -1060,6 +1060,56 @@ export function todayWins(
   return wins;
 }
 
+/** 45 → «45 Min», 60 → «1 Std», 75 → «1 Std 15 Min» (written as it is said) */
+export function minutesText(m: number): string {
+  const t = Math.round(m);
+  const h = Math.floor(t / 60);
+  const rest = t % 60;
+  return h ? `${h} Std${rest ? ` ${rest} Min` : ""}` : `${rest} Min`;
+}
+
+/**
+ * The quiet line on Jetzt: what she did today, only what is confirmed (todayWins: logged time, answered blocks,
+ * completed trainings, steps done, habits ticked), e.g. «Heute: 40 Min für Halbmarathon Zürich · Dehnen».
+ * Null when there is nothing: never «0», never what is missing, never what was only planned.
+ */
+export function todayWinsLine(wins: TodayWin[]): string | null {
+  if (!wins.length) return null;
+  return `Heute: ${wins.map((w) => (w.kind === "zeit" ? `${minutesText(w.minutes)} für ${w.title}` : w.title)).join(" · ")}`;
+}
+
+// ---------- Plan B: one if-then plan per serious goal ----------
+
+/** goals.plan_b, her if-then sentence («Wenn es regnet, laufe ich auf dem Laufband.»): at most this many characters. */
+export const PLAN_B_MAX = 200;
+/** goals.obstacle, what could get in the way («Regen»), for the coach: at most this many characters. */
+export const OBSTACLE_MAX = 160;
+
+type PlanBGoal = { kind?: string | null; status: string; target_date: string | null; weekly_hours?: number | null };
+
+/**
+ * Serious: she works toward a date with real time for it. An active goal (not a dream) whose target date still
+ * lies ahead, with hours per week or planned blocks (`hasBlocks`: blocks for it in the calendar, past or coming).
+ */
+export function seriousGoal(g: PlanBGoal, hasBlocks: boolean, today: string): boolean {
+  if (g.kind === "dream" || g.status !== "active" || !g.target_date || !isDay(g.target_date) || g.target_date <= today) return false;
+  return (g.weekly_hours ?? 0) > 0 || hasBlocks;
+}
+
+/**
+ * Ask once now what could get in the way (Plan B)? A serious goal with neither a Plan B nor an obstacle, never
+ * asked (plan_b_asked_at null). Unknown (undefined, e.g. before the column) means never: nothing could be noted.
+ */
+export function planBDue(
+  g: PlanBGoal & { plan_b?: string | null; obstacle?: string | null; plan_b_asked_at?: string | null },
+  hasBlocks: boolean,
+  today: string,
+): boolean {
+  if (g.plan_b_asked_at !== null) return false;
+  if (g.plan_b?.trim() || g.obstacle?.trim()) return false;
+  return seriousGoal(g, hasBlocks, today);
+}
+
 /** «Viel» in one day: at least this many of her own messages. */
 export const TALK_MANY = 12;
 

@@ -108,11 +108,20 @@ export interface Goal {
   memory: string | null;
   /** when the coach last brought the dream up (its reminders; the server's clock), null = never */
   reminded_at?: string | null;
+  /**
+   * Plan B (goals): what could get in the way («Regen», for the coach) and her if-then sentence in her words
+   * («Wenn es regnet, laufe ich auf dem Laufband.»), which she sees and edits in the detail; null = none.
+   * Missing before their migration.
+   */
+  obstacle?: string | null;
+  plan_b?: string | null;
+  /** when the coach asked once what could get in the way (the server's clock; a stored Plan B sets it too), null = never */
+  plan_b_asked_at?: string | null;
 }
 
 /** done_at only together with status done: when it was reached, if not now (null = now). */
 export type GoalInput = Pick<Goal, "title"> &
-  Partial<Pick<Goal, "why" | "target_date" | "status" | "effort_hours" | "weekly_hours" | "prior_hours" | "sports" | "kind" | "memory" | "done_at">>;
+  Partial<Pick<Goal, "why" | "target_date" | "status" | "effort_hours" | "weekly_hours" | "prior_hours" | "sports" | "kind" | "memory" | "done_at" | "obstacle" | "plan_b">>;
 
 /** A piece of time that went into a goal. */
 export interface GoalTime {

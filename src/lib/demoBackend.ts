@@ -29,7 +29,7 @@ import type {
 } from "./types";
 import { normaliseUsername, USERNAME_RE } from "./types";
 import type { NaturePalette } from "./palette";
-import { addDays, dayOf, goalEffort, hoursLabel, unansweredCredit, weekStart } from "./plan";
+import { addDays, dayOf, goalEffort, hoursLabel, OBSTACLE_MAX, PLAN_B_MAX, unansweredCredit, weekStart } from "./plan";
 import { mapToGoal, sportKeys, type GoalForMapping, type NolioSport } from "../../supabase/functions/_shared/nolio.ts";
 
 interface DemoUser {
@@ -450,6 +450,16 @@ function goalMemory(v: string | null | undefined): string | null {
   if (v === undefined || v === null || !String(v).trim()) return null;
   if (String(v).length > 1000) throw new Error("Die Erinnerung ist zu lang (höchstens 1000 Zeichen).");
   return String(v);
+}
+/** Like the checks on goals.plan_b and goals.obstacle: empty means none, at most this many characters (trimmed). */
+function planBField(v: string | null | undefined, max: number, what: string): string | null {
+  if (v === undefined || v === null || !String(v).trim()) return null;
+  if (String(v).trim().length > max) throw new Error(`${what} ist zu lang (höchstens ${max} Zeichen).`);
+  return String(v);
+}
+/** Like the trigger goals_plan_b_asked: a Plan B or an obstacle on the goal means the coach asked (never again). */
+function followPlanB(g: Pick<StoredGoal, "obstacle" | "plan_b" | "plan_b_asked_at">): void {
+  if (!g.plan_b_asked_at && (g.plan_b || g.obstacle)) g.plan_b_asked_at = now();
 }
 /** Like the trigger goals_done_at: a done goal keeps (or gets) its date, never later than now; any other has none. */
 function followDone(status: Goal["status"], doneAt: string | null | undefined): string | null {
@@ -892,8 +902,12 @@ export class DemoBackend implements Backend {
       done_at: followDone(status, g.done_at),
       memory: goalMemory(g.memory),
       reminded_at: null,
+      obstacle: planBField(g.obstacle, OBSTACLE_MAX, "Das Hindernis"),
+      plan_b: planBField(g.plan_b, PLAN_B_MAX, "Der Plan B"),
+      plan_b_asked_at: null,
       milestones: milestones.map((m, i) => ({ id: uuid(), goal_id: id, title: m.title, due_date: m.due_date ?? null, done_at: null, position: i })),
     };
+    followPlanB(goal);
     let out!: Goal;
     this.mutate((u) => {
       u.goals.push(goal);
@@ -910,9 +924,14 @@ export class DemoBackend implements Backend {
       const { title, why, target_date, status, done_at } = patch;
       const kind = patch.kind === undefined ? undefined : goalKind(patch.kind);
       const memory = patch.memory === undefined ? undefined : goalMemory(patch.memory);
+      const obstacle = patch.obstacle === undefined ? undefined : planBField(patch.obstacle, OBSTACLE_MAX, "Das Hindernis");
+      const planB = patch.plan_b === undefined ? undefined : planBField(patch.plan_b, PLAN_B_MAX, "Der Plan B");
       Object.assign(g, defined({ title, why, target_date, status, kind }), effortFields(patch), { updated_at: now() });
       if (memory !== undefined) g.memory = memory;
       if (patch.sports !== undefined) g.sports = cleanSports(patch.sports);
+      if (obstacle !== undefined) g.obstacle = obstacle;
+      if (planB !== undefined) g.plan_b = planB;
+      followPlanB(g);
       // like the trigger goals_done_at: set when it becomes done (unless given), kept while done, else cleared
       g.done_at = followDone(g.status, done_at !== undefined ? done_at : g.done_at);
       out = presenter(u)(g);

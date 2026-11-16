@@ -1,13 +1,14 @@
 // Jetzt (level 0, §3.1): three pills, the greeting, the focus, the orb slot (the
-// fixed OrbLayer draws the circle over it) and the door line to the day.
+// fixed OrbLayer draws the circle over it), the quiet line of what she did today
+// (only when there is something) and the door line to the day.
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { backend } from "../lib/backend";
 import { localMidnightIso } from "../lib/dates";
 import type { Palette } from "../lib/palette";
-import { addDays } from "../lib/plan";
+import { addDays, dayOf, todayWins, todayWinsLine } from "../lib/plan";
 import { pressOrb } from "../lib/orbSignals";
 import type { Weather } from "../lib/weather";
-import type { CalendarEvent, Profile } from "../lib/types";
+import type { CalendarEvent, GoalTime, Profile } from "../lib/types";
 import { usePlanData } from "./data";
 import * as coachBus from "./coachBus";
 import { doorLine, type DoorLine } from "./doorLine";
@@ -68,6 +69,30 @@ function useDoorLine(today: string): DoorLine | null {
   return events ? doorLine(events, now) : null;
 }
 
+/**
+ * «Heute: 40 Min für Halbmarathon Zürich · Dehnen»: only what is confirmed today (todayWins): time recorded for a
+ * goal (logged, a block she answered, a completed training), steps done, habits ticked. Null when there is
+ * nothing. Today's time reloads when entries or the plan change (a block answered, the coach logged time); a new
+ * line waits while the column moves (motion.ts).
+ */
+function useTodayWins(today: string): string | null {
+  const { goals, habits, eventsVersion, planVersion } = usePlanData();
+  const [log, setLog] = useState<{ day: string; rows: GoalTime[] } | null>(null);
+  useEffect(() => {
+    let alive = true;
+    backend
+      .listGoalTime(today, today)
+      .then((rows) => whenStill(() => alive && setLog({ day: today, rows })))
+      .catch(() => whenStill(() => alive && setLog((l) => (l?.day === today ? l : null))));
+    return () => {
+      alive = false;
+    };
+  }, [today, eventsVersion, planVersion]);
+  if (!goals || !habits) return null;
+  const rows = log?.day === today ? log.rows : [];
+  return todayWinsLine(todayWins(goals, habits, rows, today, (iso) => dayOf(new Date(iso))));
+}
+
 /** offsetLeft/Top up to the document (layout positions, untouched by transforms) */
 function docOffset(el: HTMLElement): { left: number; top: number } {
   let left = 0;
@@ -94,6 +119,7 @@ export function NowLevel({ profile, palette, weather, focus, onSlot }: NowLevelP
   const online = useOnline();
   const [colorsOpen, setColorsOpen] = useState(false);
   const door = useDoorLine(today);
+  const wins = useTodayWins(today);
   const slotRef = useRef<HTMLDivElement>(null);
   const onSlotRef = useRef(onSlot);
   onSlotRef.current = onSlot;
@@ -224,6 +250,8 @@ export function NowLevel({ profile, palette, weather, focus, onSlot }: NowLevelP
         onPointerCancel={press(false)}
         onPointerLeave={press(false)}
       />
+
+      {wins && !tourHere && <p className="now-win">{wins}</p>}
 
       <button
         type="button"

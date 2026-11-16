@@ -68,6 +68,16 @@ export const NOLIO_TIME_REFUSAL =
 export const BLOCK_NO_NEXT =
   "Danke ihr, dass sie es sagt. Frag höchstens einmal, was dazwischenkam; biete erst danach einen kleineren oder verschobenen Block an. Zähl nie auf, was sonst nicht geklappt hat.";
 
+/**
+ * The same when the goal has her Plan B: instead of the question, a quiet reminder of her own plan for next time,
+ * never a reproach. Without one (or unknown): BLOCK_NO_NEXT.
+ */
+export function blockNoNext(planB: string | null | undefined): string {
+  const plan = typeof planB === "string" ? planB.replace(/\s+/g, " ").trim().slice(0, 200) : "";
+  if (!plan) return BLOCK_NO_NEXT;
+  return `Danke ihr, dass sie es sagt. Statt nach dem Grund zu fragen, erinnerst du sie leise an ihren Plan B („${plan}“), als Angebot fürs nächste Mal, nie als Vorwurf; biete erst danach einen kleineren oder verschobenen Block an. Zähl nie auf, was sonst nicht geklappt hat.`;
+}
+
 /** update_event on a Nolio entry: allowed only when nothing but the reminder changes. */
 export function nolioEditAllowed(input: Record<string, unknown>): boolean {
   return Object.keys(input).every((k) => k === "id" || k === "reminder_minutes");

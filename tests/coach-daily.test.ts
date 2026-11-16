@@ -136,7 +136,7 @@ describe("the morning in one minute", () => {
 
   it("at most one setup question per conversation, never in the greeting; the connections ask counts too", () => {
     expect(MODE_CHECKIN).toContain(
-      "- Einrichtungsfragen: Fehlen bei einem Ziel Etappen, Zieldatum, die Schätzung des Aufwands oder die Zeit pro Woche und sprecht ihr gerade nicht darüber, stellst du von dir aus höchstens eine solche Frage pro Gespräch, nie in der Begrüssung und nicht an vollen oder müden Tagen. Auch die Frage nach Apps und Geräten (unter „Verbindungen“) ist eine Einrichtungsfrage: Pro Gespräch stellst du höchstens eine von allen.",
+      "- Einrichtungsfragen: Fehlen bei einem Ziel Etappen, Zieldatum, die Schätzung des Aufwands oder die Zeit pro Woche und sprecht ihr gerade nicht darüber, stellst du von dir aus höchstens eine solche Frage pro Gespräch, nie in der Begrüssung und nicht an vollen oder müden Tagen. Auch die Frage nach Apps und Geräten (unter „Verbindungen“) und die nach einem Plan B sind Einrichtungsfragen: Pro Gespräch stellst du höchstens eine von allen.",
     );
     expect(MODE_CHECKIN).toContain("nie in der Begrüssung und nur in einem Gespräch ohne andere Einrichtungsfrage: Du fragst, welche Apps oder Geräte sie nutzt");
     expect(MODE_CHECKIN).not.toContain("holst du das bei Gelegenheit nach");
