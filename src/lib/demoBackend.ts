@@ -1464,7 +1464,10 @@ export class DemoBackend implements Backend {
         const when = /\bmeine woche\b/i.test(req.message) ? "diese Woche" : /\bnächste woche\b/i.test(req.message) ? "nächste Woche" : /\bwoche\b/i.test(req.message) ? "in der Woche" : /\bmorgen\b/i.test(req.message) ? "morgen" : /\btag am\b/i.test(req.message) ? "an dem Tag" : "heute";
         reply = `Gern. Was ist ${when} das Wichtigste, und wann hast du Zeit dafür?`;
         const next = (await this.listGoals()).find((g) => g.status === "active");
-        if (next) reply += ` Für „${next.title}“ schlage ich einen Block ${new Date().getHours() < 17 ? "heute" : "morgen"} um 18 Uhr vor, eine Stunde.`;
+        // the block falls in what is being planned: next week or another week on its Monday, tomorrow, that day
+        const blockDay =
+          when === "nächste Woche" || when === "in der Woche" ? "am Montag" : when === "an dem Tag" ? "an dem Tag" : when === "morgen" || new Date().getHours() >= 17 ? "morgen" : "heute";
+        if (next) reply += ` Für „${next.title}“ schlage ich einen Block ${blockDay} um 18 Uhr vor, eine Stunde.`;
       } else if (habitsDone.length || spent) {
         reply = "Was steht heute sonst noch an?";
       } else if (parseDemoMinutes(req.message) && (await this.listGoals()).filter((g) => g.status === "active").length > 1) {

@@ -44,6 +44,8 @@ export function wasHeard(thread: string, text: string, store: Store | null = loc
 }
 
 export const STALE_MS = 3 * 60 * 60 * 1000;
+/** a new part of the day counts only once the greeting is this old: one made at 10:58 still fits at 11:01 */
+export const PART_MIN_MS = 90 * 60 * 1000;
 
 /** the part of the day a greeting speaks to: morning (before 11), day (11–17), evening (from 17) */
 export function dayPart(d: Date): 0 | 1 | 2 {
@@ -51,10 +53,27 @@ export function dayPart(d: Date): 0 | 1 | 2 {
   return h < 11 ? 0 : h < 17 ? 1 : 2;
 }
 
-/** a greeting made at `at` no longer fits at `now`: about 3 h old, or from an earlier part of the day */
+/** a greeting made at `at` no longer fits at `now`: about 3 h old, or from an earlier part of the day and 90 min old */
 export function greetingStale(at: number, now: number): boolean {
   if (!(at > 0)) return false;
-  return now - at >= STALE_MS || dayPart(new Date(now)) > dayPart(new Date(at));
+  const age = now - at;
+  return age >= STALE_MS || (age >= PART_MIN_MS && dayPart(new Date(now)) > dayPart(new Date(at)));
+}
+
+/**
+ * The day's thread holds nothing she can see: it is empty, or only the hidden opener of a greeting
+ * that never arrived (the app was closed while it was being written). The greeting then starts again.
+ */
+export function greetingMissing(msgs: readonly { hidden?: boolean }[]): boolean {
+  return !msgs.some((m) => !m.hidden);
+}
+
+/**
+ * Her tap while the day's greeting waits: true = it no longer fits and a fresh one can be made now
+ * (online); false = the waiting greeting plays (offline too: its sound is ready, the phone voice works).
+ */
+export function freshOnHeldTap(o: { held: boolean; waiting: boolean; online: boolean; at: number; now: number }): boolean {
+  return o.held && o.waiting && o.online && greetingStale(o.at, o.now);
 }
 
 /**

@@ -6,7 +6,7 @@ import { pulseOrb } from "../lib/orbSignals";
 import { eventWhen, minutesLabel, shortDay } from "../lib/dates";
 import { dayOf, perWeekLabel } from "../lib/plan";
 import { listenOnce, Speaker, splitSentences, unlockAudio, type ListenHandle, type SpeakerState } from "../lib/voice";
-import { greetingOffer, greetingStale, markHeard, wasHeard } from "../lib/heard";
+import { freshOnHeldTap, greetingMissing, greetingOffer, markHeard, wasHeard } from "../lib/heard";
 import * as coachBus from "../space/coachBus";
 import { useStill } from "../space/motion";
 import { dreamWhen } from "../places/bucket";
@@ -136,7 +136,8 @@ export function VoiceConversation({
   onTurn,
 }: Props) {
   const [phase, setPhase] = useState<Phase>("idle");
-  // the speaker: "waiting" = a reply is ready and waits for her tap (the circle, the hint, the mic)
+  // the speaker: "waiting" = a reply is ready and waits for her tap (the circle or the hint; a tap on
+  // the mic means she speaks first, and the waiting words are dropped)
   const [sound, setSound] = useState<SpeakerState>("idle");
   const speaking = sound === "speaking";
   const waiting = sound === "waiting";
@@ -372,7 +373,8 @@ export function VoiceConversation({
     [mode, thread, context],
   );
 
-  // Open the thread; if it's empty, the coach begins (and speaks once she taps the circle, the hint or the mic).
+  // Open the thread; if she sees nothing in it yet, the coach begins (and speaks once she taps the circle or
+  // the hint). Only a hidden opener: the app was closed while the greeting was being written, so it starts again.
   useEffect(() => {
     let alive = true;
     backend
@@ -392,7 +394,7 @@ export function VoiceConversation({
           setLastAt(0);
         }
         setSpoke(msgs.some((m) => m.role === "user" && !m.hidden));
-        if (msgs.length === 0 && started.current !== thread) {
+        if (greetingMissing(msgs) && started.current !== thread) {
           started.current = thread;
           if (layer) {
             // a queued ask opens the day instead of the greeting; a held greeting waits
@@ -513,8 +515,8 @@ export function VoiceConversation({
     const s = speaker.current;
     if (s.held || s.state === "waiting") {
       void unlockAudio().catch(() => {}); // inside the tap (iPhone); every such tap tries again
-      // the app stayed open for hours: the greeting that waits no longer fits
-      if (s.held && s.state === "waiting" && greetingStale(lastAt, Date.now())) {
+      // the app stayed open for hours: the greeting that waits no longer fits (offline it still plays)
+      if (freshOnHeldTap({ held: s.held, waiting: s.state === "waiting", online: navigator.onLine, at: lastAt, now: Date.now() })) {
         s.reset();
         void run(undefined, true);
       } else s.release();

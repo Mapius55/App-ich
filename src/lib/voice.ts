@@ -58,11 +58,12 @@ if (typeof document !== "undefined") {
 }
 
 /** Call from a deliberate tap (the circle, the hint, the mic, a coach hand-off): never from any tap
-    anywhere. Plays a silent sound so iOS allows audio afterwards; every such tap tries again. */
+    anywhere. Plays a silent sound so iOS allows audio afterwards; every such tap tries again.
+    Everything iOS needs inside the tap runs before the first await; the wake-up settles after. */
 export async function unlockAudio(): Promise<void> {
   setAudioSession("playback");
   const c = audioContext();
-  if (c.state === "suspended") await c.resume().catch(() => {});
+  const resumed = c.state === "suspended" ? c.resume().catch(() => {}) : null;
   const src = c.createBufferSource();
   src.buffer = c.createBuffer(1, 1, 22050);
   src.connect(c.destination);
@@ -73,6 +74,7 @@ export async function unlockAudio(): Promise<void> {
     u.volume = 0;
     window.speechSynthesis.speak(u);
   }
+  await resumed;
   unlockedOnce = true;
   unlockResolve?.();
 }
@@ -153,7 +155,9 @@ export class Speaker {
     this.soundListeners.forEach((l) => l());
   }
 
-  /** The next reply (the greeting) waits for her tap: sound only when she wants it. It is fetched as usual. */
+  /** The next reply (the greeting) waits for her tap: sound only when she wants it. Only its first
+      sentence is fetched before the tap (it starts at once); the rest is fetched once she taps, so an
+      unheard greeting costs almost no voice. */
   hold() {
     this.gate ??= new Promise<void>((r) => (this.openGate = r));
   }
@@ -178,14 +182,20 @@ export class Speaker {
     if (!t) return;
     this.spoken.push(t);
     const gen = this.generation;
-    this.queue.push(this.prepare(t, gen));
+    this.queue.push(this.prepare(t, gen, this.spoken.length === 1));
     if (!this.playing) void this.playNext(gen);
   }
 
-  private async prepare(text: string, gen: number): Promise<{ text: string; buf: AudioBuffer | null } | null> {
+  /** first: the reply's first sentence (fetched even while the reply is held) */
+  private async prepare(text: string, gen: number, first: boolean): Promise<{ text: string; buf: AudioBuffer | null } | null> {
     if (this.useServer === null) this.useServer = await serverVoiceReady();
     if (gen !== this.generation) return null;
     if (!this.useServer) return { text, buf: null }; // phone voice
+    if (!first) {
+      // a held reply: the rest is fetched only after her tap; dropped (stop), it fetches nothing
+      while (this.gate) await this.gate;
+      if (gen !== this.generation) return null;
+    }
     try {
       const data = await backend.speak(text);
       if (gen !== this.generation) return null;
@@ -274,7 +284,8 @@ export class Speaker {
       // some phones never report the end of speech: don't hang
       const guard = setTimeout(finish, 2500 + text.length * 85);
       u.onend = u.onerror = finish;
-      this.sound();
+      // heard only once the phone really speaks (iOS may refuse it, or there is no German voice)
+      u.onstart = () => this.sound();
       window.speechSynthesis.speak(u);
     });
   }

@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { DemoBackend, parseDemoEvent } from "../src/lib/demoBackend";
-import { dayOf } from "../src/lib/plan";
+import { addDays, dayOf } from "../src/lib/plan";
 import type { CoachEvent, CoachRequest } from "../src/lib/types";
 
 const now = new Date(2026, 10, 15, 10, 0); // Sunday 15 Nov 2026, 10:00
@@ -89,6 +89,23 @@ describe("demo coach: planning from Tag and Woche", () => {
     }
     expect(await b.getDay(ctx.day)).toBeNull();
     expect(await b.listEvents("2000-01-01T00:00:00Z", "2100-01-01T00:00:00Z")).toEqual([]);
+  }, 30000);
+
+  it("puts the suggested block in what is being planned, not today", async () => {
+    const b = new DemoBackend();
+    await b.signUp("demo.block", "geheim1234");
+    await b.addGoal({ title: "Halbmarathon Zürich", target_date: addDays(dayOf(), 60) });
+    for (const [message, when] of [
+      ["Lass uns nächste Woche planen.", "am Montag"],
+      ["Lass uns die Woche vom 23. November planen.", "am Montag"],
+      ["Lass uns den Tag morgen planen.", "morgen"],
+      ["Lass uns den Tag am Dienstag, 17. November planen.", "an dem Tag"],
+    ] as const) {
+      const res = await talk(b, message);
+      expect(res.text).toContain(`Für „Halbmarathon Zürich“ schlage ich einen Block ${when} um 18 Uhr vor, eine Stunde.`);
+    }
+    const today = await talk(b, "Lass uns meinen Tag planen.");
+    expect(today.text).toMatch(/schlage ich einen Block (heute|morgen) um 18 Uhr vor/); // morgen from 17:00
   }, 30000);
 
   it("points to the goals place for a new goal", async () => {

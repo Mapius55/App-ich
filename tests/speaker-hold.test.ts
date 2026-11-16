@@ -8,6 +8,8 @@ vi.mock("../src/lib/speech", () => ({ listen: () => null, speechSupported: () =>
 
 const spoken: string[] = [];
 const saved: Record<string, unknown> = {};
+// the phone refuses to speak (iOS without a tap, no German voice): an error, never a start
+let refuse = false;
 beforeAll(() => {
   class Ctx {
     state = "suspended";
@@ -24,6 +26,7 @@ beforeAll(() => {
   }
   class Utterance {
     text: string;
+    onstart: (() => void) | null = null;
     onend: (() => void) | null = null;
     onerror: (() => void) | null = null;
     constructor(t: string) {
@@ -32,8 +35,9 @@ beforeAll(() => {
   }
   const synth = {
     speak(u: Utterance) {
+      if (refuse && u.text.trim()) return void setTimeout(() => u.onerror?.(), 1);
       if (u.text.trim()) spoken.push(u.text);
-      setTimeout(() => u.onend?.(), 1);
+      setTimeout(() => (u.onstart?.(), u.onend?.()), 1);
     },
     cancel() {},
     getVoices: () => [],
@@ -107,5 +111,23 @@ describe("Speaker: the greeting waits for her tap", () => {
     s.say("Gern.");
     await tick(30);
     expect(spoken).toEqual(["Gern."]);
+  });
+
+  it("the phone voice counts as heard only once it really starts", async () => {
+    const { Speaker } = await import("../src/lib/voice");
+    spoken.length = 0;
+    const s = new Speaker();
+    let sounds = 0;
+    s.onSound(() => sounds++);
+    refuse = true;
+    s.say("Guten Morgen, Marius.");
+    await tick(30);
+    expect(spoken).toEqual([]);
+    expect(sounds).toBe(0); // «Hören» stays offered
+    expect(s.state).toBe("idle");
+    refuse = false;
+    s.say("Wie geht es dir?");
+    await tick(30);
+    expect(sounds).toBe(1);
   });
 });

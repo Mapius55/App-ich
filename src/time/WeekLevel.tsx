@@ -2,14 +2,14 @@
 // entries in one line, a 06–22 day track (goal blocks in accent, others soft, a now
 // tick today) and a micro line with the time for goals. Tap a row → that day. The summary hands
 // over to the coach: «Mit dem Coach planen» (on Saturday and Sunday the current week plans the next
-// one), a past week «Mit dem Coach anschauen» (a look back).
+// one: «Nächste Woche mit dem Coach planen»), a past week «Mit dem Coach anschauen» (a look back).
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { daySubline, spokenMinutes, timeHM, weekdayShort, weekRange, weekTitle } from "../lib/dates";
 import { addDays, dayMinutes, dayOf, daysBetween, isoWeek, weekDays, weekStart } from "../lib/plan";
 import type { CalendarEvent } from "../lib/types";
 import { useFresh, useSeenWhenVisible } from "../space/fresh";
 import { useSpace } from "../space/state";
-import { microLine, nowTick, plannedMinutes, trackRange, weekKind, weekPlanText, weekReviewText, weekSummary, weekTrack, type Segment } from "./layout";
+import { microLine, nowTick, plannedMinutes, trackRange, weekKind, weekPlanLabel, weekPlanText, weekReviewText, weekSummary, weekTrack, type Segment } from "./layout";
 import { CornerPill, LevelHeader, NextLevelLink } from "./LevelHeader";
 import { useArrival, useNow, usePeriodSwap, useTimePaging } from "./usePaging";
 import { prefetchRange, useRangeEvents } from "./useRangeEvents";
@@ -124,7 +124,7 @@ export function WeekLevel({ titleId, active }: WeekLevelProps) {
                   </button>
                 ) : (
                   <button type="button" className="wk-sum-coach" onClick={() => ask(weekPlanText(monday, today))}>
-                    Mit dem Coach planen
+                    {weekPlanLabel(monday, today)}
                   </button>
                 )}
               </>

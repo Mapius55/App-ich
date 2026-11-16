@@ -17,6 +17,7 @@ import {
   trackRange,
   weekKind,
   weekendHandsOver,
+  weekPlanLabel,
   weekPlanText,
   weekReviewText,
   weekSummary,
@@ -163,7 +164,10 @@ describe("week summary and micro lines", () => {
     expect(weekSummary("current", 0, 120)).toBe("2 Std für deine Ziele geplant");
     expect(weekSummary("past", 300, 0)).toBe("5 Std für deine Ziele");
     expect(weekSummary("future", 0, 180)).toBe("3 Std für deine Ziele geplant");
-    for (const k of ["past", "current", "future"] as const) expect(weekSummary(k, 0, 0)).toBe("Noch keine Zeit für Ziele geplant");
+    for (const k of ["current", "future"] as const) expect(weekSummary(k, 0, 0)).toBe("Noch keine Zeit für Ziele geplant");
+    // a week that is over: nothing «noch» about it (next to «Mit dem Coach anschauen»)
+    expect(weekSummary("past", 0, 0)).toBe("Keine Zeit für Ziele eingetragen");
+    expect(weekSummary("past", 0, 0, spokenMinutes)).toBe("Keine Zeit für Ziele eingetragen");
   });
 
   it("has a spoken form for the Woche announcement", () => {
@@ -210,6 +214,14 @@ describe("planning texts", () => {
     expect(weekPlanText("2026-11-09", "2026-11-13")).toBe("Lass uns meine Woche planen.");
     // next week, seen on the weekend, keeps its date
     expect(weekPlanText("2026-11-16", "2026-11-15")).toBe("Lass uns die Woche vom 16. November planen.");
+  });
+
+  it("says so on the link when the ending week plans the next one", () => {
+    expect(weekPlanLabel("2026-11-12", TODAY)).toBe("Nächste Woche mit dem Coach planen"); // Saturday
+    expect(weekPlanLabel("2026-11-09", "2026-11-15")).toBe("Nächste Woche mit dem Coach planen"); // Sunday
+    expect(weekPlanLabel("2026-11-09", "2026-11-13")).toBe("Mit dem Coach planen"); // Friday: this week
+    expect(weekPlanLabel("2026-11-16", "2026-11-15")).toBe("Mit dem Coach planen"); // next week itself, on Sunday
+    expect(weekPlanLabel("2026-11-23", "2026-11-11")).toBe("Mit dem Coach planen"); // a future week
   });
 
   it("looks back at a past week", () => {
