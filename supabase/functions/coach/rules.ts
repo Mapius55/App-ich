@@ -64,6 +64,10 @@ export const NOLIO_EDIT_REFUSAL =
 export const NOLIO_TIME_REFUSAL =
   "Dieses Training kommt aus Nolio: Es zählt von selbst für das Ziel, sobald es in Nolio erledigt ist. Kein log_time dafür, sonst zählt es doppelt.";
 
+/** log_time with 0 minutes for a block (her «Nein»): the Nein protocol, at the moment it happens. */
+export const BLOCK_NO_NEXT =
+  "Danke ihr, dass sie es sagt. Frag höchstens einmal, was dazwischenkam; biete erst danach einen kleineren oder verschobenen Block an. Zähl nie auf, was sonst nicht geklappt hat.";
+
 /** update_event on a Nolio entry: allowed only when nothing but the reminder changes. */
 export function nolioEditAllowed(input: Record<string, unknown>): boolean {
   return Object.keys(input).every((k) => k === "id" || k === "reminder_minutes");

@@ -49,7 +49,7 @@ type GoalRow = Omit<Goal, "milestones" | "time" | "effort_hours" | "weekly_hours
   memory?: string | null;
 };
 type GoalMinutes = Goal["time"];
-const NO_TIME: GoalMinutes = { logged_minutes: 0, block_minutes: 0 };
+const NO_TIME: GoalMinutes = { logged_minutes: 0, block_minutes: 0, provisional_minutes: 0 };
 const toNumber = (v: Numeric | undefined): number | null => (v === null || v === undefined || v === "" ? null : Number(v));
 const toGoal = (row: GoalRow, time: GoalMinutes = NO_TIME): Goal => ({
   ...row,
@@ -262,16 +262,40 @@ export class SupabaseBackend implements Backend {
     if (error) throw error;
   }
 
-  /** Minutes per goal from the view goal_minutes (logged time and past blocks not yet answered). */
+  /** Minutes per goal from the view goal_minutes (logged time, past blocks not yet answered that still count, of those
+   *  the provisional ones; before the honest-counting migration there is no provisional_minutes: 0). */
   private async goalMinutes(ids: string[]): Promise<Map<string, GoalMinutes>> {
     const out = new Map<string, GoalMinutes>();
     for (const part of chunks(ids)) {
       const { data, error } = await this.sb.from("goal_minutes").select("*").in("goal_id", part);
       if (error) throw error;
-      for (const r of data as { goal_id: string; logged_minutes: Numeric; block_minutes: Numeric }[])
-        out.set(r.goal_id, { logged_minutes: toNumber(r.logged_minutes) ?? 0, block_minutes: toNumber(r.block_minutes) ?? 0 });
+      for (const r of data as { goal_id: string; logged_minutes: Numeric; block_minutes: Numeric; provisional_minutes?: Numeric }[])
+        out.set(r.goal_id, {
+          logged_minutes: toNumber(r.logged_minutes) ?? 0,
+          block_minutes: toNumber(r.block_minutes) ?? 0,
+          provisional_minutes: toNumber(r.provisional_minutes) ?? 0,
+        });
     }
     return out;
+  }
+
+  private countFrom: Promise<string | null> | null = null;
+  /** public.honest_count_from(), asked once per session; a failure (e.g. before its migration) is asked again next time. */
+  countingFrom(): Promise<string | null> {
+    this.countFrom ??= Promise.resolve(this.sb.rpc("honest_count_from")).then(
+      ({ data, error }) => {
+        if (error || typeof data !== "string" || !Number.isFinite(Date.parse(data))) {
+          this.countFrom = null;
+          return null;
+        }
+        return data;
+      },
+      () => {
+        this.countFrom = null;
+        return null;
+      },
+    );
+    return this.countFrom;
   }
 
   private async withTime(rows: GoalRow[]): Promise<Goal[]> {
@@ -353,7 +377,7 @@ export class SupabaseBackend implements Backend {
 
   async setBlockDone(eventId: string, done: boolean | null, minutes?: number) {
     if (done === null) {
-      // no answer any more: the block counts by itself again
+      // no answer any more: the block counts by itself again (provisionally for a week after it ended, as the view counts)
       const { error } = await this.sb.from("goal_time").delete().eq("event_id", eventId);
       if (error) throw error;
       return;

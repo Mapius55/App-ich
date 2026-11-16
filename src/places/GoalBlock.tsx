@@ -1,5 +1,6 @@
 // One goal in Ziele (§3.5): typography, not a card. Title (→ goal Unfold), date line,
-// a 3 px progress line (hours if estimated, else steps), the hours line with the
+// a 3 px progress line (hours if estimated, else steps; hours of blocks nobody answered yet, which count only
+// provisionally for a week, follow in a lighter colour flow), the hours line with the
 // feasibility word, the next step to tick, and the other steps folded in place. Without an estimate
 // only the hours invested show: «Aufwand schätzen» lives in the goal's detail, not under every goal.
 import { useEffect, useRef, useState } from "react";
@@ -155,6 +156,9 @@ export function GoalBlock({ goal, today, flash, active }: { goal: Goal; today: s
   };
 
   const ratio = e.effort !== null ? Math.min(1, e.done / e.effort) : p.total > 0 ? p.ratio : null;
+  // the confirmed part in the colour flow; the provisional rest after it, lighter
+  const confirmed = e.effort !== null ? Math.min(1, Math.max(0, e.done - e.provisional) / e.effort) : ratio;
+  const provisional = e.effort !== null && e.provisional > 0;
   const openGoal = () => open({ kind: "goal", goal }, ref.current);
   const regionId = `gb-more-${goal.id}`;
 
@@ -184,9 +188,14 @@ export function GoalBlock({ goal, today, flash, active }: { goal: Goal; today: s
           aria-valuemin={0}
           aria-valuemax={e.effort ?? p.total}
           aria-valuenow={e.effort !== null ? Math.min(e.done, e.effort) : p.done}
-          aria-valuetext={e.effort !== null ? `${hoursLabel(e.done)} von etwa ${hoursLabel(e.effort)} Stunden` : `${p.done} von ${p.total} Etappen`}
+          aria-valuetext={
+            e.effort !== null
+              ? `${hoursLabel(e.done)} von etwa ${hoursLabel(e.effort)} Stunden${provisional ? `, davon ${hoursLabel(e.provisional)} vorläufig` : ""}`
+              : `${p.done} von ${p.total} Etappen`
+          }
         >
-          <span style={{ transform: `scaleX(${ratio})` }} />
+          {provisional && <span className="gb-prov" style={{ transform: `scaleX(${ratio})` }} />}
+          <span style={{ transform: `scaleX(${confirmed})` }} />
         </div>
       )}
 

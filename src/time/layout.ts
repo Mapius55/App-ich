@@ -186,6 +186,18 @@ export function weekSummary(kind: WeekKind, done: number, planned: number, fmt: 
   return `${fmt(total)} für deine Ziele geplant${done > 0 ? `, ${fmt(done)} davon geschafft` : ""}`;
 }
 
+/**
+ * One goal's quiet line on Woche: «Halbmarathon · geplant 3 Std · gemacht 2 Std». «gemacht» counts as the goal's
+ * bar does (confirmed, plus blocks nobody answered while they still count). A number only when it isn't 0, a
+ * future week has nothing done yet; null when there is nothing to say (never «0», never what is missing).
+ */
+export function weekGoalLine(planned: number, done: number, kind: WeekKind, fmt: (min: number) => string = hoursMinutes): string | null {
+  const parts: string[] = [];
+  if (planned > 0) parts.push(`geplant ${fmt(planned)}`);
+  if (kind !== "future" && done > 0) parts.push(`gemacht ${fmt(done)}`);
+  return parts.length ? parts.join(" · ") : null;
+}
+
 /** a week row's micro line: past "1 Std 45 für Ziele", future "2 Std 30 geplant", today both */
 export function microLine(day: string, today: string, done: number, planned: number): { text: string; kind: "done" | "planned" }[] {
   const rel = daysBetween(today, day);

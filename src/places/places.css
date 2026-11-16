@@ -110,15 +110,17 @@
 }
 .space .gb.paused .gb-title { color: var(--text-dim); }
 .space .gb-meta { margin: 4px 0 0; font-size: 0.8125rem; line-height: 1.35; color: var(--text-soft); }
-.space .gb-bar { height: 3px; margin-top: 14px; border-radius: 999px; background: color-mix(in srgb, var(--text) 12%, transparent); overflow: hidden; }
+.space .gb-bar { position: relative; height: 3px; margin-top: 14px; border-radius: 999px; background: color-mix(in srgb, var(--text) 12%, transparent); overflow: hidden; }
 .space .gb-bar > span {
-  display: block;
-  height: 100%;
+  position: absolute;
+  inset: 0;
   border-radius: inherit;
   background: linear-gradient(90deg, var(--sky-1), var(--accent));
   transform-origin: left center;
   transition: transform 0.9s var(--ease-out);
 }
+/* hours of blocks nobody answered yet: the same colour flow, lighter (never red, never crossed out) */
+.space .gb-bar > .gb-prov { opacity: 0.38; }
 .space .gb-hours {
   margin: 8px 0 0;
   display: flex;

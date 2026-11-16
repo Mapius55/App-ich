@@ -46,6 +46,8 @@ export interface CalendarEvent {
   /** the goal this entry serves, if any */
   goal_id: string | null;
   sequence?: number;
+  /** when it was entered (honest counting: an unanswered block entered before it began counts as before) */
+  created_at?: string;
   updated_at?: string;
 }
 
@@ -90,8 +92,11 @@ export interface Goal {
   prior_hours: number;
   /** sorted by position */
   milestones: Milestone[];
-  /** time that went into the goal: logged minutes, and past planned blocks not yet confirmed (they count too) */
-  time: { logged_minutes: number; block_minutes: number };
+  /**
+   * time that went into the goal (the view goal_minutes): logged minutes (answered blocks too), past planned blocks
+   * nobody answered that still count, and of those the provisional ones (ended within a week, shown lighter)
+   */
+  time: { logged_minutes: number; block_minutes: number; provisional_minutes: number };
   /** which Nolio trainings count toward it (sport ids, names or slugs), null = not chosen */
   sports?: string[] | null;
   /**
@@ -307,11 +312,18 @@ export interface Backend {
   deleteMilestone(id: string): Promise<void>;
   /**
    * A past planned block (kind 'block' with a goal): did it happen? done=false records 0 minutes,
-   * done=true records its planned length (or `minutes`), null removes the answer so it counts by itself again.
+   * done=true records its planned length (or `minutes`), null removes the answer so it counts by itself again
+   * (as goal_minutes counts a block nobody answered: provisionally for a week after it ended). «Teilweise» is done=true with fewer `minutes`.
    */
   setBlockDone(eventId: string, done: boolean | null, minutes?: number): Promise<void>;
   /** Answers given for blocks: event_id → minutes (0 = didn't happen). */
   blockAnswers(eventIds: string[]): Promise<Record<string, number>>;
+  /**
+   * When honest counting began (public.honest_count_from()): a past block nobody answered counts provisionally
+   * for a week after it ended, except one that ended and was entered before this moment (it counts as before).
+   * null = not known (then every such block counts, as before). See unansweredCredit in plan.ts.
+   */
+  countingFrom(): Promise<string | null>;
   /** Time entries for goals on days in [from, to] (YYYY-MM-DD, inclusive), for the year view. */
   listGoalTime(from: string, to: string): Promise<GoalTime[]>;
 

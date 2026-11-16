@@ -24,6 +24,7 @@ import {
 } from "./prompt.ts";
 import {
   birthYearProblem,
+  BLOCK_NO_NEXT,
   doneDateProblem,
   draftStream,
   finalVersion,
@@ -58,6 +59,7 @@ import {
   NUDGE_LONG_DAYS,
   NUDGE_NOT_NOW_DAYS,
   openWeekBlocks,
+  PATTERN_DAYS,
   reviewWeek,
   streakLabel,
   SUPPORT_EVERY_DAYS,
@@ -496,10 +498,13 @@ const TOOLS: Anthropic.Beta.BetaTool[] = [
   {
     name: "note_offer",
     description:
-      "Hält fest, dass du etwas angeboten hast, das nur selten kommt: experiment (ein kleines Experiment, höchstens einmal pro Woche) oder begleitung (der einmalige Hinweis auf Menschen in ihrem Leben oder eine Fachperson).",
+      "Hält fest, dass du etwas angeboten hast, das nur selten kommt: experiment (ein kleines Experiment, höchstens einmal pro Woche), begleitung (der einmalige Hinweis auf Menschen in ihrem Leben oder eine Fachperson) oder blockmuster (du hast angeboten, die Blöcke eines Ziels nach ihrem Muster anzupassen; mit goal_id, höchstens einmal pro Woche und Ziel).",
     input_schema: {
       type: "object",
-      properties: { what: { type: "string", enum: ["experiment", "begleitung"] } },
+      properties: {
+        what: { type: "string", enum: ["experiment", "begleitung", "blockmuster"] },
+        goal_id: { type: "string", description: "Nur bei blockmuster: das Ziel, dessen Blöcke du anpassen wolltest." },
+      },
       required: ["what"],
       additionalProperties: false,
     },
@@ -610,8 +615,10 @@ type MilestoneRow = Row & { id: string; title: string; position: number; done_at
 interface GoalTimeSum {
   logged_minutes: number;
   block_minutes: number;
+  /** of block_minutes: blocks nobody answered that count only provisionally (a week after they ended) */
+  provisional_minutes: number;
 }
-const NO_TIME: GoalTimeSum = { logged_minutes: 0, block_minutes: 0 };
+const NO_TIME: GoalTimeSum = { logged_minutes: 0, block_minutes: 0, provisional_minutes: 0 };
 
 // numeric columns may arrive as strings; null stays null
 const numOrNull = (v: unknown) => (v === null || v === undefined || v === "" ? null : Number(v));
@@ -633,8 +640,15 @@ const toGoal = (row: Row, time: GoalTimeSum = NO_TIME) => ({
   time,
 });
 
+// (provisional_minutes comes with the honest-counting migration; before it: none)
 const toTime = (r: Row | null | undefined): GoalTimeSum =>
-  r ? { logged_minutes: Number(r.logged_minutes) || 0, block_minutes: Number(r.block_minutes) || 0 } : NO_TIME;
+  r ? { logged_minutes: Number(r.logged_minutes) || 0, block_minutes: Number(r.block_minutes) || 0, provisional_minutes: Number(r.provisional_minutes) || 0 } : NO_TIME;
+
+/** The minutes of a block's answer as embedded (goal_time(minutes): a list, or one row), null = not answered. */
+function answerMinutes(v: unknown): number | null {
+  const row = (Array.isArray(v) ? v[0] : v) as { minutes?: unknown } | null | undefined;
+  return row && row.minutes !== null && row.minutes !== undefined ? Number(row.minutes) || 0 : null;
+}
 
 /** What the coach's context reads of a goal; the Bucket List columns apart (they come with its migration). */
 // (a milestone's updated_at: planning steps for a dream counts as activity for «liegt lange»; it is set on insert too)
@@ -674,7 +688,8 @@ async function dreamActivity(sb: SupabaseClient, ids: string[], today: string, t
 }
 
 async function goalTime(sb: SupabaseClient, id: string): Promise<GoalTimeSum> {
-  const { data, error } = await sb.from("goal_minutes").select("logged_minutes, block_minutes").eq("goal_id", id).maybeSingle();
+  // "*": provisional_minutes only exists after its migration
+  const { data, error } = await sb.from("goal_minutes").select("*").eq("goal_id", id).maybeSingle();
   if (error) throw error;
   return toTime(data);
 }
@@ -1205,7 +1220,7 @@ async function runTool(
             .lte("ends_at", new Date().toISOString());
           const open = (blocks.data ?? []).filter((b) => localDay(b.starts_at, ctx.tz) === logDay && !(b.goal_time as unknown[] | null)?.length);
           if (open.length)
-            hint = `Achtung: An diesem Tag gibt es einen geplanten Block ohne Rückmeldung (${open.map((b) => b.id).join(", ")}), der schon von selbst zählt. War die Zeit dieser Block, trag sie mit log_time und event_id ein und lösche diesen Eintrag nicht doppelt; war es zusätzlich, ist alles richtig.`;
+            hint = `Achtung: An diesem Tag gibt es einen geplanten Block ohne Rückmeldung (${open.map((b) => b.id).join(", ")}), der ohne Antwort vorläufig mitzählt. War die Zeit dieser Block, trag sie mit log_time und event_id ein und lösche diesen Eintrag nicht doppelt; war es zusätzlich, ist alles richtig.`;
         } catch (err) {
           console.error(err);
         }
@@ -1218,17 +1233,20 @@ async function runTool(
         const e = goalEffort(goal, day);
         return JSON.stringify({
           ok: true,
-          done_hours: e.done,
+          // without the provisional hours (blocks nobody answered yet): those are never said as done
+          done_hours: Math.round((e.done - e.provisional) * 10) / 10,
+          ...(e.provisional > 0 ? { vorlaeufig_hours: e.provisional } : {}),
           remaining_hours: e.remaining,
           needed_per_week: e.neededPerWeek,
           feasibility: e.feasibility,
+          ...(eventId && minutes === 0 ? { naechster_schritt: BLOCK_NO_NEXT } : {}),
           // a dream without an estimate gets no «Aufwand noch nicht geschätzt» to fill in (as create/update_goal)
           ...(goal.kind !== "dream" || goal.effort_hours ? { aufwand: effortLine(goal, day) } : {}),
           ...(hint ? { hint } : {}),
         });
       } catch (err) {
         console.error(err);
-        return JSON.stringify({ ok: true, ...(hint ? { hint } : {}) });
+        return JSON.stringify({ ok: true, ...(hint ? { hint } : {}), ...(eventId && minutes === 0 ? { naechster_schritt: BLOCK_NO_NEXT } : {}) });
       }
     }
     case "wochenblick": {
@@ -1245,7 +1263,15 @@ async function runTool(
     }
     case "note_offer": {
       if (ctx.mode !== "checkin") throw new ToolInputError("nur im täglichen Gespräch");
-      const what = oneOf(input.what, ["experiment", "begleitung"] as const, "what");
+      const what = oneOf(input.what, ["experiment", "begleitung", "blockmuster"] as const, "what");
+      if (what === "blockmuster") {
+        // per goal (goals.pattern_asked_at, the server's clock): the pattern line then says it came this week
+        const goalId = uuid(input.goal_id, "goal_id");
+        const res = await sb.from("goals").update({ pattern_asked_at: new Date().toISOString() }).eq("id", goalId).select("id");
+        if (res.error) throw res.error;
+        if (!res.data?.length) throw new ToolInputError("Ziel nicht gefunden");
+        return JSON.stringify({ ok: true, notiert: "Notiert. Diese Woche bietest du für dieses Ziel keine weitere Anpassung an." });
+      }
       const { error } = await sb
         .from("profiles")
         .update(what === "experiment" ? { experiment_at: new Date().toISOString() } : { support_hint_at: new Date().toISOString() })
@@ -1372,7 +1398,7 @@ type CoachProfile = {
  * `day`: her today (the thread).
  */
 async function loadDaily(sb: SupabaseClient, userId: string, day: string) {
-  const [lastSeen, lastSpoke, lastTalk, talk, profile, openers, todayLog, followed, asked, resting] = await Promise.all([
+  const [lastSeen, lastSpoke, lastTalk, talk, profile, openers, todayLog, followed, asked, resting, patternAsked] = await Promise.all([
     // the last day before today with a conversation, however long ago (a pause)
     soft<{ thread: string }[]>(sb.from("messages").select("thread").lt("thread", day).order("id", { ascending: false }).limit(1), [], "last seen"),
     // her own last message before today and when (the Wochenblick: a greeting she never answered is no conversation);
@@ -1404,6 +1430,12 @@ async function loadDaily(sb: SupabaseClient, userId: string, day: string) {
     soft<{ id: string; followed_up_at: string }[]>(sb.from("memories").select("id, followed_up_at").not("followed_up_at", "is", null).limit(400), [], "followed up"),
     soft<{ id: string; overdue_asked_for: string }[]>(sb.from("milestones").select("id, overdue_asked_for").not("overdue_asked_for", "is", null).limit(400), [], "overdue asked"),
     soft<{ id: string; nudge_after: string }[]>(sb.from("goals").select("id, nudge_after").gte("nudge_after", day).limit(100), [], "resting dreams"),
+    // when the coach last offered to adapt a goal's blocks (null: unknown, e.g. before the column: then never offered)
+    soft<{ id: string; pattern_asked_at: string }[] | null>(
+      sb.from("goals").select("id, pattern_asked_at").not("pattern_asked_at", "is", null).limit(200),
+      null,
+      "pattern asked",
+    ),
   ]);
   const talkCounts: Record<string, number> = {};
   for (const r of talk) talkCounts[String(r.thread)] = (talkCounts[String(r.thread)] ?? 0) + 1;
@@ -1419,6 +1451,7 @@ async function loadDaily(sb: SupabaseClient, userId: string, day: string) {
     followed: new Map(followed.map((r) => [String(r.id), String(r.followed_up_at)])),
     asked: new Map(asked.map((r) => [String(r.id), String(r.overdue_asked_for)])),
     resting: new Map(resting.map((r) => [String(r.id), String(r.nudge_after)])),
+    patternAsked: patternAsked ? new Map(patternAsked.map((r) => [String(r.id), String(r.pattern_asked_at)])) : null,
   };
 }
 
@@ -1532,18 +1565,19 @@ async function converse({ sb, userId, body, send }: { sb: SupabaseClient; userId
       .lt("starts_at", iso(now + 60 * DAY_MS))
       .order("starts_at")
       .limit(150),
-    // Past blocks for a goal from the last week, with any answer (goal_time) given for them.
+    // Past blocks for a goal from the last four weeks (the newest first), with the answer (goal_time) given for them:
+    // the pattern per goal, and the open ones of the last week to ask about.
     sb
       .from("events")
-      .select(`${eventCols}, goal_time(id)`)
+      .select(`${eventCols}, goal_time(minutes)`)
       .eq("kind", "block")
       .eq("all_day", false)
       .neq("source", "nolio") // the trainer's plan: the completed training counts by itself
       .not("goal_id", "is", null)
-      .gte("starts_at", iso(now - 7 * DAY_MS))
+      .gte("starts_at", iso(now - PATTERN_DAYS * DAY_MS))
       .lte("ends_at", iso(now))
-      .order("starts_at")
-      .limit(30),
+      .order("starts_at", { ascending: false })
+      .limit(200),
     // Goals and open dreams with the time that went into them (the view goal_minutes), fetched right
     // after, and for open dreams what happened lately (for the reminders «liegt lange»).
     openGoals()
@@ -1556,7 +1590,7 @@ async function converse({ sb, userId, body, send }: { sb: SupabaseClient; userId
         const dreams = mode === "tidy" ? [] : rows.filter((g) => g.kind === "dream" && g.status === "active").map((g) => String(g.id));
         if (res.error || !ids.length) return { ...res, time: new Map<string, GoalTimeSum>(), activity: new Map<string, DreamActivity>() };
         const [t, activity] = await Promise.all([
-          sb.from("goal_minutes").select("goal_id, logged_minutes, block_minutes").in("goal_id", ids),
+          sb.from("goal_minutes").select("*").in("goal_id", ids), // "*": provisional_minutes only after its migration
           dreamActivity(sb, dreams, context.day, tz),
         ]);
         if (t.error) console.error(t.error);
@@ -1635,15 +1669,23 @@ async function converse({ sb, userId, body, send }: { sb: SupabaseClient; userId
       activity: goalsRes.activity.get(String(g.id)),
       // a dream resting after her «nicht jetzt», and the overdue dates already asked about
       nudge_after: dailyCtx?.resting.get(goal.id) ?? null,
+      // adapting its blocks offered lately (undefined: unknown, then never offered)
+      pattern_asked_at: dailyCtx?.patternAsked ? (dailyCtx.patternAsked.get(goal.id) ?? null) : undefined,
       milestones: goal.milestones.map((m) => ({ ...m, overdue_asked_for: dailyCtx?.asked.get(String(m.id)) ?? null })),
     };
   });
   const goalIds = new Set(goals.map((g) => g.id));
   const events = [...(termineRes.data ?? []), ...(blocksRes.data ?? [])].sort((a, b) => Date.parse(a.starts_at) - Date.parse(b.starts_at));
-  // Not answered yet and for a goal in the context: the coach may ask once whether it happened.
-  const pastBlocks = (pastBlocksRes.data ?? [])
-    .filter((b) => !((b.goal_time as unknown[] | null) ?? []).length && goalIds.has(String(b.goal_id)))
-    .map(({ goal_time: _answers, ...b }) => b);
+  // Her own past blocks for a goal in the context, oldest first, with their answer (null = none): the pattern per goal.
+  const recentBlocks = (pastBlocksRes.data ?? [])
+    .filter((b) => goalIds.has(String(b.goal_id)))
+    .reverse()
+    .map(({ goal_time: answer, ...b }) => ({ ...b, minutes: answerMinutes(answer) }));
+  // Not answered yet, from the last week: the coach may ask once whether it happened.
+  const pastBlocks = recentBlocks
+    .filter((b) => b.minutes === null && Date.parse(b.starts_at) >= now - 7 * DAY_MS)
+    .slice(-30)
+    .map(({ minutes: _none, ...b }) => b);
 
   // today apart from the days before it
   const allDays = daysRes.data ?? [];
@@ -1729,6 +1771,7 @@ async function converse({ sb, userId, body, send }: { sb: SupabaseClient; userId
     habits,
     events,
     pastBlocks,
+    recentBlocks,
   };
 
   if (dailyCtx) {

@@ -1,15 +1,30 @@
 // Woche (level 2): seven rows, Monday first. Each row: weekday and date, the first
 // entries in one line, a 06–22 day track (goal blocks in accent, others soft, a now
-// tick today) and a micro line with the time for goals. Tap a row → that day. The summary hands
+// tick today) and a micro line with the time for goals. Under the summary one quiet line per active
+// goal with time that week («Halbmarathon · geplant 3 Std · gemacht 2 Std»). Tap a row → that day. The summary hands
 // over to the coach: «Mit dem Coach planen» (on Saturday and Sunday the current week plans the next
 // one: «Nächste Woche mit dem Coach planen»), a past week «Mit dem Coach anschauen» (a look back).
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { daySubline, spokenMinutes, timeHM, weekdayShort, weekRange, weekTitle } from "../lib/dates";
-import { addDays, dayMinutes, dayOf, daysBetween, isoWeek, weekDays, weekStart } from "../lib/plan";
+import { addDays, dayMinutes, dayOf, daysBetween, isoWeek, weekDays, weekGoalSummary, weekStart } from "../lib/plan";
 import type { CalendarEvent } from "../lib/types";
+import { usePlanData } from "../space/data";
 import { useFresh, useSeenWhenVisible } from "../space/fresh";
 import { useSpace } from "../space/state";
-import { microLine, nowTick, plannedMinutes, trackRange, weekKind, weekPlanLabel, weekPlanText, weekReviewText, weekSummary, weekTrack, type Segment } from "./layout";
+import {
+  microLine,
+  nowTick,
+  plannedMinutes,
+  trackRange,
+  weekGoalLine,
+  weekKind,
+  weekPlanLabel,
+  weekPlanText,
+  weekReviewText,
+  weekSummary,
+  weekTrack,
+  type Segment,
+} from "./layout";
 import { CornerPill, LevelHeader, NextLevelLink } from "./LevelHeader";
 import { useArrival, useNow, usePeriodSwap, useTimePaging } from "./usePaging";
 import { prefetchRange, useRangeEvents } from "./useRangeEvents";
@@ -20,6 +35,8 @@ export interface WeekLevelProps {
 }
 
 const TIGHT_ROW = 58;
+/** the goal lines never press a row under this (a 44 px row and its date column, with a little air) */
+const ROW_MIN = 47;
 const localDay = (iso: string) => dayOf(new Date(iso));
 const byStart = (a: CalendarEvent, b: CalendarEvent) => (a.all_day === b.all_day ? a.starts_at.localeCompare(b.starts_at) : a.all_day ? -1 : 1);
 
@@ -29,6 +46,7 @@ export function WeekLevel({ titleId, active }: WeekLevelProps) {
   const { shown: monday, pageRef, titleRef } = usePeriodSwap(target, active && !reduced);
   const { step, swipeRef, followRef } = useTimePaging(2);
   const data = useRangeEvents(monday, addDays(monday, 7), { goalTime: true });
+  const { goals } = usePlanData();
   const now = useNow(active);
   const arriving = useArrival(active, reduced, 150);
 
@@ -43,13 +61,21 @@ export function WeekLevel({ titleId, active }: WeekLevelProps) {
     return () => registerAdd("woche", null);
   }, [registerAdd, open]);
 
-  // rows tighter than 58 px move the micro line to the end of line 1
+  // rows tighter than 58 px move the micro line to the end of line 1; the goal lines take only the room the
+  // rows can spare (at least one line): rows and lines share the height, so the count stays put once measured
   const rowsRef = useRef<HTMLOListElement>(null);
+  const goalsRef = useRef<HTMLUListElement>(null);
   const [tight, setTight] = useState(false);
+  const [goalRoom, setGoalRoom] = useState(Infinity);
   useEffect(() => {
     const el = rowsRef.current;
     if (!el || typeof ResizeObserver === "undefined") return;
-    const ro = new ResizeObserver(() => setTight(el.clientHeight / 7 < TIGHT_ROW));
+    const ro = new ResizeObserver(() => {
+      setTight(el.clientHeight / 7 < TIGHT_ROW);
+      const lines = goalsRef.current;
+      const lineH = (lines?.firstElementChild as HTMLElement | null)?.offsetHeight || 18;
+      setGoalRoom(Math.max(1, Math.floor((el.clientHeight + (lines?.offsetHeight ?? 0) - 7 * ROW_MIN) / lineH)));
+    });
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
@@ -64,15 +90,31 @@ export function WeekLevel({ titleId, active }: WeekLevelProps) {
     const answered = new Set((data.log ?? []).flatMap((t) => (t.event_id ? [t.event_id] : [])));
     // a planned Nolio training doesn't count by itself: the completed one comes as goal time from Nolio
     const goalBlocks = (events ?? []).filter((e) => e.kind === "block" && e.goal_id && e.source !== "nolio");
-    const done = dayMinutes(data.log ?? [], goalBlocks, answered, now, localDay);
+    const done = dayMinutes(data.log ?? [], goalBlocks, answered, now, localDay, data.countFrom);
     const rows = days.map((day) => {
       const list = byDay.get(day) ?? [];
       return { day, list, segments: weekTrack(list, day, range), done: done[day] ?? 0, planned: plannedMinutes(list, now) };
     });
     return { range, rows, done: rows.reduce((n, r) => n + r.done, 0), planned: rows.reduce((n, r) => n + r.planned, 0) };
-  }, [days, events, data.log, now]);
+  }, [days, events, data.log, data.countFrom, now]);
 
   const kind = weekKind(monday, today);
+
+  // per active goal: planned against done that week (done as the goal's bar counts it)
+  const goalLines = useMemo(() => {
+    if (!events) return [];
+    const active = (goals ?? []).filter((g) => g.status === "active");
+    if (!active.length) return [];
+    const answered = new Set((data.log ?? []).flatMap((t) => (t.event_id ? [t.event_id] : [])));
+    const blocks = events.filter((e) => e.kind === "block" && e.goal_id).map((e) => ({ ...e, answered: answered.has(e.id) }));
+    const sums = new Map(weekGoalSummary(active.map((g) => g.id), blocks, data.log ?? [], monday, now, localDay, data.countFrom).map((s) => [s.goal_id, s]));
+    return active.flatMap((g) => {
+      const s = sums.get(g.id);
+      const text = s ? weekGoalLine(s.planned_minutes, s.counted_minutes, kind) : null;
+      if (!s || !text) return [];
+      return [{ id: g.id, title: g.title, text, spoken: weekGoalLine(s.planned_minutes, s.counted_minutes, kind, spokenMinutes)! }];
+    });
+  }, [events, goals, data.log, data.countFrom, monday, now, kind]);
 
   const range = weekRange(monday);
   const tick = nowTick(now, week.range);
@@ -130,6 +172,20 @@ export function WeekLevel({ titleId, active }: WeekLevelProps) {
               </>
             )}
           </p>
+          {goalLines.length > 0 && (
+            <ul className="wk-goals" ref={goalsRef}>
+              {goalLines.slice(0, goalRoom).map((g) => (
+                <li key={g.id} aria-label={`${g.title}: ${g.spoken.replace(/ · /g, ", ")}`}>
+                  <span className="wk-goal-t" aria-hidden="true">
+                    {g.title}
+                  </span>
+                  <span className="wk-goal-n" aria-hidden="true">
+                    {` · ${g.text}`}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
           {data.error && (
             <p className="form-error" role="alert">
               {data.error}

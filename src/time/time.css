@@ -174,7 +174,8 @@ html[data-tour="2"] .space .lvl-next { opacity: 0; visibility: hidden; }
 .space .day-list.compact .day-row-main { min-height: 44px; padding: 0; align-items: center; }
 .space .day-list.compact .day-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-/* a past goal block: „Halbmarathon Zürich · Hat’s geklappt? Ja · Nein“ (the row grows to 76 px) */
+/* a past goal block: „Halbmarathon Zürich · Hat’s geklappt? Ja · Teilweise · Nein“ (the row grows to 76 px; where
+   the line is too narrow, the three answers wrap under the question as one group and the row grows by a line) */
 /* the row's own button keeps a 44 px box; the answer line overlaps its lower 12 px */
 .space .day-row.answer .day-row-main { min-height: 44px; padding-bottom: 0; }
 .space .ba {
@@ -185,25 +186,28 @@ html[data-tour="2"] .space .lvl-next { opacity: 0; visibility: hidden; }
   min-width: 0;
   display: flex;
   align-items: center;
+  column-gap: 8px;
   min-height: 44px;
   font-size: 0.8125rem;
   line-height: 1.125rem;
   color: var(--text-soft);
 }
-.space .ba-text { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.space .ba.ask { flex-wrap: wrap; }
+.space .ba-lead { display: flex; min-width: 0; max-width: 100%; }
+.space .ba.done .ba-lead,
+.space .ba.missed .ba-lead { flex: 0 1 auto; }
+.space .ba-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.space .ba-ask { flex: none; white-space: pre; }
 .space .ba-q { flex: none; display: inline-flex; align-items: center; white-space: pre; }
-.space .ba-ask { margin-right: 4px; }
-.space .ba.done .ba-q,
-.space .ba.missed .ba-q { margin-left: 4px; }
-.space .ba-dot { padding: 0 4px; }
-/* 44 px boxes around short words: they reach a little into their neighbours, so
-   „… · Hat’s geklappt? Ja · Nein“ stays on one line at 390 px */
+.space .ba-dot { padding: 0 6px; }
+/* the words keep their own width (even gaps around the dots); each touch target is at least 44 × 44 px,
+   reaching into the gaps around a short word (::before) */
 .space .ba-btn {
   pointer-events: auto;
-  min-width: 44px;
+  position: relative;
   min-height: 44px;
-  margin: 0 -8px;
-  padding: 0 4px;
+  margin: 0;
+  padding: 0 2px;
   border: 0;
   background: none;
   color: var(--text);
@@ -213,11 +217,8 @@ html[data-tour="2"] .space .lvl-next { opacity: 0; visibility: hidden; }
   text-decoration-color: var(--line-strong);
   text-underline-offset: 3px;
 }
+.space .ba-btn::before { content: ""; position: absolute; top: 0; bottom: 0; left: 50%; width: 44px; margin-left: -22px; }
 .space .ba-btn[aria-pressed="true"] { color: var(--accent); text-decoration-color: currentColor; }
-.space .ba-ask + .ba-btn { margin-left: -4px; margin-right: -10px; }
-.space .ba-dot + .ba-btn { margin-left: -4px; }
-.space .ba.done .ba-btn,
-.space .ba.missed .ba-btn { margin-left: -6px; }
 
 /* the JETZT line: label, the circle's echo, an accent hairline */
 .space .day-now {
@@ -349,6 +350,20 @@ html[data-tour="2"] .space .lvl-next { opacity: 0; visibility: hidden; }
   font-size: 0.8125rem;
   font-weight: 600;
 }
+/* one quiet line per active goal: «Halbmarathon · geplant 3 Std · gemacht 2 Std» (only the name gives way) */
+.space .wk-goals {
+  flex: none;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.75rem;
+  line-height: 1.125rem;
+  color: var(--text-soft);
+  font-variant-numeric: tabular-nums;
+}
+.space .wk-goals li { display: flex; justify-content: center; min-width: 0; white-space: nowrap; }
+.space .wk-goal-t { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--text); }
+.space .wk-goal-n { flex: none; white-space: pre; }
 .space .wk-rows {
   flex: 1;
   min-height: 0;
@@ -500,6 +515,15 @@ html[data-tour="2"] .space .lvl-next { opacity: 0; visibility: hidden; }
 .space .mo-day.l4 { background: var(--accent); }
 .space .yr-cell.future,
 .space .mo-day.future { background: color-mix(in srgb, var(--text) 3.5%, transparent); }
+/* a day whose time is mostly provisional (blocks nobody answered yet): the same heat, lighter */
+.space .yr-cell.prov.l1,
+.space .mo-day.prov.l1 { background: color-mix(in srgb, var(--accent) 13%, transparent); }
+.space .yr-cell.prov.l2,
+.space .mo-day.prov.l2 { background: color-mix(in srgb, var(--accent) 22%, transparent); }
+.space .yr-cell.prov.l3,
+.space .mo-day.prov.l3 { background: color-mix(in srgb, var(--accent) 33%, transparent); }
+.space .yr-cell.prov.l4,
+.space .mo-day.prov.l4 { background: color-mix(in srgb, var(--accent) 45%, transparent); }
 .space .yr-cell.planned,
 .space .mo-day.planned { box-shadow: inset 0 0 0 1px var(--accent); }
 .space .yr-cell.target,

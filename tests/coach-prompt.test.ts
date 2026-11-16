@@ -174,7 +174,7 @@ describe("contextBlock: past blocks without an answer", () => {
       ],
     });
     expect(out).toContain(
-      "## Vergangene Blöcke ohne Rückmeldung ([id] Zeit: Titel (Ziel) · zählen von selbst als geschafft)\n" +
+      "## Vergangene Blöcke ohne Rückmeldung ([id] Zeit: Titel (Ziel) · zählen eine Woche lang vorläufig)\n" +
         "- [e7] Fr., 13. Nov. (gestern), 18:00–19:30: Lauftraining (Ziel „Halbmarathon Zürich“)\n" +
         "- [e8] Di., 10. Nov., 07:00–08:00: Intervalle (Ziel „Halbmarathon Zürich“)",
     );

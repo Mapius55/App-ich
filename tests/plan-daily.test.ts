@@ -266,8 +266,9 @@ describe("the Wochenblick", () => {
       zurich,
     );
     expect(out).toEqual([
-      { goal_id: "g1", planned_minutes: 210, blocks: 3, done_minutes: 140, open_minutes: 60 },
-      { goal_id: "g3", planned_minutes: 0, blocks: 0, done_minutes: 30, open_minutes: 0 },
+      // without a known start of honest counting every open block still counts (counted_minutes), as before
+      { goal_id: "g1", planned_minutes: 210, blocks: 3, done_minutes: 140, open_minutes: 60, counted_minutes: 200 },
+      { goal_id: "g3", planned_minutes: 0, blocks: 0, done_minutes: 30, open_minutes: 0, counted_minutes: 30 },
     ]);
   });
 });
@@ -319,7 +320,7 @@ describe("the Wochenblick over the day the clocks go back (25 October 2026)", ()
       now,
       zurich,
     );
-    expect(out).toEqual([{ goal_id: "g1", planned_minutes: 60 + 180 + 60, blocks: 3, done_minutes: 45, open_minutes: 300 }]);
+    expect(out).toEqual([{ goal_id: "g1", planned_minutes: 60 + 180 + 60, blocks: 3, done_minutes: 45, open_minutes: 300, counted_minutes: 345 }]);
   });
 });
 

@@ -10,13 +10,15 @@ import type { CalendarEvent, GoalTime } from "../lib/types";
 import { planData, usePlanData } from "../space/data";
 import { whenStill } from "../space/motion";
 
-/** event_id → minutes (0 = didn't happen); a missing id counts as planned */
+/** event_id → minutes (0 = didn't happen); a missing id: not answered (it counts provisionally for a week) */
 export type Answers = Record<string, number>;
 
 export interface RangeSnapshot {
   events: CalendarEvent[];
   answers: Answers;
   log: GoalTime[] | null;
+  /** when honest counting began (backend.countingFrom), null = not known */
+  countFrom: string | null;
 }
 
 export interface RangeData {
@@ -25,9 +27,11 @@ export interface RangeData {
   answers: Answers;
   /** goal time in the range (only with `goalTime`) */
   log: GoalTime[] | null;
+  /** when honest counting began (unansweredCredit), null = not known (yet) */
+  countFrom: string | null;
   error: string | null;
-  /** "Ja" / "Nein" for a past goal block; null takes the answer back */
-  answer(e: CalendarEvent, done: boolean | null): void;
+  /** "Ja" / "Teilweise" (done with fewer `minutes`) / "Nein" for a past goal block; null takes the answer back */
+  answer(e: CalendarEvent, done: boolean | null, minutes?: number): void;
 }
 
 /** planned minutes of a block that serves a goal and is over (it counts for the goal by itself), else null */
@@ -48,14 +52,15 @@ export function clearRangeCache(): void {
 const keyOf = (from: string, to: string, goalTime: boolean) => `${from}|${to}|${goalTime ? 1 : 0}`;
 
 async function fetchRange(from: string, to: string, goalTime: boolean): Promise<RangeSnapshot> {
-  const [events, log] = await Promise.all([
+  const [events, log, countFrom] = await Promise.all([
     backend.listEvents(localMidnightIso(from), localMidnightIso(to)),
     goalTime ? backend.listGoalTime(from, addDays(to, -1)) : Promise.resolve(null),
+    goalTime ? backend.countingFrom() : Promise.resolve(null),
   ]);
   const now = Date.now();
   const ids = events.filter((e) => pastBlockMinutes(e, now) !== null).map((e) => e.id);
   const answers = ids.length ? await backend.blockAnswers(ids) : {};
-  return { events, answers, log };
+  return { events, answers, log, countFrom };
 }
 
 function remember(key: string, version: string, data: RangeSnapshot): void {
@@ -122,9 +127,9 @@ export function useRangeEvents(from: string, to: string, o: { goalTime?: boolean
   loadedRef.current = loaded;
 
   const answer = useCallback(
-    (e: CalendarEvent, done: boolean | null) => {
+    (e: CalendarEvent, done: boolean | null, minutes?: number) => {
       const planned = pastBlockMinutes(e, Date.now()) ?? 0;
-      const value = done === null ? null : done ? planned : 0;
+      const value = done === null ? null : done ? (minutes ?? planned) : 0;
       const apply = (v: number | null) =>
         setState((s) => {
           if (!s) return s;
@@ -140,7 +145,7 @@ export function useRangeEvents(from: string, to: string, o: { goalTime?: boolean
       pending.current.set(e.id, value);
       apply(value);
       backend
-        .setBlockDone(e.id, done)
+        .setBlockDone(e.id, done, done ? minutes : undefined)
         .then(() => {
           setError(null);
           planData.bumpEvents(); // goal hours and the year's heat include past blocks
@@ -156,5 +161,5 @@ export function useRangeEvents(from: string, to: string, o: { goalTime?: boolean
     [],
   );
 
-  return { events: loaded?.events ?? null, answers: loaded?.answers ?? {}, log: loaded?.log ?? null, error, answer };
+  return { events: loaded?.events ?? null, answers: loaded?.answers ?? {}, log: loaded?.log ?? null, countFrom: loaded?.countFrom ?? null, error, answer };
 }

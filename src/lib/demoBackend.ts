@@ -29,7 +29,7 @@ import type {
 } from "./types";
 import { normaliseUsername, USERNAME_RE } from "./types";
 import type { NaturePalette } from "./palette";
-import { addDays, dayOf, goalEffort, hoursLabel, weekStart } from "./plan";
+import { addDays, dayOf, goalEffort, hoursLabel, unansweredCredit, weekStart } from "./plan";
 import { mapToGoal, sportKeys, type GoalForMapping, type NolioSport } from "../../supabase/functions/_shared/nolio.ts";
 
 interface DemoUser {
@@ -53,6 +53,9 @@ interface DemoUser {
   nolio?: { last_sync_at: string | null };
   /** created or brought up to date since the Bucket List: the demo dreams are in, or never were needed */
   bucket?: boolean;
+  /** like public.honest_count_from(): when honest counting began for this account (set once, on the first
+   *  load after it came, or at sign-up); unanswered blocks that ended and were entered before it count as before */
+  honest_from?: string;
 }
 interface DemoWhoop {
   status: "connected" | "pending";
@@ -380,23 +383,27 @@ const byGoalOrder = (a: Pick<Goal, "target_date" | "created_at">, b: Pick<Goal, 
       : b.target_date === null
         ? -1
         : a.target_date.localeCompare(b.target_date);
-// Like the view goal_minutes: logged time, plus past blocks of the goal nobody answered yet.
+// Like the view goal_minutes: logged time, plus past blocks of the goal nobody answered yet that still count
+// (unansweredCredit: from before honest counting as before, else for a week after they ended), of those the provisional ones.
 function presenter(u: DemoUser, at = Date.now()): (g: StoredGoal) => Goal {
   const answered = new Set(u.goal_time.flatMap((t) => (t.event_id ? [t.event_id] : [])));
   return (g) => {
     const logged = u.goal_time.reduce((sum, t) => (t.goal_id === g.id ? sum + t.minutes : sum), 0);
-    const blocks = u.events.reduce(
-      (sum, e) =>
-        // like the view: a planned Nolio training is a plan; the completed one counts (source 'nolio' time)
-        e.goal_id === g.id && e.kind === "block" && e.source !== "nolio" && !e.all_day && e.ends_at && Date.parse(e.ends_at) <= at && !answered.has(e.id)
-          ? sum + Math.min(1440, (Date.parse(e.ends_at) - Date.parse(e.starts_at)) / 60000)
-          : sum,
-      0,
-    );
+    let blocks = 0;
+    let provisional = 0;
+    for (const e of u.events) {
+      // like the view: a planned Nolio training is a plan; the completed one counts (source 'nolio' time)
+      if (e.goal_id !== g.id || e.kind !== "block" || e.source === "nolio" || e.all_day || !e.ends_at || answered.has(e.id)) continue;
+      const credit = unansweredCredit(e, at, u.honest_from ?? null);
+      if (!credit) continue;
+      const min = Math.min(1440, (Date.parse(e.ends_at) - Date.parse(e.starts_at)) / 60000);
+      blocks += min;
+      if (credit === "provisional") provisional += min;
+    }
     return {
       ...g,
       milestones: [...g.milestones].sort((a, b) => a.position - b.position),
-      time: { logged_minutes: logged, block_minutes: Math.round(blocks) },
+      time: { logged_minutes: logged, block_minutes: Math.round(blocks), provisional_minutes: Math.round(provisional) },
     };
   };
 }
@@ -651,6 +658,7 @@ export class DemoBackend implements Backend {
     } catch {
       return {};
     }
+    let stamped = false;
     // Demo users stored before the calendar or the plan existed lack these fields.
     for (const u of Object.values(users)) {
       u.events = (u.events ?? []).map((e) => ({ ...e, kind: e.kind ?? "termin", goal_id: e.goal_id ?? null }));
@@ -667,12 +675,24 @@ export class DemoBackend implements Backend {
       }));
       u.goal_time ??= [];
       u.habits ??= [];
+      if (!u.honest_from) {
+        // like the honest-counting migration's first run: what ended before now keeps counting as before
+        u.honest_from = now();
+        stamped = true;
+      }
       if (this.bucket && !u.bucket) {
         // fixed ids and dates, so reading again before anything is saved gives the same dreams
         const have = new Set(u.goals.map((g) => g.id));
         for (const d of DEMO_DREAMS) if (!have.has(d.id)) u.goals.push({ ...d, milestones: [] });
         if (u.profile.birth_year === undefined) u.profile.birth_year = DEMO_BIRTH_YEAR;
         u.bucket = true;
+      }
+    }
+    if (stamped) {
+      try {
+        this.save(users); // the moment stays, like the function the migration writes once
+      } catch {
+        /* storage full: stamped again next time */
       }
     }
     return users;
@@ -741,6 +761,7 @@ export class DemoBackend implements Backend {
       goal_time: [],
       habits: [],
       bucket: true, // a new account starts with an empty Bucket List
+      honest_from: now(), // and counts honestly from the start
     };
     this.save(users);
     localStorage.setItem(SESSION, u);
@@ -797,7 +818,7 @@ export class DemoBackend implements Backend {
       .sort((a, b) => a.starts_at.localeCompare(b.starts_at));
   }
   async addEvent(e: EventInput, source: CalendarEvent["source"] = "person") {
-    const ev: CalendarEvent = { ...e, kind: e.kind ?? "termin", goal_id: e.goal_id ?? null, id: uuid(), source, sequence: 0, updated_at: now() };
+    const ev: CalendarEvent = { ...e, kind: e.kind ?? "termin", goal_id: e.goal_id ?? null, id: uuid(), source, sequence: 0, created_at: now(), updated_at: now() };
     checkReminder(ev.reminder_minutes);
     this.mutate((u) => {
       checkGoal(u, ev.goal_id);
@@ -953,6 +974,9 @@ export class DemoBackend implements Backend {
       if (row) Object.assign(row, entry, { source: "block" });
       else u.goal_time.push({ id: uuid(), ...entry, source: "block", event_id: eventId, external_id: null, note: null });
     });
+  }
+  async countingFrom() {
+    return this.user().honest_from ?? null;
   }
   async blockAnswers(eventIds: string[]) {
     const ids = new Set(eventIds);
@@ -1400,7 +1424,8 @@ export class DemoBackend implements Backend {
       timeNote = habitNote ? `Und ${amount} sind notiert. ` : `Stark, ${amount}. `;
       const fresh = (await this.listGoals()).find((g) => g.id === spent.goal.id);
       const effort = fresh ? goalEffort(fresh, req.context.day) : null;
-      if (effort?.effort) timeNote += `Damit hast du ${hoursLabel(effort.done)} von ≈ ${hoursLabel(effort.effort)} Std geschafft. `;
+      // like the coach: hours of blocks nobody answered yet are never said as done
+      if (effort?.effort) timeNote += `Damit hast du ${hoursLabel(effort.done - effort.provisional)} von ≈ ${hoursLabel(effort.effort)} Std geschafft. `;
     }
     if (req.mode === "onboarding") {
       const step = history.filter((m) => m.role === "user").length + (req.message ? 1 : 0);

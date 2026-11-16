@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { backend } from "../../lib/backend";
-import { addDays, addMonths, dayOf, daysBetween, monthGrid, monthStart, weekDays } from "../../lib/plan";
+import { addDays, addMonths, blockAnswerState, dayOf, daysBetween, monthGrid, monthStart, partialMinutes, unansweredCredit, weekDays, type BlockCredit } from "../../lib/plan";
 import { localMidnightIso, longDay, minutesLabel, monthTitle, timeHM, weekdayShort } from "../../lib/dates";
 import type { CalendarEvent, Goal } from "../../lib/types";
 import { EventSheet } from "./EventSheet";
@@ -31,7 +31,7 @@ function pastBlockMinutes(e: CalendarEvent, now: number): number | null {
   return end <= now ? Math.round((end - Date.parse(e.starts_at)) / 60000) : null;
 }
 
-/** what was answered for a past block: undefined = nothing (it counts as planned), 0 = didn't happen */
+/** what was answered for a past block: undefined = nothing (it counts provisionally for a week), 0 = didn't happen */
 type Answers = Record<string, number>;
 
 interface Props {
@@ -49,7 +49,7 @@ export function CalendarView({ goals, today, refresh, onTimeChanged }: Props) {
   const [selected, setSelected] = useState(today);
   const [dir, setDir] = useState(0); // which way the last move went, for the slide
   // entries together with the range they were loaded for, so another range shows as "not loaded yet"
-  const [data, setData] = useState<{ from: string; to: string; events: CalendarEvent[]; answers: Answers } | null>(null);
+  const [data, setData] = useState<{ from: string; to: string; events: CalendarEvent[]; answers: Answers; countFrom: string | null } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [version, setVersion] = useState(0);
   const [editing, setEditing] = useState<CalendarEvent | "new" | null>(null);
@@ -67,19 +67,19 @@ export function CalendarView({ goals, today, refresh, onTimeChanged }: Props) {
   useEffect(() => {
     let alive = true;
     (async () => {
-      const ev = await backend.listEvents(localMidnightIso(from), localMidnightIso(to));
+      const [ev, countFrom] = await Promise.all([backend.listEvents(localMidnightIso(from), localMidnightIso(to)), backend.countingFrom()]);
       const now = Date.now();
       const ids = ev.filter((e) => pastBlockMinutes(e, now) !== null).map((e) => e.id);
       const answers = ids.length ? await backend.blockAnswers(ids) : {};
-      return { ev, answers };
+      return { ev, answers, countFrom };
     })()
-      .then(({ ev, answers }) => {
+      .then(({ ev, answers, countFrom }) => {
         if (!alive) return;
         for (const [id, v] of pending.current) {
           if (v === null) delete answers[id];
           else answers[id] = v;
         }
-        setData({ from, to, events: ev, answers });
+        setData({ from, to, events: ev, answers, countFrom });
         setError(null);
       })
       .catch((e) => alive && setError(e instanceof Error ? e.message : String(e)));
@@ -95,10 +95,10 @@ export function CalendarView({ goals, today, refresh, onTimeChanged }: Props) {
   const onTimeChangedRef = useRef(onTimeChanged);
   onTimeChangedRef.current = onTimeChanged;
 
-  // "Gemacht" / "Nicht gemacht" for a past block; tapping the chosen one again goes back to "counts as planned"
-  const answer = (e: CalendarEvent, done: boolean | null) => {
+  // "Ja" / "Teilweise" / "Nein" for a past block (as on Tag); tapping the chosen one again takes the answer back
+  const answer = (e: CalendarEvent, done: boolean | null, minutes?: number) => {
     const planned = pastBlockMinutes(e, Date.now()) ?? 0;
-    const value = done === null ? null : done ? planned : 0;
+    const value = done === null ? null : done ? (minutes ?? planned) : 0;
     const apply = (v: number | null) =>
       setData((d) => {
         if (!d) return d;
@@ -111,7 +111,7 @@ export function CalendarView({ goals, today, refresh, onTimeChanged }: Props) {
     pending.current.set(e.id, value);
     apply(value);
     backend
-      .setBlockDone(e.id, done)
+      .setBlockDone(e.id, done, done ? minutes : undefined)
       .then(() => {
         setError(null);
         onTimeChangedRef.current();
@@ -326,7 +326,13 @@ export function CalendarView({ goals, today, refresh, onTimeChanged }: Props) {
               return (
                 <li key={e.id} className="agenda-past">
                   {item}
-                  <BlockAnswer goal={goal} planned={planned} value={answers[e.id]} onAnswer={(done) => answer(e, done)} />
+                  <BlockAnswer
+                    goal={goal}
+                    planned={planned}
+                    value={answers[e.id]}
+                    credit={unansweredCredit(e, now, loaded?.countFrom ?? null)}
+                    onAnswer={(done, minutes) => answer(e, done, minutes)}
+                  />
                 </li>
               );
             })}
@@ -350,19 +356,43 @@ export function CalendarView({ goals, today, refresh, onTimeChanged }: Props) {
   );
 }
 
-/** Under a past block for a goal: it counts as planned, unless she says it didn't happen. */
-function BlockAnswer({ goal, planned, value, onAnswer }: { goal: string; planned: number; value: number | undefined; onAnswer: (done: boolean | null) => void }) {
-  const state = value === undefined ? null : value > 0 ? "done" : "missed";
+/**
+ * Under a past block for a goal: without an answer it counts provisionally for a week (`credit`; one from before
+ * honest counting counts as before), then no more. «Hat es geklappt?» Ja · Teilweise (counts half of it) · Nein.
+ */
+function BlockAnswer(props: { goal: string; planned: number; value: number | undefined; credit: BlockCredit; onAnswer: (done: boolean | null, minutes?: number) => void }) {
+  const { goal, planned, value, credit, onAnswer } = props;
+  const state = blockAnswerState(value, planned);
   const minutes = value && value > 0 ? value : planned;
+  const text =
+    state === "nein"
+      ? `Zählt nicht für ${goal}`
+      : state
+        ? `Zählt für ${goal} · ${minutesLabel(minutes)}`
+        : credit === "kept"
+          ? `Zählt für ${goal} · ${minutesLabel(minutes)} · Hat es geklappt?`
+          : credit === "provisional"
+            ? `Zählt vorläufig für ${goal} · ${minutesLabel(minutes)} · Hat es geklappt?`
+            : `${goal} · Hat es geklappt?`;
+  const pick = (s: "ja" | "teilweise" | "nein", answer: () => void) => () => (state === s ? onAnswer(null) : answer());
   return (
-    <div className={`block-answer ${state ?? ""}`}>
-      <span className="block-answer-text">{state === "missed" ? `Zählt nicht für ${goal}` : `Zählt für ${goal} · ${minutesLabel(minutes)}`}</span>
+    <div className={`block-answer ${state === "nein" ? "missed" : state ? "done" : ""}`}>
+      <span className="block-answer-text">{text}</span>
       <span className="segmented small" role="radiogroup" aria-label={`Hat es geklappt? ${goal}`}>
-        <button type="button" role="radio" aria-checked={state === "done"} className={state === "done" ? "on" : ""} onClick={() => onAnswer(state === "done" ? null : true)}>
-          Gemacht
+        <button type="button" role="radio" aria-checked={state === "ja"} className={state === "ja" ? "on" : ""} onClick={pick("ja", () => onAnswer(true))}>
+          Ja
         </button>
-        <button type="button" role="radio" aria-checked={state === "missed"} className={state === "missed" ? "on" : ""} onClick={() => onAnswer(state === "missed" ? null : false)}>
-          Nicht gemacht
+        <button
+          type="button"
+          role="radio"
+          aria-checked={state === "teilweise"}
+          className={state === "teilweise" ? "on" : ""}
+          onClick={pick("teilweise", () => onAnswer(true, partialMinutes(planned)))}
+        >
+          Teilweise
+        </button>
+        <button type="button" role="radio" aria-checked={state === "nein"} className={state === "nein" ? "on" : ""} onClick={pick("nein", () => onAnswer(false))}>
+          Nein
         </button>
       </span>
     </div>

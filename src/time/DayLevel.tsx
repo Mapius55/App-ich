@@ -229,7 +229,7 @@ export function DayLevel({ titleId, active, weather }: DayLevelProps) {
                       answers={data.answers}
                       now={now.getTime()}
                       onOpen={(el) => open({ kind: "event", event: it.e, day: shown }, el)}
-                      onAnswer={(done) => data.answer(it.e, done)}
+                      onAnswer={(done, minutes) => data.answer(it.e, done, minutes)}
                     />
                   );
                 })}
@@ -260,7 +260,7 @@ function DayRow(props: {
   answers: Answers;
   now: number;
   onOpen(el: HTMLElement): void;
-  onAnswer(done: boolean | null): void;
+  onAnswer(done: boolean | null, minutes?: number): void;
 }) {
   const { e, past, compact, goal, flash, answers, now } = props;
   const ref = useRef<HTMLLIElement>(null);

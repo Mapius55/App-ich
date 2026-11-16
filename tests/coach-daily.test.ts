@@ -222,7 +222,7 @@ describe("after a pause: as always, a small step", () => {
     const sunday = pastBlock("b3", "2026-11-15T17:00:00Z", "2026-11-15T18:00:00Z");
     const out = ctx({ lastSeen: "2026-11-15", goals: [race], pastBlocks: [...missed, sunday] });
     expect(section(out, "Vergangene Blöcke ohne Rückmeldung")).toBe(
-      "## Vergangene Blöcke ohne Rückmeldung ([id] Zeit: Titel (Ziel) · zählen von selbst als geschafft)\n- [b3] So., 15. Nov. (gestern), 18:00–19:00: Lauf (Ziel „Halbmarathon Zürich“)",
+      "## Vergangene Blöcke ohne Rückmeldung ([id] Zeit: Titel (Ziel) · zählen eine Woche lang vorläufig)\n- [b3] So., 15. Nov. (gestern), 18:00–19:00: Lauf (Ziel „Halbmarathon Zürich“)",
     );
     // no pause: an overdue step is asked about once again
     expect(out).toContain("· überfällig seit 6 Tagen");
@@ -403,14 +403,14 @@ describe("the Wochenblick", () => {
     );
     // asked about there, not a second time among the past blocks; today's block stays there
     expect(section(out, "Vergangene Blöcke ohne Rückmeldung")).toBe(
-      "## Vergangene Blöcke ohne Rückmeldung ([id] Zeit: Titel (Ziel) · zählen von selbst als geschafft)\n- [b-mon] Mo., 23. Nov. (heute), 07:00–07:45: Lauf (Ziel „Halbmarathon Zürich“)\n",
+      "## Vergangene Blöcke ohne Rückmeldung ([id] Zeit: Titel (Ziel) · zählen eine Woche lang vorläufig)\n- [b-mon] Mo., 23. Nov. (heute), 07:00–07:45: Lauf (Ziel „Halbmarathon Zürich“)\n",
     );
     // the trainer's plan is never asked about; nothing open, no list
     expect(section(ctx({ ...monday, review: { ...monday.review, open: [{ ...tue, source: "nolio" }] } }), "Wochenblick")).not.toContain("Blöcke ohne Rückmeldung");
     expect(section(ctx({ ...monday, review: { ...monday.review, open: [] } }), "Wochenblick")).not.toContain("Blöcke ohne Rückmeldung");
     // the rule: her answer with log_time and the block's id, a «nein» with 0
     expect(MODE_CHECKIN).toContain(
-      "Ihre Antwort hältst du mit log_time und event_id fest, auch zu den Blöcken ohne Rückmeldung beim Wochenblick: die tatsächlichen Minuten, die geplante Länge, wenn es wie geplant lief, oder 0, wenn es nicht stattgefunden hat („am Donnerstag nicht gelaufen“).",
+      "Ihre Antwort hältst du mit log_time und event_id fest, auch zu den Blöcken ohne Rückmeldung beim Wochenblick: die geplante Länge, wenn es wie geplant lief, die tatsächlichen Minuten, wenn es nur teilweise klappte, oder 0, wenn es nicht stattgefunden hat („am Donnerstag nicht gelaufen“).",
     );
     expect(source).toContain("openWeekBlocks(rows, goalIds, monday, new Date(now), dayOf)");
     expect(source).toContain("input.review = { due, monday, ...(await weekSummaryFor(");

@@ -330,17 +330,17 @@ describe("demo backend: effort and time", () => {
 
   it("stores effort hours and checks them like the database", async () => {
     const g = await b.addGoal({ title: "Halbmarathon", effort_hours: 120.04, weekly_hours: 6 });
-    expect([g.effort_hours, g.weekly_hours, g.prior_hours, g.time]).toEqual([120, 6, 0, { logged_minutes: 0, block_minutes: 0 }]);
+    expect([g.effort_hours, g.weekly_hours, g.prior_hours, g.time]).toEqual([120, 6, 0, { logged_minutes: 0, block_minutes: 0, provisional_minutes: 0 }]);
     const changed = await b.updateGoal(g.id, { prior_hours: 34, weekly_hours: null });
     expect([changed.effort_hours, changed.weekly_hours, changed.prior_hours]).toEqual([120, null, 34]);
     await expect(b.updateGoal(g.id, { weekly_hours: 200 })).rejects.toThrow("zwischen 0 und 168");
     await expect(b.addGoal({ title: "Olympia", effort_hours: -1 })).rejects.toThrow("Stunden");
     // a whole goal passed as patch doesn't store its time
     await b.updateGoal(g.id, { ...changed, time: { logged_minutes: 999, block_minutes: 0 } } as never);
-    expect(await timeOf(g.id)).toEqual({ logged_minutes: 0, block_minutes: 0 });
+    expect(await timeOf(g.id)).toEqual({ logged_minutes: 0, block_minutes: 0, provisional_minutes: 0 });
   });
 
-  it("counts past blocks by themselves until they are answered", async () => {
+  it("counts past blocks by themselves until they are answered (provisionally: entered after honest counting began)", async () => {
     const g = await b.addGoal({ title: "Halbmarathon" });
     const past = await b.addEvent(entry("Lange Runde", -3 * H, -2 * H, { goal_id: g.id }));
     await b.addEvent(entry("Intervalle", -1.5 * H, -1 * H, { goal_id: g.id }));
@@ -352,18 +352,18 @@ describe("demo backend: effort and time", () => {
     await b.addEvent(entry("Wettkampf", -5 * H, -4 * H, { goal_id: g.id, kind: "termin" }));
     const other = await b.addGoal({ title: "Ruhiger werden" });
     await b.addEvent(entry("Meditation", -5 * H, -4 * H, { goal_id: other.id }));
-    expect(await timeOf(g.id)).toEqual({ logged_minutes: 0, block_minutes: 90 });
+    expect(await timeOf(g.id)).toEqual({ logged_minutes: 0, block_minutes: 90, provisional_minutes: 90 });
 
     await b.setBlockDone(past.id, true);
-    expect(await timeOf(g.id)).toEqual({ logged_minutes: 60, block_minutes: 30 });
+    expect(await timeOf(g.id)).toEqual({ logged_minutes: 60, block_minutes: 30, provisional_minutes: 30 });
     expect(await b.blockAnswers([past.id, "x"])).toEqual({ [past.id]: 60 });
     await b.setBlockDone(past.id, true, 75); // corrected, still one entry
-    expect(await timeOf(g.id)).toEqual({ logged_minutes: 75, block_minutes: 30 });
+    expect(await timeOf(g.id)).toEqual({ logged_minutes: 75, block_minutes: 30, provisional_minutes: 30 });
     await b.setBlockDone(past.id, false);
-    expect(await timeOf(g.id)).toEqual({ logged_minutes: 0, block_minutes: 30 });
+    expect(await timeOf(g.id)).toEqual({ logged_minutes: 0, block_minutes: 30, provisional_minutes: 30 });
     expect(await b.blockAnswers([past.id])).toEqual({ [past.id]: 0 });
     await b.setBlockDone(past.id, null);
-    expect(await timeOf(g.id)).toEqual({ logged_minutes: 0, block_minutes: 90 });
+    expect(await timeOf(g.id)).toEqual({ logged_minutes: 0, block_minutes: 90, provisional_minutes: 90 });
     expect(await b.blockAnswers([past.id])).toEqual({});
 
     const termin = (await b.listEvents(new Date(Date.now() - 6 * H).toISOString())).find((e) => e.title === "Wettkampf")!;
@@ -376,7 +376,7 @@ describe("demo backend: effort and time", () => {
     const past = await b.addEvent(entry("Lange Runde", -3 * H, -2 * H, { goal_id: g.id }));
     await b.setBlockDone(past.id, true);
     await b.deleteEvent(past.id);
-    expect(await timeOf(g.id)).toEqual({ logged_minutes: 60, block_minutes: 0 });
+    expect(await timeOf(g.id)).toEqual({ logged_minutes: 60, block_minutes: 0, provisional_minutes: 0 });
     let out = await b.exportData();
     expect(out.goal_time).toEqual([expect.objectContaining({ goal_id: g.id, minutes: 60, source: "block", event_id: null })]);
     expect(out.goals).toEqual([expect.not.objectContaining({ time: expect.anything() })]);
@@ -482,7 +482,7 @@ describe("demo coach: goals and habits", () => {
     expect(res.text).toContain("Stark, 1.5 Std für „Halbmarathon“.");
     expect(res.text).toContain("Damit hast du 11.5 von ≈ 60 Std geschafft.");
     expect(res.events.some((e) => e.type === "mood" || e.type === "focus" || e.type === "event_created")).toBe(false);
-    expect((await b.listGoals())[0].time).toEqual({ logged_minutes: 90, block_minutes: 0 });
+    expect((await b.listGoals())[0].time).toEqual({ logged_minutes: 90, block_minutes: 0, provisional_minutes: 0 });
     expect((await b.exportData()).goal_time).toEqual([expect.objectContaining({ goal_id: g.id, day: ctx.day, minutes: 90, source: "coach", event_id: null })]);
   }, 20000);
 });
