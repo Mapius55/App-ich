@@ -1,6 +1,8 @@
-// Du › Benachrichtigungen: Morgenfrage and Abendrückblick (logic copied from
-// screens/Settings.tsx, which stays for the flag-off path).
+// Du › Benachrichtigungen: the morning and the evening message (logic copied from
+// screens/Settings.tsx, which stays for the flag-off path). What they say and when they stay out is
+// decided on the server (supabase/functions/_shared/push_text.ts); the hints here describe it.
 import { useEffect, useState } from "react";
+import { DEFAULT_TIME, weekendTime } from "../../supabase/functions/_shared/push_text.ts";
 import { backend } from "../lib/backend";
 import { currentSubscription, disablePush, enablePush, isIos, isStandalone, pushSupported } from "../lib/push";
 import type { Profile } from "../lib/types";
@@ -13,12 +15,23 @@ export function notifyValue(p: Pick<Profile, "notify_morning" | "notify_evening"
   return times.length ? times.join(" · ") : "Aus";
 }
 
+/** a slot's hint: what it brings, and its weekend time when that differs (only at the default time) */
+export function notifyHint(slot: "morning" | "evening", time: string): string {
+  const what = slot === "morning" ? "Was heute ansteht" : "Ein kurzer Blick auf deinen Tag";
+  const weekend = weekendTime(slot, time);
+  return weekend ? `${what}, am Wochenende um ${weekend}` : what;
+}
+
+/** how the messages hold back, so nothing about them is a surprise */
+export const NOTIFY_RULES =
+  "Warst du heute schon da, kommt am Morgen keine Nachricht. Am Abend bleibt sie aus, wenn du kurz vorher mit dem Coach gesprochen hast. Öffnest du die App zwei Wochen lang nicht, machen die Nachrichten von selbst Pause, bis du wieder vorbeischaust. Deine Einstellungen bleiben dabei, wie sie sind.";
+
 export function NotificationsSection({ profile, onProfile }: { profile: Profile; onProfile(patch: Partial<Profile>): void }) {
   const [pushOn, setPushOn] = useState(false);
   const [morningOn, setMorningOn] = useState(!!profile.notify_morning);
   const [eveningOn, setEveningOn] = useState(!!profile.notify_evening);
-  const [morning, setMorning] = useState(hhmm(profile.notify_morning, "07:30"));
-  const [evening, setEvening] = useState(hhmm(profile.notify_evening, "21:00"));
+  const [morning, setMorning] = useState(hhmm(profile.notify_morning, DEFAULT_TIME.morning));
+  const [evening, setEvening] = useState(hhmm(profile.notify_evening, DEFAULT_TIME.evening));
   const [msg, setMsg] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const server = backend.kind === "supabase";
@@ -65,32 +78,33 @@ export function NotificationsSection({ profile, onProfile }: { profile: Profile;
       )}
       <label className="toggle-row du-toggle">
         <span>
-          <strong>Morgenfrage</strong>
-          <span className="hint">„Wie geht es dir heute?“ und was heute ansteht</span>
+          <strong>Am Morgen</strong>
+          <span className="hint">{notifyHint("morning", morning)}</span>
         </span>
-        <input type="time" value={morning} disabled={!morningOn} onChange={(e) => setMorning(e.target.value)} onBlur={() => saveTimes()} aria-label="Zeit der Morgenfrage" />
+        <input type="time" value={morning} disabled={!morningOn} onChange={(e) => setMorning(e.target.value)} onBlur={() => saveTimes()} aria-label="Zeit der Morgennachricht" />
         <input
           type="checkbox"
           className="switch"
           checked={morningOn}
           onChange={(e) => (setMorningOn(e.target.checked), saveTimes(e.target.checked))}
-          aria-label="Morgenfrage an oder aus"
+          aria-label="Morgennachricht an oder aus"
         />
       </label>
       <label className="toggle-row du-toggle">
         <span>
-          <strong>Abendrückblick</strong>
-          <span className="hint">„Wie war dein Tag?“</span>
+          <strong>Am Abend</strong>
+          <span className="hint">{notifyHint("evening", evening)}</span>
         </span>
-        <input type="time" value={evening} disabled={!eveningOn} onChange={(e) => setEvening(e.target.value)} onBlur={() => saveTimes()} aria-label="Zeit des Abendrückblicks" />
+        <input type="time" value={evening} disabled={!eveningOn} onChange={(e) => setEvening(e.target.value)} onBlur={() => saveTimes()} aria-label="Zeit der Abendnachricht" />
         <input
           type="checkbox"
           className="switch"
           checked={eveningOn}
           onChange={(e) => (setEveningOn(e.target.checked), saveTimes(morningOn, morning, e.target.checked))}
-          aria-label="Abendrückblick an oder aus"
+          aria-label="Abendnachricht an oder aus"
         />
       </label>
+      <p className="pl-hint">{NOTIFY_RULES}</p>
       <div className="row wrap">
         {pushOn ? (
           <>

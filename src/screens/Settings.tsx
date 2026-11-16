@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { backend } from "../lib/backend";
 import { currentSubscription, disablePush, enablePush, isIos, isStandalone, pushSupported, signOutDevice } from "../lib/push";
+import { notifyHint, NOTIFY_RULES } from "../places/NotificationsSection";
 import { requestCoords, type Coords } from "../lib/location";
 import type { Profile } from "../lib/types";
 
@@ -146,32 +147,33 @@ export function Settings({ profile, hasCoords, onBack, onProfile, onCoords, onOp
             )}
             <label className="toggle-row">
               <span>
-                <strong>Morgenfrage</strong>
-                <span className="hint">„Wie geht es dir heute?“ und was heute ansteht</span>
+                <strong>Am Morgen</strong>
+                <span className="hint">{notifyHint("morning", morning)}</span>
               </span>
-              <input type="time" value={morning} disabled={!morningOn} onChange={(e) => setMorning(e.target.value)} onBlur={() => saveTimes()} aria-label="Zeit der Morgenfrage" />
+              <input type="time" value={morning} disabled={!morningOn} onChange={(e) => setMorning(e.target.value)} onBlur={() => saveTimes()} aria-label="Zeit der Morgennachricht" />
               <input
                 type="checkbox"
                 className="switch"
                 checked={morningOn}
                 onChange={(e) => (setMorningOn(e.target.checked), saveTimes(e.target.checked))}
-                aria-label="Morgenfrage an oder aus"
+                aria-label="Morgennachricht an oder aus"
               />
             </label>
             <label className="toggle-row">
               <span>
-                <strong>Abendrückblick</strong>
-                <span className="hint">„Wie war dein Tag?“</span>
+                <strong>Am Abend</strong>
+                <span className="hint">{notifyHint("evening", evening)}</span>
               </span>
-              <input type="time" value={evening} disabled={!eveningOn} onChange={(e) => setEvening(e.target.value)} onBlur={() => saveTimes()} aria-label="Zeit des Abendrückblicks" />
+              <input type="time" value={evening} disabled={!eveningOn} onChange={(e) => setEvening(e.target.value)} onBlur={() => saveTimes()} aria-label="Zeit der Abendnachricht" />
               <input
                 type="checkbox"
                 className="switch"
                 checked={eveningOn}
                 onChange={(e) => (setEveningOn(e.target.checked), saveTimes(morningOn, morning, e.target.checked))}
-                aria-label="Abendrückblick an oder aus"
+                aria-label="Abendnachricht an oder aus"
               />
             </label>
+            <p className="hint">{NOTIFY_RULES}</p>
             <div className="row wrap">
               {pushOn ? (
                 <>
