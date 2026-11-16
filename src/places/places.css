@@ -1,10 +1,12 @@
 /* Ziele and Du (owned by Builder C). Scope every rule under .space so the old screens stay untouched.
    Typography, not cards: no card-glass, no borders, no boxes around goals or rows. */
 
-/* the side layers fade out under the docked circle and above the dock (content scrolls under both) */
+/* the side layers fade out under the docked circle and above the dock (content scrolls under both).
+   At the top, scrolled text is gone beside the circle and fades in over its lower edge, in full again
+   where the title starts (--lvl-title-top), so nothing is hidden before she scrolls. */
 .space .side {
-  -webkit-mask-image: linear-gradient(to bottom, transparent calc(var(--safe-t) + 6px), #000 calc(var(--safe-t) + 50px), #000 calc(100% - var(--dock-bottom) - var(--mic) - 64px), transparent calc(100% - var(--dock-bottom) - 10px));
-  mask-image: linear-gradient(to bottom, transparent calc(var(--safe-t) + 6px), #000 calc(var(--safe-t) + 50px), #000 calc(100% - var(--dock-bottom) - var(--mic) - 64px), transparent calc(100% - var(--dock-bottom) - 10px));
+  -webkit-mask-image: linear-gradient(to bottom, transparent calc(var(--safe-t) + 36px), #000 var(--lvl-title-top), #000 calc(100% - var(--dock-bottom) - var(--mic) - 64px), transparent calc(100% - var(--dock-bottom) - 10px));
+  mask-image: linear-gradient(to bottom, transparent calc(var(--safe-t) + 36px), #000 var(--lvl-title-top), #000 calc(100% - var(--dock-bottom) - var(--mic) - 64px), transparent calc(100% - var(--dock-bottom) - 10px));
 }
 
 /* ---------- shared anatomy ---------- */

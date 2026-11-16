@@ -298,6 +298,11 @@ describe("demo backend: dreams and goals", () => {
     expect((await b.updateGoal(d.id, { status: "paused", done_at: "2025-08-16T04:40:00.000Z" })).done_at).toBeNull();
     const lived = await b.addGoal({ title: "Velo über den Gotthard", kind: "dream", status: "done" });
     expect(lived.done_at).not.toBeNull();
+    // never in the future: a later date becomes now (20261120000000_bucket_hygiene.sql)
+    const before = Date.now();
+    const future = await b.updateGoal(d.id, { status: "done", done_at: "2099-01-01T12:00:00.000Z" });
+    expect(Date.parse(future.done_at!)).toBeGreaterThanOrEqual(before);
+    expect(Date.parse(future.done_at!)).toBeLessThanOrEqual(Date.now());
   });
 
   it("checks the memory like the database: at most 1000 characters, empty is none", async () => {
@@ -323,6 +328,12 @@ describe("demo backend: dreams and goals", () => {
     await b.updateProfile({ birth_year: null });
     expect((await b.getProfile()).birth_year).toBeNull();
     for (const bad of [1899, 2101, 1994.5]) await expect(b.updateProfile({ birth_year: bad })).rejects.toThrow("Geburtsjahr");
+    // like the trigger profiles_birth_year: up to this year
+    const year = new Date().getFullYear();
+    await expect(b.updateProfile({ birth_year: year + 1 })).rejects.toThrow("Das Geburtsjahr kann nicht in der Zukunft liegen.");
+    await b.updateProfile({ birth_year: year });
+    expect((await b.getProfile()).birth_year).toBe(year);
+    await b.updateProfile({ birth_year: null });
     expect((await b.exportData()).profile).toMatchObject({ birth_year: null });
   });
 });

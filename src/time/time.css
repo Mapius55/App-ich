@@ -570,7 +570,7 @@ html[data-tour="2"] .space .lvl-next { opacity: 0; visibility: hidden; }
 /* «Noch offen in 2026» and «Erfüllt in 2026»: side by side when both are there */
 .space .yr-more {
   flex: none;
-  margin-top: 16px;
+  margin-top: 12px;
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 150px), 1fr));
   gap: 6px 20px;
@@ -598,7 +598,7 @@ html[data-tour="2"] .space .lvl-next { opacity: 0; visibility: hidden; }
 .space .yr-item {
   max-width: 100%;
   min-height: 44px;
-  padding: 6px 0;
+  padding: 4px 0;
   border: 0;
   background: none;
   color: var(--text);
@@ -609,9 +609,22 @@ html[data-tour="2"] .space .lvl-next { opacity: 0; visibility: hidden; }
   overflow-wrap: anywhere;
 }
 .space .yr-item.done { filter: drop-shadow(0 0 8px var(--bl-glow)); }
+/* a long title keeps to two lines (…), so both sections fit under the months on a phone; the
+   whole title is still read out and shown on the Bucket List */
+.space .yr-item-title {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
 /* short screens (iPhone SE): four months a row, so the year, its legend and what is still
    open in it fit without scrolling (the cells keep their size) */
 @media (max-height: 700px) and (min-width: 360px) {
+  .space .yr-months.year-grid { grid-template-columns: repeat(4, max-content); }
+}
+/* the first iPhone SE (320 px wide): four months a row too, with slightly smaller cells */
+@media (max-height: 700px) and (max-width: 359px) {
+  .space .tl-year { --cell: 7px; }
   .space .yr-months.year-grid { grid-template-columns: repeat(4, max-content); }
 }
 

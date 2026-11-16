@@ -21,6 +21,7 @@ import {
   DREAM_ASK_HOW,
   doneDateProblem,
   goalHints,
+  MILESTONES_STEP,
   NOLIO_EDIT_REFUSAL,
   nolioEditAllowed,
   priorProblem,
@@ -491,6 +492,24 @@ describe("coach rules (rules.ts)", () => {
     expect(goalHints({ status: "paused", target_date: null, milestones: [] }, "2026-11-14")).toEqual({}); // a too big goal waits for the honest talk
   });
 
+  it("gives a dream the milestone step only when the call planned it (its date set after her yes); a dated dream she only mentioned is never nagged", () => {
+    const dream = { kind: "dream", status: "active", milestones: [] };
+    // «Kilimandscharo, Sommer 2028», the date set after her yes: she is planning it
+    expect(goalHints({ ...dream, target_date: "2028-08-31" }, "2026-11-16", true)).toEqual({ naechster_schritt: MILESTONES_STEP });
+    expect(MILESTONES_STEP).toBe("Etappen vorschlagen (zwei bis vier, mit Monat), nach ihrem Ja mit due_date speichern");
+    // «2030 einmal nach Japan» (create_goal), or a later edit of its title, why or effort: no steps
+    expect(goalHints({ ...dream, target_date: "2030-12-31" }, "2026-11-16")).toEqual({});
+    expect(goalHints({ ...dream, target_date: "2028-08-31" }, "2026-11-16", false)).toEqual({});
+    expect(goalHints({ ...dream, target_date: null }, "2026-11-16", true)).toEqual({}); // no date, no «Zieldatum fehlt», no steps
+    expect(goalHints({ ...dream, target_date: "2026-12-20" }, "2026-11-16", true)).toEqual({}); // five weeks: no milestones needed
+    expect(goalHints({ ...dream, target_date: "2028-08-31", milestones: [{}] }, "2026-11-16", true)).toEqual({});
+    expect(goalHints({ ...dream, status: "paused", target_date: "2028-08-31" }, "2026-11-16", true)).toEqual({});
+    expect(goalHints({ ...dream, status: "done", target_date: "2028-08-31", memory: null }, "2026-11-16")).toEqual({ naechster_schritt: DREAM_ASK_HOW });
+    expect(goalHints({ ...dream, status: "done", target_date: null, memory: "Ich habe geweint." }, "2026-11-16")).toEqual({});
+    // a goal gets its hints either way
+    expect(goalHints({ status: "active", target_date: "2027-04-30", milestones: [] }, "2026-11-16")).toEqual({ naechster_schritt: MILESTONES_STEP });
+  });
+
   it("lets the coach change only the reminder of a Nolio entry", () => {
     expect(nolioEditAllowed({ id: "x", reminder_minutes: 15 })).toBe(true);
     expect(nolioEditAllowed({ id: "x", start: "2026-11-15T18:00" })).toBe(false);
@@ -632,12 +651,29 @@ describe("prompt rules: the Bucket List", () => {
   it("fulfilled: done, warm and short, «Wie war es?» once, the answer as memory", () => {
     expect(PERSONA).toContain("setzt du ihn mit update_goal auf status done, war es nicht heute, mit done_date");
     expect(PERSONA).toContain("frag ein einziges Mal: „Wie war es?“");
-    expect(PERSONA).toContain("Ihre Antwort speicherst du mit update_goal und memory, kurz und in ihren Worten.");
+    expect(PERSONA).toContain("Ihre Antwort speicherst du mit update_goal und memory, kurz und in ihren Worten, in der Ich-Form, so wie sie es sagt (nicht in der dritten Person).");
     expect(DREAM_ASK_HOW).toContain("update_goal memory");
+    expect(DREAM_ASK_HOW).toContain("in der Ich-Form, so wie sie es sagt (nicht in der dritten Person)");
+    // the remember tool keeps its own convention (third person, no names)
+    expect(PERSONA).toContain("Pro Erinnerung ein Gedanke, kurz, in der dritten Person und ohne Namen");
   });
 
-  it("a dream gets a plan when she wants to make it real", () => {
-    expect(PERSONA).toContain("Will sie einen Traum wahr machen, schlägst du einen ersten Schritt oder ein Datum vor");
+  it("a dream gets a plan when she wants to make it real: a date and a first step in one reply, saved after her yes", () => {
+    expect(PERSONA).toContain(
+      "Will sie einen Traum wahr machen oder bittet sie dich, ihn zu planen, schlägst du in derselben Antwort ein ungefähres Datum vor, wenn er noch keines hat, und einen konkreten ersten Schritt",
+    );
+    expect(PERSONA).toContain("Frag nicht nur nach dem Jahr.");
+    // a date the coach proposes waits for her yes (like milestones and blocks); one she names is set at once (like a goal's)
+    expect(PERSONA).toContain(
+      "Ein Datum, das du vorschlägst, die Etappen (mit due_date) und den Block speicherst du erst nach ihrem Ja, wie Etappen und Blöcke bei einem Ziel. Nennt sie den Monat oder das Jahr selbst, setzt du target_date sofort.",
+    );
+    expect(PERSONA).not.toContain("tust du erst nach ihrem Ja, wie bei einem Ziel");
+    expect(PERSONA).toContain("Ungefähre Daten setzt du sofort");
+    expect(PERSONA).toContain("Ein Traum braucht kein Datum, keine Etappen und keine Schätzung in Stunden.");
+  });
+
+  it("one weekly figure for several goals is split (or asked about), never entered on each", () => {
+    expect(PERSONA).toContain("Nennt sie eine Gesamtzahl für mehrere Ziele oder Träume, teilst du sie auf oder fragst, wie sie sie aufteilen möchte, statt sie bei jedem einzutragen.");
   });
 
   it("reminders: at most one per conversation, an invitation, never guilt or a countdown, then reminded: true", () => {
@@ -662,6 +698,19 @@ describe("prompt rules: the Bucket List", () => {
   it("onboarding asks for dreams once, as one of the topics", () => {
     expect(MODE_ONBOARDING).toContain("6. Was möchtest du in deinem Leben einmal erleben, ganz gleich, wie fern es ist?");
     expect(MODE_ONBOARDING).toContain("10. Wo wohnst du oder bist du meistens?");
+  });
+
+  it("the onboarding's own example questions keep the one-question rule (no second question after «oder»)", () => {
+    expect(MODE_ONBOARDING).toContain("5. Worauf arbeitest du gerade hin, also Ziele, Projekte, Rennen oder Termine in nächster Zeit?");
+    expect(MODE_ONBOARDING).toContain("7. Wobei soll ich dir helfen?\n");
+    const questions = MODE_ONBOARDING.split("\n")
+      .filter((l) => /^\d+\. /.test(l))
+      .map((line) => line.slice(0, line.indexOf("?") + 1));
+    expect(questions.length).toBeGreaterThanOrEqual(10);
+    for (const question of questions) expect(question).not.toMatch(/ oder (wo\w*|was|wie|wann|warum|wer|welche\w*)\b/);
+    // the check catches both old forms
+    for (const old of ["5. Worauf arbeitest du hin oder worauf freust du dich, also Ziele?", "7. Wobei soll ich dir helfen, oder was frisst dir Zeit und Energie?"])
+      expect(old).toMatch(/ oder (wo\w*|was|wie|wann|warum|wer|welche\w*)\b/);
   });
 });
 
@@ -835,7 +884,7 @@ describe("contextBlock: the Bucket List", () => {
 });
 
 describe("coach rules: dreams and the birth year", () => {
-  it("dreams get no date or milestone hints; a fulfilled one without memory gets the question", () => {
+  it("dreams get no «Zieldatum fehlt» and, unless a call plans them, no milestone step; a fulfilled one without memory gets the question", () => {
     expect(goalHints({ kind: "dream", status: "active", target_date: null, milestones: [] }, "2026-11-14")).toEqual({});
     expect(goalHints({ kind: "dream", status: "done", target_date: null, milestones: [], memory: null }, "2026-11-14")).toEqual({ naechster_schritt: DREAM_ASK_HOW });
     expect(goalHints({ kind: "dream", status: "done", target_date: null, milestones: [], memory: "Kalt und still." }, "2026-11-14")).toEqual({});

@@ -1,5 +1,6 @@
-// Du › Einstellungen: name, location, your data (download; deleting the account as an
-// inline two-step instead of native confirm), and the tour again. Logic copied from
+// Du › Einstellungen: the connections (the same rows as Du › Verbindungen, so they can be set up
+// from either place; only one of the two rows is open at a time), name, location, your data (download;
+// deleting the account as an inline two-step instead of native confirm), and the tour again. Logic copied from
 // screens/Settings.tsx, which stays for the flag-off path.
 import { useState } from "react";
 import { backend } from "../lib/backend";
@@ -8,6 +9,7 @@ import { requestCoords, type Coords } from "../lib/location";
 import type { Profile } from "../lib/types";
 import { ConfirmDelete } from "../space/ConfirmDelete";
 import { BirthYearSetting } from "./BirthYearSetting";
+import { Connections } from "./Connections";
 import { useSpace } from "../space/state";
 
 export function SettingsSection({
@@ -58,6 +60,13 @@ export function SettingsSection({
           {msg}
         </p>
       )}
+
+      <section className="du-set" aria-labelledby="du-set-conn">
+        <h4 id="du-set-conn" className="pl-label">
+          Verbindungen
+        </h4>
+        <Connections />
+      </section>
 
       <section className="du-set" aria-labelledby="du-set-name">
         <h4 id="du-set-name" className="pl-label">

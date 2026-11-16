@@ -336,7 +336,7 @@ function YearSection({ id, label, items, cap, cols, done, onMore, onItem }: Year
         {shown.map((g) => (
           <li key={g.id}>
             <button type="button" className={`yr-item${done ? " done" : ""}`} onClick={() => onItem(g.id)}>
-              {done ? <span className="bl-flow">{g.title}</span> : g.title}
+              <span className={`yr-item-title${done ? " bl-flow" : ""}`}>{g.title}</span>
               <span className="sr-only">, auf der Bucket List zeigen</span>
             </button>
           </li>
