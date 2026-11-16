@@ -27,25 +27,28 @@ export const MILESTONE_HINT_DAYS = 42;
 export const DREAM_ASK_HOW =
   "Frag ein einziges Mal „Wie war es?“ und speichere ihre Antwort mit update_goal memory, kurz und in ihren Worten, in der Ich-Form, so wie sie es sagt (nicht in der dritten Person).";
 
-/** The next step for a goal (or a dated dream) more than six weeks away without milestones. */
+/** The next step for a goal (or a dream being planned) more than six weeks away without milestones. */
 export const MILESTONES_STEP = "Etappen vorschlagen (zwei bis vier, mit Monat), nach ihrem Ja mit due_date speichern";
 
 /**
  * Hints for the coach in the answer of create_goal / update_goal: a missing target date, and
  * milestones for a goal more than six weeks away (or without a date) that has none yet. A dream needs
- * no date (it may simply wait on the Bucket List, never nagged); once it has one, it is being planned
- * and gets the milestones like a goal. A fulfilled one without a memory gets the question.
+ * no date (it may simply wait on the Bucket List, never nagged), and a date alone doesn't mean she is
+ * planning it: she may only have said when («2030 einmal nach Japan»). It gets the milestones like a
+ * goal only when the call itself planned it (`planned`: update_goal set its date, after her yes).
+ * A fulfilled one without a memory gets the question.
  */
 export function goalHints(
   g: { kind?: string | null; status?: string | null; target_date: string | null; milestones?: unknown[] | null; memory?: string | null },
   today: string,
+  planned = false,
 ): { hinweis?: string; naechster_schritt?: string } {
   const out: { hinweis?: string; naechster_schritt?: string } = {};
   const active = !g.status || g.status === "active";
   const none = !(g.milestones?.length ?? 0);
   if (g.kind === "dream") {
     if (g.status === "done" && !g.memory?.trim()) out.naechster_schritt = DREAM_ASK_HOW;
-    else if (active && none && g.target_date && daysBetween(today, g.target_date) > MILESTONE_HINT_DAYS) out.naechster_schritt = MILESTONES_STEP;
+    else if (planned && active && none && g.target_date && daysBetween(today, g.target_date) > MILESTONE_HINT_DAYS) out.naechster_schritt = MILESTONES_STEP;
     return out;
   }
   if (!g.target_date && active) out.hinweis = "Zieldatum fehlt: Näherungsdatum setzen oder fragen";

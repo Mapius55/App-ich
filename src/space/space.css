@@ -212,16 +212,18 @@ html.space-on #root { height: auto; }
   color: var(--text);
   font-size: 15px;
   line-height: 1.2;
+  transition: opacity var(--t-fast) ease, visibility var(--t-fast);
 }
 .space .now-door-label { flex: none; font-size: 11px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: var(--text-soft); }
 .space .now-door-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .space .now-door-chev { flex: none; color: var(--text-soft); margin-top: 1px; }
-.space .now-door:active { opacity: 0.7; }
-/* when the voice stack rises over the door (the typed field, what she said, an error, a toast, a note
-   above «Nochmal hören») the door gives way, like «WOCHE ⌄» on the levels (time.css). A single status
-   line («Tippe irgendwo, um mich zu hören», the coach speaking) leaves it in place and tappable. */
+.space .now-door:active { opacity: 0.7; transition-duration: 0s; }
+/* when the voice stack rises over the door (the typed field, what she said over more than one line,
+   an error, a toast, a note above «Nochmal hören») the door gives way, like «WOCHE ⌄» on the levels
+   (time.css). A single status line or a one-line echo under it («Tippe irgendwo, um mich zu hören»,
+   «Ich denke nach …», the coach speaking) fits below it: the door stays in place and tappable. */
 html[data-typed] .space .now-door,
-html:has(.voice-layer :is(.voice-heard, .msg-error, .toasts > *, .voice-status-text:not(.idle-hint) ~ .voice-replay)) .space .now-door {
+html:has(.voice-layer :is(.voice-heard[data-wraps], .msg-error, .toasts > *, .voice-status-text:not(.idle-hint) ~ .voice-replay)) .space .now-door {
   opacity: 0;
   visibility: hidden;
 }

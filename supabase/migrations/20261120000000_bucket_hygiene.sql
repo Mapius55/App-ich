@@ -5,7 +5,8 @@
 -- As before (20261119000000_bucket_list.sql): set when it becomes 'done' (unless given), kept while it
 -- stays 'done', cleared when it leaves 'done'. New: a date later than now() becomes now(), so a direct
 -- REST call can't mark a goal or a dream as reached in the future. The trigger itself stays as it is.
-create or replace function public.goals_done_at() returns trigger language plpgsql as $$
+-- Both functions here pin an empty search_path like the repo's other trigger functions (only pg_catalog).
+create or replace function public.goals_done_at() returns trigger language plpgsql set search_path = '' as $$
 begin
   if new.status = 'done' then
     new.done_at := least(coalesce(new.done_at, now()), now());
@@ -21,7 +22,7 @@ $$;
 -- year after the current one when the birth year is set or changed, so rows written earlier still take
 -- other updates. "Current" is the year anywhere on earth (UTC+14), so a phone that already has the new
 -- year is never refused. The app offers years up to this one; the coach checks the same before saving.
-create or replace function public.profiles_birth_year() returns trigger language plpgsql as $$
+create or replace function public.profiles_birth_year() returns trigger language plpgsql set search_path = '' as $$
 begin
   if new.birth_year is not null
     and (tg_op = 'INSERT' or new.birth_year is distinct from old.birth_year)

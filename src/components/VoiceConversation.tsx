@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { backend } from "../lib/backend";
 import type { CoachContext, CoachEvent, Goal } from "../lib/types";
 import type { OrbState } from "./Portal";
@@ -141,6 +141,9 @@ export function VoiceConversation({
   const [input, setInput] = useState("");
   const [locked, setLocked] = useState(!isAudioUnlocked());
   const [lastReply, setLastReply] = useState("");
+  // what she said runs over more than one line (on Jetzt it then reaches up to the «Dein Tag» door)
+  const heardRef = useRef<HTMLParagraphElement>(null);
+  const [heardWraps, setHeardWraps] = useState(false);
   const speaker = useRef<Speaker>(null as unknown as Speaker);
   speaker.current ??= new Speaker();
   const listening = useRef<ListenHandle | null>(null);
@@ -185,13 +188,33 @@ export function VoiceConversation({
   }, []);
   useEffect(() => () => (speaker.current.stop(), listening.current?.cancel()), []);
 
-  // Any first tap unlocks sound on iPhone; a waiting greeting then plays.
+  // Any first tap unlocks sound on iPhone; a waiting greeting then plays. Every tap tries again until
+  // it has worked: a first try that never settles (no user activation yet) must not leave it locked.
   useEffect(() => {
     if (!locked) return;
     const unlock = () => unlockAudio().then(() => setLocked(false));
-    window.addEventListener("pointerdown", unlock, { once: true });
+    window.addEventListener("pointerdown", unlock);
     return () => window.removeEventListener("pointerdown", unlock);
   }, [locked]);
+
+  // one line of what she said fits under the door on Jetzt; a longer one is marked (data-wraps)
+  const hasHeard = !!heard;
+  useLayoutEffect(() => {
+    const el = heardRef.current;
+    if (!el) {
+      setHeardWraps(false);
+      return;
+    }
+    const check = () => {
+      const cs = getComputedStyle(el);
+      const line = parseFloat(cs.lineHeight) || parseFloat(cs.fontSize) * 1.4;
+      setHeardWraps(el.offsetHeight > line * 1.5);
+    };
+    check();
+    const ro = new ResizeObserver(check);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [hasHeard]);
 
   const toast = (t: Omit<Toast, "id">) => {
     // the space: a change already visible where the person is glows instead of toasting
@@ -436,7 +459,11 @@ export function VoiceConversation({
     <div className={`voice${layer ? " layer" : ""}${compact ? " compact" : ""}`} data-phase={shown} data-typed={typing || undefined}>
       <div className="voice-status" aria-live="polite">
         {status && <span className={`voice-status-text ${shown}${!note && shown === "idle" ? " idle-hint" : ""}`}>{status}</span>}
-        {heard && <p className="voice-heard">„{heard}“</p>}
+        {heard && (
+          <p ref={heardRef} className="voice-heard" data-wraps={heardWraps || undefined}>
+            „{heard}“
+          </p>
+        )}
         {error && (
           <div className="msg-error" role="alert">
             {error}

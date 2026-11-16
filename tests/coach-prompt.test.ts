@@ -492,17 +492,22 @@ describe("coach rules (rules.ts)", () => {
     expect(goalHints({ status: "paused", target_date: null, milestones: [] }, "2026-11-14")).toEqual({}); // a too big goal waits for the honest talk
   });
 
-  it("gives a dated dream without milestones the same milestone step as a goal; an undated one waits, never nagged", () => {
+  it("gives a dream the milestone step only when the call planned it (its date set after her yes); a dated dream she only mentioned is never nagged", () => {
     const dream = { kind: "dream", status: "active", milestones: [] };
-    // «Kilimandscharo, Sommer 2028»: she is planning it
-    expect(goalHints({ ...dream, target_date: "2028-08-31" }, "2026-11-16")).toEqual({ naechster_schritt: MILESTONES_STEP });
+    // «Kilimandscharo, Sommer 2028», the date set after her yes: she is planning it
+    expect(goalHints({ ...dream, target_date: "2028-08-31" }, "2026-11-16", true)).toEqual({ naechster_schritt: MILESTONES_STEP });
     expect(MILESTONES_STEP).toBe("Etappen vorschlagen (zwei bis vier, mit Monat), nach ihrem Ja mit due_date speichern");
-    expect(goalHints({ ...dream, target_date: null }, "2026-11-16")).toEqual({}); // no date, no «Zieldatum fehlt», no steps
-    expect(goalHints({ ...dream, target_date: "2026-12-20" }, "2026-11-16")).toEqual({}); // five weeks: no milestones needed
-    expect(goalHints({ ...dream, target_date: "2028-08-31", milestones: [{}] }, "2026-11-16")).toEqual({});
-    expect(goalHints({ ...dream, status: "paused", target_date: "2028-08-31" }, "2026-11-16")).toEqual({});
+    // «2030 einmal nach Japan» (create_goal), or a later edit of its title, why or effort: no steps
+    expect(goalHints({ ...dream, target_date: "2030-12-31" }, "2026-11-16")).toEqual({});
+    expect(goalHints({ ...dream, target_date: "2028-08-31" }, "2026-11-16", false)).toEqual({});
+    expect(goalHints({ ...dream, target_date: null }, "2026-11-16", true)).toEqual({}); // no date, no «Zieldatum fehlt», no steps
+    expect(goalHints({ ...dream, target_date: "2026-12-20" }, "2026-11-16", true)).toEqual({}); // five weeks: no milestones needed
+    expect(goalHints({ ...dream, target_date: "2028-08-31", milestones: [{}] }, "2026-11-16", true)).toEqual({});
+    expect(goalHints({ ...dream, status: "paused", target_date: "2028-08-31" }, "2026-11-16", true)).toEqual({});
     expect(goalHints({ ...dream, status: "done", target_date: "2028-08-31", memory: null }, "2026-11-16")).toEqual({ naechster_schritt: DREAM_ASK_HOW });
     expect(goalHints({ ...dream, status: "done", target_date: null, memory: "Ich habe geweint." }, "2026-11-16")).toEqual({});
+    // a goal gets its hints either way
+    expect(goalHints({ status: "active", target_date: "2027-04-30", milestones: [] }, "2026-11-16")).toEqual({ naechster_schritt: MILESTONES_STEP });
   });
 
   it("lets the coach change only the reminder of a Nolio entry", () => {
@@ -658,7 +663,12 @@ describe("prompt rules: the Bucket List", () => {
       "Will sie einen Traum wahr machen oder bittet sie dich, ihn zu planen, schlägst du in derselben Antwort ein ungefähres Datum vor, wenn er noch keines hat, und einen konkreten ersten Schritt",
     );
     expect(PERSONA).toContain("Frag nicht nur nach dem Jahr.");
-    expect(PERSONA).toContain("tust du erst nach ihrem Ja, wie bei einem Ziel");
+    // a date the coach proposes waits for her yes (like milestones and blocks); one she names is set at once (like a goal's)
+    expect(PERSONA).toContain(
+      "Ein Datum, das du vorschlägst, die Etappen (mit due_date) und den Block speicherst du erst nach ihrem Ja, wie Etappen und Blöcke bei einem Ziel. Nennt sie den Monat oder das Jahr selbst, setzt du target_date sofort.",
+    );
+    expect(PERSONA).not.toContain("tust du erst nach ihrem Ja, wie bei einem Ziel");
+    expect(PERSONA).toContain("Ungefähre Daten setzt du sofort");
     expect(PERSONA).toContain("Ein Traum braucht kein Datum, keine Etappen und keine Schätzung in Stunden.");
   });
 
@@ -690,12 +700,17 @@ describe("prompt rules: the Bucket List", () => {
     expect(MODE_ONBOARDING).toContain("10. Wo wohnst du oder bist du meistens?");
   });
 
-  it("the onboarding's own example questions keep the one-question rule (no «…, oder …?»)", () => {
+  it("the onboarding's own example questions keep the one-question rule (no second question after «oder»)", () => {
+    expect(MODE_ONBOARDING).toContain("5. Worauf arbeitest du gerade hin, also Ziele, Projekte, Rennen oder Termine in nächster Zeit?");
     expect(MODE_ONBOARDING).toContain("7. Wobei soll ich dir helfen?\n");
-    for (const line of MODE_ONBOARDING.split("\n").filter((l) => /^\d+\. /.test(l))) {
-      const question = line.slice(0, line.indexOf("?") + 1);
-      expect(question).not.toMatch(/, oder [^?]*\?$/);
-    }
+    const questions = MODE_ONBOARDING.split("\n")
+      .filter((l) => /^\d+\. /.test(l))
+      .map((line) => line.slice(0, line.indexOf("?") + 1));
+    expect(questions.length).toBeGreaterThanOrEqual(10);
+    for (const question of questions) expect(question).not.toMatch(/ oder (wo\w*|was|wie|wann|warum|wer|welche\w*)\b/);
+    // the check catches both old forms
+    for (const old of ["5. Worauf arbeitest du hin oder worauf freust du dich, also Ziele?", "7. Wobei soll ich dir helfen, oder was frisst dir Zeit und Energie?"])
+      expect(old).toMatch(/ oder (wo\w*|was|wie|wann|warum|wer|welche\w*)\b/);
   });
 });
 
@@ -869,7 +884,7 @@ describe("contextBlock: the Bucket List", () => {
 });
 
 describe("coach rules: dreams and the birth year", () => {
-  it("dreams get no date or milestone hints; a fulfilled one without memory gets the question", () => {
+  it("dreams get no «Zieldatum fehlt» and, unless a call plans them, no milestone step; a fulfilled one without memory gets the question", () => {
     expect(goalHints({ kind: "dream", status: "active", target_date: null, milestones: [] }, "2026-11-14")).toEqual({});
     expect(goalHints({ kind: "dream", status: "done", target_date: null, milestones: [], memory: null }, "2026-11-14")).toEqual({ naechster_schritt: DREAM_ASK_HOW });
     expect(goalHints({ kind: "dream", status: "done", target_date: null, milestones: [], memory: "Kalt und still." }, "2026-11-14")).toEqual({});

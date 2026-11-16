@@ -945,8 +945,9 @@ async function runTool(
       return JSON.stringify({
         ok: true,
         ...(goal.kind !== "dream" || goal.effort_hours ? { aufwand: effortLine(goal, day) } : {}),
-        // only noting a reminder plans nothing: the invitation was the step (no milestones pushed on top)
-        ...(Object.keys(patch).length === 1 && patch.reminded_at ? {} : goalHints(goal, day)),
+        // only noting a reminder plans nothing: the invitation was the step (no milestones pushed on top).
+        // A dream gets its milestones only when this call set its date (planning it), never while getting to know her.
+        ...(Object.keys(patch).length === 1 && patch.reminded_at ? {} : goalHints(goal, day, !!patch.target_date && ctx.mode !== "onboarding")),
         ...(patch.reminded_at ? { notiert: "Erinnert. Heute keinen weiteren Traum ansprechen." } : {}),
       });
     }
