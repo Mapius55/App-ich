@@ -22,7 +22,7 @@ import {
   localClock,
   NUDGE_LONG_QUIET_DAYS,
   NUDGE_SOON_QUIET_DAYS,
-  patternOfferDue,
+  patternOffer,
   perWeekLabel,
   restingUntil,
   smallStepMinutes,
@@ -437,7 +437,7 @@ export function patternLine(p: BlockPattern, offer: "anbieten" | "angeboten" | n
 
 /**
  * The pattern line per goal or dream with blocks (patternLine): the offer only for an active one, never after a
- * pause or in a heavy time, and at most once a week (patternOfferDue; unknown: never).
+ * pause or in a heavy time, at most once a week, and again only from blocks since the last offer (patternOffer; unknown: never).
  */
 function patternLines(c: ContextInput, localDay: (iso: string) => string, quiet: boolean): Map<string, string> {
   const out = new Map<string, string>();
@@ -448,10 +448,10 @@ function patternLines(c: ContextInput, localDay: (iso: string) => string, quiet:
   const now = c.now ? Date.parse(c.now) : Date.now();
   const clockOf = (iso: string) => localClock(new Date(iso), tz);
   for (const g of c.goals ?? []) {
-    const p = blockPattern(byGoal.get(g.id) ?? [], now, clockOf);
+    const blocks = byGoal.get(g.id) ?? [];
+    const p = blockPattern(blocks, now, clockOf);
     if (!p) continue;
-    const offer =
-      !p.adapt || quiet || g.status !== "active" ? null : patternOfferDue(g.pattern_asked_at, c.day, localDay) ? "anbieten" : g.pattern_asked_at ? "angeboten" : null;
+    const offer = quiet || g.status !== "active" ? null : patternOffer(p, blocks, g.pattern_asked_at, now, c.day, clockOf, localDay);
     out.set(g.id, patternLine(p, offer));
   }
   return out;

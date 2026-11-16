@@ -10,6 +10,7 @@ import {
   goalEffort,
   localClock,
   partialMinutes,
+  patternOffer,
   patternOfferDue,
   PROVISIONAL_DAYS,
   provisionalDays,
@@ -198,6 +199,22 @@ describe("the pattern of a goal's blocks (28 days)", () => {
     expect(patternOfferDue("2026-11-17T18:00:00Z", "2026-11-23", day)).toBe(false);
     expect(patternOfferDue("2026-11-16T18:00:00Z", "2026-11-23", day)).toBe(true);
   });
+  it("offers again only from blocks since the last offer: the same old «Nein» never bring it back", () => {
+    const day = (iso: string) => iso.slice(0, 10);
+    const p = blockPattern(blocks, NOW, zurich)!;
+    const offer = (askedAt: string | null | undefined, list = blocks, pattern = p) => patternOffer(pattern, list, askedAt, NOW, "2026-11-23", zurich, day);
+    expect(offer(null)).toBe("anbieten");
+    expect(offer(undefined)).toBeNull(); // unknown (before the column): never
+    expect(offer("2026-11-20T18:00:00Z")).toBe("angeboten"); // this week already
+    // offered 10 days ago; since then two «Nein» at different times (Monday 7:00, Friday 18:00): not again
+    expect(offer("2026-11-13T18:00:00Z")).toBeNull();
+    // two more «Nein» at 7 since the offer: worth asking again
+    const more = [...blocks, b("2026-11-17", "06:00", 0), b("2026-11-19", "06:00", 0)];
+    expect(offer("2026-11-13T18:00:00Z", more, blockPattern(more, NOW, zurich)!)).toBe("anbieten");
+    // nothing worth adapting: no offer at all
+    const fine = blockPattern([b("2026-11-04", "17:00", 60), b("2026-11-18", "17:00", 60)], NOW, zurich)!;
+    expect(offer(null, blocks, fine)).toBeNull();
+  });
 });
 
 describe("Woche: one quiet line per goal, «geplant / gemacht»", () => {
@@ -292,6 +309,10 @@ describe("the coach: one batched question, a «Nein» protocol, the pattern at m
     expect(out).toContain("\n  Blöcke der letzten 4 Wochen: 4 geplant · 1 bestätigt · 3 nicht geklappt (3× um 7 Uhr) → anpassen anbieten (einmal)");
     // offered this week already
     expect(goalSection(contextBlock({ ...base, goals: [{ ...goal, pattern_asked_at: "2026-11-20T18:00:00Z" }] }))).toContain("→ anpassen diese Woche schon angeboten");
+    // offered 11 days ago, since then one «Nein» only: the numbers, no new offer from the old ones
+    const later = goalSection(contextBlock({ ...base, goals: [{ ...goal, pattern_asked_at: "2026-11-12T18:00:00Z" }] }));
+    expect(later).toContain("Blöcke der letzten 4 Wochen: 4 geplant · 1 bestätigt · 3 nicht geklappt (3× um 7 Uhr)");
+    expect(later).not.toContain("→ anpassen");
     // unknown (column before its migration), after a pause, or in a heavy time: the numbers, no offer
     for (const c of [
       { ...base, goals: [{ ...goal, pattern_asked_at: undefined }] },

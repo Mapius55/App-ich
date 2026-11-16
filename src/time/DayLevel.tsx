@@ -86,8 +86,10 @@ export function DayLevel({ titleId, active, weather }: DayLevelProps) {
     ro.observe(box);
     return () => ro.disconnect();
   }, []);
-  const contentKey = `${shown}|${allItems.map((it) => (it.kind === "event" ? `${it.e.id}${it.past ? "p" : ""}${it.e.title.length}` : it.kind)).join(",")}|${Object.keys(data.answers).length}`;
-  const layoutKey = `${contentKey}|${boxH}`;
+  // what the day shows (her «frühere» or «mehr» stays open while she answers a block: Ja · Teilweise · Nein);
+  // the fit is measured again when an answer changes a row's height
+  const contentKey = `${shown}|${allItems.map((it) => (it.kind === "event" ? `${it.e.id}${it.past ? "p" : ""}${it.e.title.length}` : it.kind)).join(",")}`;
+  const layoutKey = `${contentKey}|${Object.keys(data.answers).length}|${boxH}`;
   const [fitState, setFitState] = useState<{ key: string; fit: Fit; limit: number }>({ key: "", fit: 0, limit: Infinity });
   const [user, setUser] = useState<{ key: string; expanded: boolean; pastOpen: boolean }>({ key: "", expanded: false, pastOpen: false });
   const fit: Fit = fitState.key === layoutKey ? fitState.fit : 0;

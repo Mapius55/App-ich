@@ -1010,6 +1010,31 @@ export function patternOfferDue(askedAt: string | null | undefined, today: strin
   return !isDay(last) || daysBetween(last, today) >= PATTERN_EVERY_DAYS;
 }
 
+type PatternBlock = Parameters<typeof blockPattern>[0][number];
+
+/**
+ * The offer to adapt a goal's blocks, for the pattern line: "anbieten" (worth it, `p.adapt`, and not offered in the
+ * last PATTERN_EVERY_DAYS), "angeboten" (offered within them) or null. After an offer only the blocks since then
+ * count for the next one: the same old «Nein» never bring it back week after week (she may have moved the blocks,
+ * or said she keeps them). `askedAt`: goals.pattern_asked_at (null = never; undefined = unknown: never offered).
+ */
+export function patternOffer(
+  p: BlockPattern,
+  blocks: PatternBlock[],
+  askedAt: string | null | undefined,
+  now: number,
+  today: string,
+  clockOf: (iso: string) => { minutes: number; weekday: number },
+  dayOfIso: (iso: string) => string,
+): "anbieten" | "angeboten" | null {
+  if (!p.adapt || askedAt === undefined) return null;
+  if (!patternOfferDue(askedAt, today, dayOfIso)) return "angeboten";
+  if (askedAt === null) return "anbieten";
+  const since = Date.parse(askedAt);
+  const fresh = Number.isFinite(since) ? blockPattern(blocks.filter((b) => Date.parse(b.starts_at) > since), now, clockOf) : p;
+  return fresh?.adapt ? "anbieten" : null;
+}
+
 export type TodayWin = { kind: "zeit"; title: string; minutes: number } | { kind: "etappe"; title: string; goal: string } | { kind: "gewohnheit"; title: string };
 
 /**

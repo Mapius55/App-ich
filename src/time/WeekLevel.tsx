@@ -82,12 +82,16 @@ export function WeekLevel({ titleId, active }: WeekLevelProps) {
 
   const days = useMemo(() => weekDays(monday), [monday]);
   const events = data.events;
+  // blocks with an answer: its goal time (the block's day) or, answered for another day, its answer
+  const answered = useMemo(
+    () => new Set([...(data.log ?? []).flatMap((t) => (t.event_id ? [t.event_id] : [])), ...Object.keys(data.answers)]),
+    [data.log, data.answers],
+  );
   const week = useMemo(() => {
     const byDay = new Map<string, CalendarEvent[]>(days.map((d) => [d, []]));
     for (const e of events ?? []) byDay.get(localDay(e.starts_at))?.push(e);
     for (const list of byDay.values()) list.sort(byStart);
     const range = trackRange(events ?? []);
-    const answered = new Set((data.log ?? []).flatMap((t) => (t.event_id ? [t.event_id] : [])));
     // a planned Nolio training doesn't count by itself: the completed one comes as goal time from Nolio
     const goalBlocks = (events ?? []).filter((e) => e.kind === "block" && e.goal_id && e.source !== "nolio");
     const done = dayMinutes(data.log ?? [], goalBlocks, answered, now, localDay, data.countFrom);
@@ -96,7 +100,7 @@ export function WeekLevel({ titleId, active }: WeekLevelProps) {
       return { day, list, segments: weekTrack(list, day, range), done: done[day] ?? 0, planned: plannedMinutes(list, now) };
     });
     return { range, rows, done: rows.reduce((n, r) => n + r.done, 0), planned: rows.reduce((n, r) => n + r.planned, 0) };
-  }, [days, events, data.log, data.countFrom, now]);
+  }, [days, events, data.log, data.countFrom, answered, now]);
 
   const kind = weekKind(monday, today);
 
@@ -105,7 +109,6 @@ export function WeekLevel({ titleId, active }: WeekLevelProps) {
     if (!events) return [];
     const active = (goals ?? []).filter((g) => g.status === "active");
     if (!active.length) return [];
-    const answered = new Set((data.log ?? []).flatMap((t) => (t.event_id ? [t.event_id] : [])));
     const blocks = events.filter((e) => e.kind === "block" && e.goal_id).map((e) => ({ ...e, answered: answered.has(e.id) }));
     const sums = new Map(weekGoalSummary(active.map((g) => g.id), blocks, data.log ?? [], monday, now, localDay, data.countFrom).map((s) => [s.goal_id, s]));
     return active.flatMap((g) => {
@@ -114,7 +117,7 @@ export function WeekLevel({ titleId, active }: WeekLevelProps) {
       if (!s || !text) return [];
       return [{ id: g.id, title: g.title, text, spoken: weekGoalLine(s.planned_minutes, s.counted_minutes, kind, spokenMinutes)! }];
     });
-  }, [events, goals, data.log, data.countFrom, monday, now, kind]);
+  }, [events, goals, data.log, data.countFrom, answered, monday, now, kind]);
 
   const range = weekRange(monday);
   const tick = nowTick(now, week.range);

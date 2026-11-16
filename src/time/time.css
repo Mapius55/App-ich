@@ -176,8 +176,10 @@ html[data-tour="2"] .space .lvl-next { opacity: 0; visibility: hidden; }
 
 /* a past goal block: „Halbmarathon Zürich · Hat’s geklappt? Ja · Teilweise · Nein“ (the row grows to 76 px; where
    the line is too narrow, the three answers wrap under the question as one group and the row grows by a line) */
-/* the row's own button keeps a 44 px box; the answer line overlaps its lower 12 px */
-.space .day-row.answer .day-row-main { min-height: 44px; padding-bottom: 0; }
+/* the row's own button keeps a 44 px box; the answer line overlaps its lower 12 px, which stay free under a title
+   of any length (padding), so «… · Hat’s geklappt?» never sits on a title's second line */
+.space .day-row.answer .day-row-main { min-height: 44px; padding-bottom: 12px; }
+.space .day-list.compact .day-row.answer .day-row-main { padding-bottom: 0; }
 .space .ba {
   position: relative;
   margin-top: -12px;
