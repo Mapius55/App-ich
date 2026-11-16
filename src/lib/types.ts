@@ -49,7 +49,15 @@ export interface CalendarEvent {
   /** when it was entered (honest counting: an unanswered block entered before it began counts as before) */
   created_at?: string;
   updated_at?: string;
+  /** a day of a weekly rhythm (Fester Wochenrhythmus): the rhythm, and the local day it belongs to */
+  series_id?: string | null;
+  series_day?: string | null;
+  /** she changed this day on its own: the rhythm's later changes leave it as it is */
+  series_exception?: boolean;
 }
+
+/** A change to one day of a weekly rhythm: «Nur diesen Termin» or «Alle kommenden». */
+export type EventScope = "this" | "following";
 
 /** Fields that can be set when creating or changing a calendar entry. */
 export type EventInput = Pick<CalendarEvent, "title" | "starts_at" | "ends_at" | "all_day" | "location" | "notes" | "reminder_minutes"> &
@@ -117,6 +125,8 @@ export interface Goal {
   plan_b?: string | null;
   /** when the coach asked once what could get in the way (the server's clock; a stored Plan B sets it too), null = never */
   plan_b_asked_at?: string | null;
+  /** when the coach offered a weekly rhythm once (a rhythm for the goal sets it too), null = never */
+  rhythm_asked_at?: string | null;
 }
 
 /** done_at only together with status done: when it was reached, if not now (null = now). */
@@ -308,8 +318,10 @@ export interface Backend {
   /** Calendar entries starting in [from, to) (ISO). Without arguments: from yesterday on. */
   listEvents(from?: string, to?: string): Promise<CalendarEvent[]>;
   addEvent(e: EventInput): Promise<CalendarEvent>;
-  updateEvent(id: string, patch: Partial<EventInput>): Promise<CalendarEvent>;
-  deleteEvent(id: string): Promise<void>;
+  /** A day of a weekly rhythm: "this" (default) changes only it (her exception), "following" the rhythm for every coming day. */
+  updateEvent(id: string, patch: Partial<EventInput>, scope?: EventScope): Promise<CalendarEvent>;
+  /** A coming day of a weekly rhythm: "this" (default) lets only it fall away, "following" ends the rhythm from that day. */
+  deleteEvent(id: string, scope?: EventScope): Promise<void>;
 
   /** Goals with their milestones; without done/dropped ones unless `all`. */
   listGoals(all?: boolean): Promise<Goal[]>;

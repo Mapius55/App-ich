@@ -7,11 +7,14 @@ export function ConfirmDelete({
   question,
   yes = "Ja, löschen",
   onConfirm,
+  also,
 }: {
   label: string;
   question: string;
   yes?: string;
   onConfirm: () => void | Promise<void>;
+  /** a second way to confirm (a day of a weekly rhythm: «Alle kommenden» next to «Nur diesen Termin») */
+  also?: { label: string; onConfirm: () => void | Promise<void> };
 }) {
   const [asking, setAsking] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -28,21 +31,24 @@ export function ConfirmDelete({
         <button type="button" className="btn quiet" onClick={() => setAsking(false)} autoFocus>
           Nein
         </button>
-        <button
-          type="button"
-          className="btn quiet danger"
-          disabled={busy}
-          onClick={async () => {
-            setBusy(true);
-            try {
-              await onConfirm();
-            } finally {
-              setBusy(false);
-            }
-          }}
-        >
-          {yes}
-        </button>
+        {[{ label: yes, onConfirm }, ...(also ? [also] : [])].map((c) => (
+          <button
+            key={c.label}
+            type="button"
+            className="btn quiet danger"
+            disabled={busy}
+            onClick={async () => {
+              setBusy(true);
+              try {
+                await c.onConfirm();
+              } finally {
+                setBusy(false);
+              }
+            }}
+          >
+            {c.label}
+          </button>
+        ))}
       </span>
     </div>
   );

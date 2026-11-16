@@ -198,12 +198,21 @@ export function WeekLevel({ titleId, active }: WeekLevelProps) {
             {week.rows.map((r) => {
               const rel = daysBetween(today, r.day);
               const fromTrainer = r.list.some((e) => e.source === "nolio");
-              const micro = events ? [...microLine(r.day, today, r.done, r.planned), ...(fromTrainer ? [{ text: "vom Trainer", kind: "trainer" as const }] : [])] : [];
+              // a day of a weekly rhythm: a quiet «jede Woche», like «vom Trainer»; first, so a tight row (320 px)
+              // cuts the minutes rather than the marker
+              const weekly = rel >= 0 && r.list.some((e) => !!e.series_id);
+              const micro = events
+                ? [
+                    ...(weekly ? [{ text: "jede\u00a0Woche", kind: "weekly" as const }] : []),
+                    ...microLine(r.day, today, r.done, r.planned),
+                    ...(fromTrainer ? [{ text: "vom Trainer", kind: "trainer" as const }] : []),
+                  ]
+                : [];
               const n = r.list.length;
               const minutes = [rel <= 0 && r.done > 0 ? `${spokenMinutes(r.done)} für Ziele` : null, rel >= 0 && r.planned > 0 ? `${spokenMinutes(r.planned)} geplant` : null]
                 .filter(Boolean)
                 .join(", ");
-              const label = `${daySubline(r.day, today)}${rel === 0 ? ", heute" : ""}, ${n ? `${n} ${n === 1 ? "Eintrag" : "Einträge"}` : "frei"}${minutes ? `, ${minutes}` : ""}${fromTrainer ? ", mit Training vom Trainer" : ""}. Tag öffnen`;
+              const label = `${daySubline(r.day, today)}${rel === 0 ? ", heute" : ""}, ${n ? `${n} ${n === 1 ? "Eintrag" : "Einträge"}` : "frei"}${minutes ? `, ${minutes}` : ""}${weekly ? ", mit einem Block, der jede Woche kommt" : ""}${fromTrainer ? ", mit Training vom Trainer" : ""}. Tag öffnen`;
               const microEl = micro.length ? (
                 <span className="wk-micro">
                   {micro.map((p, i) => (

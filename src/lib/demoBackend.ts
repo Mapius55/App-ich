@@ -10,6 +10,7 @@ import type {
   CoachRequest,
   DayState,
   EventInput,
+  EventScope,
   Goal,
   GoalInput,
   GoalKind,
@@ -29,7 +30,23 @@ import type {
 } from "./types";
 import { normaliseUsername, USERNAME_RE } from "./types";
 import type { NaturePalette } from "./palette";
-import { addDays, dayOf, goalEffort, hoursLabel, OBSTACLE_MAX, PLAN_B_MAX, unansweredCredit, weekStart } from "./plan";
+import {
+  addDays,
+  dayOf,
+  goalEffort,
+  hoursLabel,
+  OBSTACLE_MAX,
+  parseClock,
+  parseWeekdays,
+  PLAN_B_MAX,
+  seriesDays,
+  seriesKeepsDay,
+  seriesPatchFromDay,
+  seriesTimes,
+  unansweredCredit,
+  weekStart,
+  type SeriesRule,
+} from "./plan";
 import { mapToGoal, sportKeys, type GoalForMapping, type NolioSport } from "../../supabase/functions/_shared/nolio.ts";
 
 interface DemoUser {
@@ -56,6 +73,8 @@ interface DemoUser {
   /** like public.honest_count_from(): when honest counting began for this account (set once, on the first
    *  load after it came, or at sign-up); unanswered blocks that ended and were entered before it count as before */
   honest_from?: string;
+  /** like public.series: the weekly rhythms; their days are in events (series_id, series_day) */
+  series?: SeriesRule[];
 }
 interface DemoWhoop {
   status: "connected" | "pending";
@@ -510,6 +529,121 @@ export const DEMO_DREAMS: readonly StoredGoal[] = [
   demoDream("5d0c2a8e-1f1b-4c7a-9a51-0d3b7e2f6a04", "Mit dem Velo über den Gotthard", { status: "done", created_at: "2025-11-02T09:15:00.000Z", done_at: "2026-06-21T14:10:00.000Z" }),
 ];
 
+// ---------- the weekly rhythm, like the database (20261124000000_series.sql) ----------
+
+const goalState = (u: Pick<DemoUser, "goals">, id: string | null) => {
+  const g = id ? u.goals.find((x) => x.id === id) : null;
+  return g ? { status: g.status, target_date: g.target_date } : null;
+};
+
+/**
+ * Like series_sync (and series_fill, which the coach and the daily job run): a rhythm's coming days nobody answered
+ * that no longer belong go, the others follow it (not the ones she changed on their own), then the missing days up
+ * to 8 weeks ahead are entered (not twice, not a day she let fall away, not over a single block of hers for the same
+ * goal). `only`: one rhythm, else all. Returns whether anything changed.
+ */
+export function syncDemoSeries(u: Pick<DemoUser, "events" | "goals" | "goal_time" | "series">, at = Date.now(), only?: string): boolean {
+  let changed = false;
+  const answered = new Set(u.goal_time.flatMap((t) => (t.event_id ? [t.event_id] : [])));
+  const stamp = new Date(at).toISOString();
+  for (const s of u.series ?? []) {
+    if (only && s.id !== only) continue;
+    const goal = goalState(u, s.goal_id);
+    const coming = (e: CalendarEvent) => e.series_id === s.id && Date.parse(e.starts_at) > at && !answered.has(e.id);
+    const before = u.events.length;
+    u.events = u.events.filter((e) => !coming(e) || seriesKeepsDay(s, e.series_day!, !!e.series_exception, goal));
+    if (u.events.length !== before) changed = true;
+    const live = s.active && (!s.goal_id || goal?.status === "active");
+    if (!live) continue;
+    for (const e of u.events) {
+      if (!coming(e) || e.series_exception) continue;
+      const t = seriesTimes(s, e.series_day!);
+      if (Date.parse(t.starts_at) <= at) continue;
+      const next = { title: s.title, location: s.location, reminder_minutes: s.reminder_minutes, goal_id: s.goal_id, kind: "block" as const, all_day: false, ...t };
+      const differs = (Object.keys(next) as (keyof typeof next)[]).some((k) =>
+        k === "starts_at" || k === "ends_at" ? Date.parse(String(e[k])) !== Date.parse(next[k]) : (e[k] ?? null) !== (next[k] ?? null),
+      );
+      if (!differs) continue;
+      Object.assign(e, next, { sequence: (e.sequence ?? 0) + 1, updated_at: stamp });
+      changed = true;
+    }
+    for (const d of seriesDays(s, { now: at, goal })) {
+      if (u.events.some((e) => e.series_id === s.id && e.series_day === d.day)) continue;
+      const end = Date.parse(d.ends_at);
+      const start = Date.parse(d.starts_at);
+      const single = u.events.some(
+        (o) => !o.series_id && o.kind === "block" && (o.goal_id ?? null) === s.goal_id && Date.parse(o.starts_at) < end && Date.parse(o.ends_at ?? o.starts_at) > start,
+      );
+      if (single) continue;
+      u.events.push({
+        id: uuid(),
+        title: s.title,
+        starts_at: d.starts_at,
+        ends_at: d.ends_at,
+        all_day: false,
+        location: s.location,
+        notes: null,
+        reminder_minutes: s.reminder_minutes,
+        source: "coach",
+        kind: "block",
+        goal_id: s.goal_id,
+        series_id: s.id,
+        series_day: d.day,
+        series_exception: false,
+        sequence: 0,
+        created_at: stamp,
+        updated_at: stamp,
+      });
+      changed = true;
+    }
+  }
+  return changed;
+}
+
+/** Like the trigger events_series_exception: the fields whose change makes a rhythm's day her exception. */
+function seriesFieldsDiffer(a: CalendarEvent, b: CalendarEvent): boolean {
+  const at = (iso: string | null) => (iso ? Date.parse(iso) : null);
+  return (
+    a.title !== b.title ||
+    at(a.starts_at) !== at(b.starts_at) ||
+    at(a.ends_at) !== at(b.ends_at) ||
+    a.all_day !== b.all_day ||
+    (a.location ?? null) !== (b.location ?? null) ||
+    (a.reminder_minutes ?? null) !== (b.reminder_minutes ?? null) ||
+    a.kind !== b.kind ||
+    (a.goal_id ?? null) !== (b.goal_id ?? null)
+  );
+}
+
+/** Like the series_removed trigger: a rhythm that goes takes its coming days nobody answered along; past ones stay plain. */
+function removeDemoSeries(u: DemoUser, ids: Set<string>, at = Date.now()) {
+  const answered = new Set(u.goal_time.flatMap((t) => (t.event_id ? [t.event_id] : [])));
+  u.series = (u.series ?? []).filter((s) => !ids.has(s.id));
+  u.events = u.events.filter((e) => !(e.series_id && ids.has(e.series_id) && Date.parse(e.starts_at) > at && !answered.has(e.id)));
+  for (const e of u.events) if (e.series_id && ids.has(e.series_id)) e.series_id = null; // on delete set null
+}
+
+// "jeden Dienstag und Donnerstag um 18 Uhr laufen": a weekly rhythm she asks for (the real coach offers one too)
+const RHYTHM = /\bjede[nrs]?\s+((?:montag|dienstag|mittwoch|donnerstag|freitag|samstag|sonntag)(?:\s*(?:,|und)\s*(?:montag|dienstag|mittwoch|donnerstag|freitag|samstag|sonntag))*)\s+um\s+(\d{1,2}(?:[:.]\d{2})?)/i;
+const RHYTHM_WHAT: [RegExp, string][] = [
+  [/lauf|jogg/i, "Laufen"],
+  [/schwimm/i, "Schwimmen"],
+  [/velo|rad\b/i, "Velo"],
+  [/lern|üb(?:en|e)\b/i, "Lernen"],
+  [/yoga|dehn/i, "Yoga"],
+  [/train/i, "Training"],
+];
+
+/** A weekly rhythm in a message: its weekdays, time and title (null = none). */
+export function parseDemoRhythm(text: string): { weekdays: number[]; time: string; title: string | null } | null {
+  const m = RHYTHM.exec(text);
+  if (!m) return null;
+  const weekdays = parseWeekdays(m[1].split(/\s*(?:,|und)\s*/));
+  const time = parseClock(m[2]);
+  if (!weekdays || !time) return null;
+  return { weekdays, time, title: RHYTHM_WHAT.find(([re]) => re.test(text))?.[1] ?? null };
+}
+
 // Like the owner-check triggers in the database: links only to one's own goals.
 function checkGoal(u: DemoUser, goalId: string | null | undefined) {
   if (goalId && !u.goals.some((g) => g.id === goalId)) throw new Error("Dieses Ziel gibt es nicht mehr.");
@@ -818,6 +952,7 @@ export class DemoBackend implements Backend {
   async listEvents(from?: string, to?: string) {
     await latency();
     this.syncDemoNolio();
+    this.fillSeries();
     const since = from ? new Date(from).getTime() : Date.now() - 24 * 3600 * 1000;
     const until = to ? new Date(to).getTime() : Infinity;
     return this.user()
@@ -836,11 +971,24 @@ export class DemoBackend implements Backend {
     });
     return ev;
   }
-  async updateEvent(id: string, patch: Partial<EventInput>) {
+  async updateEvent(id: string, patch: Partial<EventInput>, scope: EventScope = "this") {
     let out!: CalendarEvent;
     this.mutate((u) => {
       const ev = u.events.find((e) => e.id === id);
       if (!ev) throw new Error("Diesen Eintrag gibt es nicht mehr.");
+      // «Alle kommenden»: like the backend, the rhythm takes the change and its coming days follow (series_sync)
+      const rhythm = scope === "following" && ev.series_id ? (u.series ?? []).find((x) => x.id === ev.series_id) : undefined;
+      if (rhythm) {
+        checkGoal(u, patch.goal_id);
+        checkReminder(patch.reminder_minutes);
+        const next = { ...ev, ...defined(patch) };
+        Object.assign(rhythm, seriesPatchFromDay(next, rhythm.time_zone), { goal_id: next.goal_id ?? null });
+        ev.series_exception = false;
+        if (patch.notes !== undefined) ev.notes = patch.notes;
+        syncDemoSeries(u, Date.now(), rhythm.id);
+        out = { ...(u.events.find((e) => e.id === id) ?? ev) };
+        return;
+      }
       // like the guard trigger: a Nolio entry is the trainer's; only its reminder may change
       if (ev.source === "nolio") {
         const changes = Object.entries(defined(patch)).filter(([k, v]) => k !== "reminder_minutes" && (ev as unknown as Record<string, unknown>)[k] !== v);
@@ -851,6 +999,8 @@ export class DemoBackend implements Backend {
       const before = { ...ev };
       // like the events_bump trigger, so a calendar file picks up the change
       Object.assign(ev, defined(patch), { sequence: (ev.sequence ?? 0) + 1, updated_at: now() });
+      // like the trigger events_series_exception: a day of a rhythm changed on its own is her exception
+      if (ev.series_id && seriesFieldsDiffer(before, ev)) ev.series_exception = true;
       // like the events_block_answer trigger: a block's answer follows the block
       const notPastBlock = ev.kind !== "block" || ev.all_day || !ev.ends_at || new Date(ev.ends_at).getTime() > Date.now() || !ev.goal_id;
       if (notPastBlock || ev.starts_at !== before.starts_at || ev.ends_at !== before.ends_at) {
@@ -862,14 +1012,61 @@ export class DemoBackend implements Backend {
     });
     return out;
   }
-  async deleteEvent(id: string) {
+  async deleteEvent(id: string, scope: EventScope = "this") {
     this.mutate((u) => {
       if (u.events.some((e) => e.id === id && e.source === "nolio"))
         throw new Error("Dieser Eintrag kommt aus Nolio (vom Trainer geplant) und lässt sich nur dort ändern.");
+      const ev = u.events.find((e) => e.id === id);
+      const rhythm = ev?.series_id ? (u.series ?? []).find((x) => x.id === ev.series_id) : undefined;
+      if (rhythm && ev?.series_day) {
+        if (scope === "following") {
+          // «Alle kommenden»: the rhythm ends the day before, or goes when nothing of it is left
+          const last = addDays(ev.series_day, -1);
+          if (last >= rhythm.start_date) {
+            rhythm.until_date = last;
+            syncDemoSeries(u, Date.now(), rhythm.id);
+          } else removeDemoSeries(u, new Set([rhythm.id]));
+          return;
+        }
+        // like the trigger events_series_skip: a coming day that falls away never comes back
+        if (Date.parse(ev.starts_at) > Date.now() && !rhythm.skip_days.includes(ev.series_day)) rhythm.skip_days.push(ev.series_day);
+      }
       u.events = u.events.filter((e) => e.id !== id);
       // like "on delete set null": the time stays, without the block
       for (const t of u.goal_time) if (t.event_id === id) t.event_id = null;
     });
+  }
+
+  /** Like the coach's create_series: a weekly rhythm; its days are entered at once (the database's trigger). */
+  async addSeries(r: Omit<SeriesRule, "id" | "skip_days" | "active" | "created_at"> & { active?: boolean }): Promise<{ series: SeriesRule; first: CalendarEvent | null }> {
+    let out!: { series: SeriesRule; first: CalendarEvent | null };
+    this.mutate((u) => {
+      checkGoal(u, r.goal_id);
+      const series: SeriesRule = { active: true, ...r, id: uuid(), skip_days: [], created_at: now() };
+      u.series = [...(u.series ?? []), series];
+      // like the trigger: a rhythm for a goal counts as the coach's one offer for it
+      const goal = series.goal_id ? u.goals.find((g) => g.id === series.goal_id) : undefined;
+      if (goal && !goal.rhythm_asked_at) goal.rhythm_asked_at = now();
+      syncDemoSeries(u, Date.now(), series.id);
+      const first = u.events.filter((e) => e.series_id === series.id).sort((a, b) => a.starts_at.localeCompare(b.starts_at))[0] ?? null;
+      out = { series: { ...series }, first: first ? { ...first } : null };
+    });
+    return out;
+  }
+
+  /** Like the daily job and the coach: the rhythms fill their coming days (stored only when something changed). */
+  private fillSeries() {
+    const name = this.session();
+    const users = this.load();
+    const u = name ? users[name] : undefined;
+    if (!u?.series?.length) return;
+    if (syncDemoSeries(u)) {
+      try {
+        this.save(users);
+      } catch {
+        /* storage full: filled again next time */
+      }
+    }
   }
 
   async listGoals(all = false): Promise<Goal[]> {
@@ -934,12 +1131,19 @@ export class DemoBackend implements Backend {
       followPlanB(g);
       // like the trigger goals_done_at: set when it becomes done (unless given), kept while done, else cleared
       g.done_at = followDone(g.status, done_at !== undefined ? done_at : g.done_at);
+      // like the trigger goals_series: no longer active → its rhythm rests; a new target date → its days follow
+      if (u.series?.some((x) => x.goal_id === id)) {
+        if (g.status !== "active") for (const x of u.series) if (x.goal_id === id) x.active = false;
+        syncDemoSeries(u);
+      }
       out = presenter(u)(g);
     });
     return out;
   }
   async deleteGoal(id: string) {
     this.mutate((u) => {
+      // like "on delete cascade" on series.goal_id: its rhythm goes, with its coming days
+      removeDemoSeries(u, new Set((u.series ?? []).filter((x) => x.goal_id === id).map((x) => x.id)));
       u.goals = u.goals.filter((g) => g.id !== id);
       u.goal_time = u.goal_time.filter((t) => t.goal_id !== id); // cascade
       // like "on delete set null": habits and calendar entries stay, without the link
@@ -1408,7 +1612,26 @@ export class DemoBackend implements Backend {
     }
     // "heute 1,5 Stunden trainiert": time for a goal (a report, so no appointment from it)
     const spent = req.message && !goal && !dreamTurn ? recogniseDemoTime(req.message, (await this.listGoals()).filter((g) => g.kind !== "dream")) : null;
-    const parsed = req.message && !spent && !dreamTurn ? parseDemoEvent(req.message) : null;
+    // "jeden Dienstag und Donnerstag um 18 Uhr laufen": a weekly rhythm for her goal (an hour each)
+    const rhythm = req.message && !spent && !dreamTurn && !goal ? parseDemoRhythm(req.message) : null;
+    if (rhythm) {
+      const focus = (await this.listGoals()).find((g) => g.kind !== "dream" && g.status === "active") ?? null;
+      const made = await this.addSeries({
+        goal_id: focus?.id ?? null,
+        title: rhythm.title ?? focus?.title ?? "Fokuszeit",
+        weekdays: rhythm.weekdays,
+        start_time: rhythm.time,
+        duration_minutes: 60,
+        location: null,
+        reminder_minutes: 10,
+        time_zone: req.context.timezone || "Europe/Zurich",
+        start_date: req.context.day,
+        until_date: null,
+      });
+      if (made.first) onEvent({ type: "event_created", event: made.first });
+      calendarNote = made.first ? `„${made.series.title}“ steht jetzt jede Woche im Kalender. ` : "";
+    }
+    const parsed = req.message && !spent && !dreamTurn && !rhythm ? parseDemoEvent(req.message) : null;
     if (parsed) {
       const ev = await this.addEvent(
         {

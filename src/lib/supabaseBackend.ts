@@ -8,6 +8,7 @@ import type {
   CoachRequest,
   DayState,
   EventInput,
+  EventScope,
   Goal,
   GoalInput,
   GoalTime,
@@ -24,7 +25,7 @@ import type {
   WhoopSyncResult,
 } from "./types";
 import { normaliseUsername, USERNAME_RE } from "./types";
-import { addDays, dayOf, weekStart } from "./plan";
+import { addDays, dayOf, seriesPatchFromDay, weekStart } from "./plan";
 import { blockTimeEntry } from "./demoBackend";
 import { deviceAttribution } from "../../supabase/functions/_shared/nolio.ts";
 
@@ -111,6 +112,8 @@ const EXPORT_CONNECTION_TABLES: [string, string[]][] = [
   ["nolio_sync", ["user_id"]],
   // which notifications went out or stayed out (template ids and reasons, never a text)
   ["push_log", ["id"]],
+  // the weekly rhythms (their days are in events)
+  ["series", ["id"]],
 ];
 
 // A habit row with its embedded logs (only the days).
@@ -256,16 +259,64 @@ export class SupabaseBackend implements Backend {
     return data as CalendarEvent;
   }
 
-  async updateEvent(id: string, patch: Partial<EventInput>): Promise<CalendarEvent> {
-    // The events_bump trigger raises sequence and updated_at, so subscribed calendars pick it up.
+  async updateEvent(id: string, patch: Partial<EventInput>, scope: EventScope = "this"): Promise<CalendarEvent> {
+    // «Alle kommenden»: the rhythm takes the change, its trigger (series_sync) moves every coming day nobody answered
+    if (scope === "following") {
+      const day = await this.rhythmDay(id);
+      if (day) {
+        const next = { ...day.entry, ...patch };
+        const rule = { ...seriesPatchFromDay(next, day.time_zone), goal_id: next.goal_id ?? null };
+        // this day follows the rhythm again, even if she had changed it on its own before
+        if (day.entry.series_exception) {
+          const back = await this.sb.from("events").update({ series_exception: false }).eq("id", id);
+          if (back.error) throw back.error;
+        }
+        const res = await this.sb.from("series").update(rule).eq("id", day.series_id);
+        if (res.error) throw res.error;
+        // notes stay with the day
+        if (patch.notes !== undefined && patch.notes !== day.entry.notes) {
+          const n = await this.sb.from("events").update({ notes: patch.notes }).eq("id", id);
+          if (n.error) throw n.error;
+        }
+        const { data, error } = await this.sb.from("events").select("*").eq("id", id).single();
+        if (error) throw error;
+        return data as CalendarEvent;
+      }
+    }
+    // The events_bump trigger raises sequence and updated_at, so subscribed calendars pick it up. A day of a weekly
+    // rhythm changed here is her exception (trigger events_series_exception).
     const { data, error } = await this.sb.from("events").update(patch).eq("id", id).select().single();
     if (error) throw error;
     return data as CalendarEvent;
   }
 
-  async deleteEvent(id: string) {
+  async deleteEvent(id: string, scope: EventScope = "this") {
+    // «Alle kommenden»: the rhythm ends the day before (or goes, when nothing of it is left); its trigger removes
+    // the coming days, past and answered ones stay. «Nur diesen Termin»: the day falls away (a skip marker).
+    if (scope === "following") {
+      const day = await this.rhythmDay(id);
+      if (day?.entry.series_day) {
+        const last = addDays(day.entry.series_day, -1);
+        const res =
+          last >= day.start_date
+            ? await this.sb.from("series").update({ until_date: last }).eq("id", day.series_id)
+            : await this.sb.from("series").delete().eq("id", day.series_id);
+        if (res.error) throw res.error;
+        return;
+      }
+    }
     const { error } = await this.sb.from("events").delete().eq("id", id);
     if (error) throw error;
+  }
+
+  /** A day of a weekly rhythm with its rhythm's time zone and first day; null for any other entry. */
+  private async rhythmDay(id: string): Promise<{ entry: CalendarEvent; series_id: string; time_zone: string; start_date: string } | null> {
+    const { data, error } = await this.sb.from("events").select("*, series(time_zone, start_date)").eq("id", id).maybeSingle();
+    if (error) throw error;
+    const row = data as (CalendarEvent & { series: { time_zone: string; start_date: string } | null }) | null;
+    if (!row?.series_id || !row.series) return null;
+    const { series, ...entry } = row;
+    return { entry, series_id: row.series_id, time_zone: series.time_zone, start_date: series.start_date };
   }
 
   /** Minutes per goal from the view goal_minutes (logged time, past blocks not yet answered that still count, of those

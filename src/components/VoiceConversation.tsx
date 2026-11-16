@@ -313,7 +313,9 @@ export function VoiceConversation({
           } else if (e.type === "error") {
             setError(e.message);
           } else if (e.type === "event_created" || e.type === "event_updated") {
-            toast({ label: e.type === "event_created" ? "Im Kalender „Bucket List“" : "Termin geändert", title: e.event.title, when: eventWhen(e.event), target: targetOf(e, dayOfIso) ?? undefined });
+            // a new weekly rhythm comes as its first day
+            const label = e.type === "event_created" ? (e.event.series_id ? "Jede Woche im Kalender" : "Im Kalender „Bucket List“") : "Termin geändert";
+            toast({ label, title: e.event.title, when: eventWhen(e.event), target: targetOf(e, dayOfIso) ?? undefined });
             pulseOrb(0.5);
             onEventRef.current(e);
           } else if (e.type === "event_deleted") {

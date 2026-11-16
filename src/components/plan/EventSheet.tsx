@@ -1,8 +1,8 @@
 import { useContext, useEffect, useId, useRef, useState } from "react";
 import { backend } from "../../lib/backend";
-import { addDays, dayOf, daysBetween } from "../../lib/plan";
+import { addDays, dayOf, daysBetween, seriesScopeNeeded } from "../../lib/plan";
 import { localMidnightIso, shortDay, timeHM } from "../../lib/dates";
-import type { CalendarEvent, EventInput, Goal } from "../../lib/types";
+import type { CalendarEvent, EventInput, EventScope, Goal } from "../../lib/types";
 import { closeDecision } from "../../space/closeDecision";
 import { ConfirmDelete as ConfirmInline } from "../../space/ConfirmDelete";
 import { SpaceContext, type CloseVia } from "../../space/state";
@@ -101,6 +101,9 @@ export function EventForm({ event, day, time, goals, variant, close, onChanged, 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [asking, setAsking] = useState(false);
+  // a coming day of a weekly rhythm: «Nur diesen Termin» or «Alle kommenden», asked only when the change could hold every week
+  const [askScope, setAskScope] = useState(false);
+  const rhythmDay = !!event?.series_id && Date.parse(event.starts_at) > Date.now();
   const ids = { kind: useId(), allDay: useId(), endHint: useId() };
 
   // detail: the values as loaded, to tell local edits apart
@@ -111,8 +114,8 @@ export function EventForm({ event, day, time, goals, variant, close, onChanged, 
   const release = useRef(false); // saved, discarded or deleted: closing needs nothing more
   const askRef = useRef<HTMLButtonElement>(null);
   useEffect(() => {
-    if (asking) askRef.current?.focus({ preventScroll: true });
-  }, [asking]);
+    if (asking || askScope) askRef.current?.focus({ preventScroll: true });
+  }, [asking, askScope]);
 
   const options = [...(allDay ? ALL_DAY : TIMED)];
   if (!options.includes(reminder)) options.push(reminder);
@@ -202,17 +205,22 @@ export function EventForm({ event, day, time, goals, variant, close, onChanged, 
     }
   };
 
-  // the detail: store it; false keeps the panel open with the error
-  const commit = async (): Promise<boolean> => {
+  // the detail: store it; false keeps the panel open with the error (or with the question «Nur diesen Termin»
+  // or «Alle kommenden» for a day of a weekly rhythm)
+  const commit = async (scope?: EventScope): Promise<boolean> => {
     const b = build();
     if ("error" in b) {
       setError(b.error);
       return false;
     }
+    if (event && rhythmDay && !scope && seriesScopeNeeded(event, b.input, Date.now(), (iso) => dayOf(new Date(iso)))) {
+      setAskScope(true);
+      return false;
+    }
     setBusy(true);
     setError(null);
     try {
-      const saved = event ? await backend.updateEvent(event.id, b.input) : await backend.addEvent(b.input);
+      const saved = event ? await backend.updateEvent(event.id, b.input, scope) : await backend.addEvent(b.input);
       release.current = true;
       onChanged(date, saved);
       return true;
@@ -244,6 +252,21 @@ export function EventForm({ event, day, time, goals, variant, close, onChanged, 
 
   const enter = async () => {
     if (await commit()) unfold?.requestClose("done");
+  };
+  const enterScoped = async (scope: EventScope) => {
+    if (await commit(scope)) unfold?.requestClose("done");
+  };
+
+  const remove = async (scope: EventScope) => {
+    if (!event) return;
+    try {
+      await backend.deleteEvent(event.id, scope);
+      release.current = true;
+      onChanged();
+      unfold?.requestClose("done");
+    } catch (e) {
+      setError(message(e));
+    }
   };
 
   const titleInput = (
@@ -336,7 +359,11 @@ export function EventForm({ event, day, time, goals, variant, close, onChanged, 
         <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} maxLength={2000} />
       </label>
 
-      {event?.source === "coach" && <p className="sheet-hint">Vom Coach eingetragen.</p>}
+      {event?.series_id ? (
+        <p className="sheet-hint">Jede Woche{event.source === "coach" ? " · vom Coach eingetragen" : ""}.</p>
+      ) : (
+        event?.source === "coach" && <p className="sheet-hint">Vom Coach eingetragen.</p>
+      )}
     </>
   );
 
@@ -397,6 +424,7 @@ export function EventForm({ event, day, time, goals, variant, close, onChanged, 
       onChange={() => {
         if (error) setError(null);
         if (asking) setAsking(false);
+        if (askScope) setAskScope(false);
       }}
       noValidate
     >
@@ -411,7 +439,19 @@ export function EventForm({ event, day, time, goals, variant, close, onChanged, 
               {error}
             </p>
           )}
-          {asking ? (
+          {askScope ? (
+            <div className="uf-ask" role="alert">
+              <span>Gilt das jede Woche?</span>
+              <span className="row">
+                <button type="button" className="btn quiet" disabled={busy} onClick={() => enterScoped("following")}>
+                  Alle kommenden
+                </button>
+                <button ref={askRef} type="button" className="btn primary" disabled={busy} onClick={() => enterScoped("this")}>
+                  Nur diesen Termin
+                </button>
+              </span>
+            </div>
+          ) : asking ? (
             <div className="uf-ask" role="alert">
               <span>Noch nicht eingetragen.</span>
               <span className="row">
@@ -435,17 +475,10 @@ export function EventForm({ event, day, time, goals, variant, close, onChanged, 
               {event && (
                 <ConfirmInline
                   label="Löschen"
-                  question="Wirklich löschen?"
-                  onConfirm={async () => {
-                    try {
-                      await backend.deleteEvent(event.id);
-                      release.current = true;
-                      onChanged();
-                      unfold?.requestClose("done");
-                    } catch (e) {
-                      setError(message(e));
-                    }
-                  }}
+                  question={rhythmDay ? "Nur diesen Termin oder alle kommenden?" : "Wirklich löschen?"}
+                  yes={rhythmDay ? "Nur diesen" : undefined}
+                  onConfirm={() => remove("this")}
+                  also={rhythmDay ? { label: "Alle kommenden", onConfirm: () => remove("following") } : undefined}
                 />
               )}
               <span className="spacer" />

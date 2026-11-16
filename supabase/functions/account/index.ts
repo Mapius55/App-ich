@@ -2,7 +2,7 @@
 //   POST {action:"export"} (login) → everything stored about you as JSON, read with your login (Row Level
 //                                    Security): profile (with the birth year; without the token of the
 //                                    calendar link, which would open the calendar), memories, conversations, days,
-//                                    calendar, goals and the dreams of the Bucket List (kind, done_at, memory,
+//                                    calendar (with the weekly rhythms), goals and the dreams of the Bucket List (kind, done_at, memory,
 //                                    reminded_at: every column, "*"), habits, push subscriptions, and from the
 //                                    connections: the connection rows (never tokens), WHOOP daily summaries
 //                                    and the Nolio data.
@@ -41,12 +41,14 @@ const TABLES: [string, string, string[]][] = [
   ["messages", "*", ["id"]],
   ["push_subscriptions", "*", ["id"]],
 ];
-/** From the connections (present once their migrations ran). Tokens live in a table nobody but the server can read. */
+/** From the connections and the weekly rhythms (present once their migrations ran). Tokens live in a table nobody but
+ *  the server can read. */
 const CONNECTION_TABLES: [string, string, string[]][] = [
   ["connections", "provider, status, external_user_id, consent_ai, consent_ai_changed_at, connected_at, last_sync_at, last_error", ["provider"]],
   ["whoop_days", "*", ["day"]],
   ["nolio_trainings", "*", ["id"]],
   ["nolio_sync", "last_sync_at, last_error, status", ["user_id"]],
+  ["series", "*", ["id"]],
 ];
 
 /** All rows of a table, page by page; null when the table isn't there (migration not applied). */

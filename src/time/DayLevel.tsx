@@ -273,8 +273,10 @@ function DayRow(props: {
   const nolio = e.source === "nolio"; // planned by the trainer: read-only, counts by itself once done in Nolio
   const planned = goal && !nolio ? pastBlockMinutes(e, now) : null;
   const goalLabel = goal ? (goal === e.title ? "Ziel" : goal) : null;
-  const meta = planned === null ? [e.location, goalLabel, nolio ? "vom Trainer" : null].filter(Boolean).join(" · ") : "";
-  const label = `${e.title}, ${e.all_day ? "ganztägig" : `${time}${end ? ` bis ${end}` : ""}`}${e.kind === "block" ? ", Block" : ""}${goal ? `, Ziel ${goal}` : ""}${nolio ? ", vom Trainer geplant. Ansehen" : ". Bearbeiten"}${fresh ? ", neu vom Coach" : ""}`;
+  // a day of a weekly rhythm: a quiet «jede Woche» (one unit: never broken over two lines)
+  const weekly = e.series_id ? "jede\u00a0Woche" : null;
+  const meta = planned === null ? [e.location, goalLabel, weekly, nolio ? "vom Trainer" : null].filter(Boolean).join(" · ") : "";
+  const label = `${e.title}, ${e.all_day ? "ganztägig" : `${time}${end ? ` bis ${end}` : ""}`}${e.kind === "block" ? ", Block" : ""}${e.series_id ? ", jede Woche" : ""}${goal ? `, Ziel ${goal}` : ""}${nolio ? ", vom Trainer geplant. Ansehen" : ". Bearbeiten"}${fresh ? ", neu vom Coach" : ""}`;
   return (
     <li
       ref={ref}

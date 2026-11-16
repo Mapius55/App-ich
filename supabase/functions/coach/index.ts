@@ -21,6 +21,7 @@ import {
   type ContextConnections,
   type ContextGoal,
   type ContextInput,
+  type ContextSeries,
 } from "./prompt.ts";
 import {
   birthYearProblem,
@@ -70,6 +71,7 @@ import {
   weekStart,
   type OpenerKind,
 } from "../_shared/plan.ts";
+import { parseClock, parseWeekdays, seriesLabel, SERIES_MAX_ACTIVE, WEEKDAY_CODES } from "../_shared/series.ts";
 import { spokenStream, stripEmoji } from "../_shared/spoken.ts";
 import { whoopForCoach } from "../_shared/whoop.ts";
 
@@ -92,6 +94,7 @@ const GOAL_STATUS = ["active", "done", "paused", "dropped"] as const;
 const GOAL_KINDS = ["goal", "dream"] as const;
 const MEMORY_MAX = 1000;
 const EVENT_KINDS = ["termin", "block"] as const;
+const OFFERS = ["experiment", "begleitung", "blockmuster", "plan_b", "rhythmus", "flaute"] as const;
 const MAX_MILESTONES = 12;
 const DEFAULT_TZ = "Europe/Zurich";
 const DAY_MS = 24 * 3600 * 1000;
@@ -287,6 +290,53 @@ const TOOLS: Anthropic.Beta.BetaTool[] = [
     description:
       "Löscht einen Eintrag aus dem Kalender „Bucket List“, z.B. wenn ein Termin abgesagt wurde oder ein Block nicht mehr passt. Nie einen Eintrag vom Trainer (Nolio).",
     input_schema: { type: "object", properties: { id: { type: "string" } }, required: ["id"], additionalProperties: false },
+    eager_input_streaming: true,
+  },
+  {
+    name: "create_series",
+    description:
+      "Legt einen Wochenrhythmus an: Blöcke, die jede Woche an denselben Tagen zur selben Zeit wiederkehren. Sie stehen im Kalender „Bucket List“ acht Wochen voraus und kommen von selbst nach, bis zum Ende (ohne until bis zum Tag vor dem Zieldatum). Nur nach ihrem klaren Ja. Zeiten in ihrer lokalen Zeit.",
+    input_schema: {
+      type: "object",
+      properties: {
+        title: { type: "string", description: "Kurz, z.B. „Laufen“." },
+        goal_id: { type: "string", description: "Das Ziel, dem er dient (id aus dem Kontext)." },
+        weekdays: { type: "array", items: { type: "string", enum: [...WEEKDAY_CODES] }, description: "Die Wochentage, z.B. [„di“, „do“]." },
+        time: { type: "string", description: "Beginn HH:MM, z.B. 18:00." },
+        minutes: { type: "integer", description: "Länge in Minuten (Standard 60)." },
+        location: { type: "string" },
+        reminder_minutes: { type: "integer", description: "Erinnerung so viele Minuten vorher (Standard 10)." },
+        from: { type: "string", description: "Erster Tag YYYY-MM-DD (Standard heute)." },
+        until: { type: "string", description: "Optional: letzter Tag YYYY-MM-DD." },
+      },
+      required: ["title", "weekdays", "time"],
+      additionalProperties: false,
+    },
+    eager_input_streaming: true,
+  },
+  {
+    name: "update_series",
+    description:
+      "Ändert einen Wochenrhythmus (id unter „Wochenrhythmus“ im Kontext) für alle kommenden Tage, zu denen sie noch nichts gesagt hat; vergangene bleiben, ebenso Tage, die sie einzeln geändert hat. ab: erst ab diesem Tag („ab Januar nur noch dienstags“). pausiert: true lässt ihn ruhen (die kommenden Tage gehen aus dem Kalender), false nimmt ihn wieder auf. ende: true beendet ihn (mit ab nach dem Tag davor). ausfall: ein einzelner Tag YYYY-MM-DD fällt aus, für einen Tag, der noch nicht im Kalender steht (sonst delete_event).",
+    input_schema: {
+      type: "object",
+      properties: {
+        id: { type: "string" },
+        weekdays: { type: "array", items: { type: "string", enum: [...WEEKDAY_CODES] } },
+        time: { type: "string", description: "HH:MM" },
+        minutes: { type: "integer" },
+        title: { type: "string" },
+        location: { type: "string" },
+        reminder_minutes: { type: "integer" },
+        until: { type: "string", description: "Letzter Tag YYYY-MM-DD, leer = bis zum Zieldatum." },
+        ab: { type: "string", description: "YYYY-MM-DD: die Änderung gilt erst ab diesem Tag." },
+        pausiert: { type: "boolean" },
+        ende: { type: "boolean" },
+        ausfall: { type: "string", description: "YYYY-MM-DD" },
+      },
+      required: ["id"],
+      additionalProperties: false,
+    },
     eager_input_streaming: true,
   },
   {
@@ -507,12 +557,12 @@ const TOOLS: Anthropic.Beta.BetaTool[] = [
   {
     name: "note_offer",
     description:
-      "Hält fest, dass du etwas angeboten hast, das nur selten kommt: experiment (ein kleines Experiment, höchstens einmal pro Woche), begleitung (der einmalige Hinweis auf Menschen in ihrem Leben oder eine Fachperson), blockmuster (du hast angeboten, die Blöcke eines Ziels nach ihrem Muster anzupassen; mit goal_id, höchstens einmal pro Woche und Ziel) oder plan_b (du hast gefragt, was ihr bei einem Ziel dazwischenkommen könnte; mit goal_id, einmal pro Ziel).",
+      "Hält fest, dass du etwas angeboten hast, das nur selten kommt: experiment (ein kleines Experiment, höchstens einmal pro Woche), begleitung (der einmalige Hinweis auf Menschen in ihrem Leben oder eine Fachperson), blockmuster (du hast angeboten, die Blöcke eines Ziels nach ihrem Muster anzupassen; mit goal_id, höchstens einmal pro Woche und Ziel), plan_b (du hast gefragt, was ihr bei einem Ziel dazwischenkommen könnte; mit goal_id, einmal pro Ziel), rhythmus (du hast für ein Ziel einen Wochenrhythmus angeboten; mit goal_id, einmal pro Ziel) oder flaute (du hast angeboten, den Rhythmus eines Ziels zu ändern oder zu pausieren; mit goal_id).",
     input_schema: {
       type: "object",
       properties: {
-        what: { type: "string", enum: ["experiment", "begleitung", "blockmuster", "plan_b"] },
-        goal_id: { type: "string", description: "Nur bei blockmuster und plan_b: das Ziel, um das es ging." },
+        what: { type: "string", enum: ["experiment", "begleitung", "blockmuster", "plan_b", "rhythmus", "flaute"] },
+        goal_id: { type: "string", description: "Bei blockmuster, plan_b, rhythmus und flaute: das Ziel, um das es ging." },
       },
       required: ["what"],
       additionalProperties: false,
@@ -621,6 +671,49 @@ const localDay = (iso: string, tz: string) =>
 
 type Row = Record<string, unknown>;
 type MilestoneRow = Row & { id: string; title: string; position: number; done_at: string | null };
+
+// ---------- the weekly rhythm (public.series; its days are entries with series_id) ----------
+
+/** The active weekly rhythms of a goal (none before the rhythm's migration). */
+const goalRhythms = (sb: SupabaseClient, goalId: string) =>
+  soft<{ id: string; title: string }[]>(sb.from("series").select("id, title").eq("goal_id", goalId).eq("active", true).limit(10), [], "goal rhythms");
+/** update_goal: the goal is no longer active, so its rhythm rests. */
+const RHYTHM_RESTS = "Sein Wochenrhythmus ruht jetzt mit dem Ziel, die kommenden Tage sind aus dem Kalender: sag es in einem Halbsatz. Wird das Ziel wieder aktiv, fragst du, ob er weiterlaufen soll (update_series pausiert false).";
+
+/** The tool result for one day of a rhythm changed or deleted on its own. */
+const SERIES_DAY_NOTE = "Nur dieser Tag; der Wochenrhythmus bleibt, wie er ist.";
+/** Before the rhythm's migration (no table): a clear answer instead of a failed save. */
+const seriesMissing = (error: { code?: string }) =>
+  error.code === "42P01" || error.code === "PGRST205" ? new ToolInputError("Wochenrhythmen gehen hier noch nicht: trag die Blöcke einzeln ein") : error;
+
+/** After a rhythm was created or changed: its coming days in the calendar (the database entered them), for the app and the coach. */
+async function seriesResult(sb: SupabaseClient, s: Row, tz: string, send: (e: Ev) => void, how: "created" | "changed" | "paused") {
+  const res = await sb.from("events").select("*").eq("series_id", s.id).gte("starts_at", new Date().toISOString()).order("starts_at").limit(60);
+  if (res.error) console.error("series days:", res.error.code ?? "error");
+  const days = (res.data ?? []) as Row[];
+  const first = days[0];
+  const last = days[days.length - 1];
+  // the app reloads its calendar (one toast for the rhythm, with its first day)
+  if (first) send({ type: how === "created" ? "event_created" : "event_updated", event: first });
+  else if (how !== "created") send({ type: "event_deleted", id: String(s.id), title: String(s.title) });
+  const rule = { weekdays: (s.weekdays as number[]) ?? [], start_time: String(s.start_time), duration_minutes: Number(s.duration_minutes) || 60 };
+  return {
+    ok: true,
+    id: s.id,
+    rhythmus: seriesLabel(rule),
+    im_kalender: first
+      ? `${days.length} Tage, vom ${localDay(String(first.starts_at), tz)} bis ${localDay(String(last.starts_at), tz)}, danach kommen sie von selbst nach`
+      : how === "paused"
+        ? "ruht: keine kommenden Tage im Kalender"
+        : "noch kein Tag im Kalender (Ziel nicht aktiv, Ende vorbei oder später als acht Wochen)",
+    notiert:
+      how === "created"
+        ? "Sag in einem Halbsatz, ab wann er jede Woche im Kalender steht; die Tage nicht aufzählen."
+        : how === "paused"
+          ? "Er ruht; mit pausiert false läuft er wieder."
+          : "Geändert für die kommenden Tage; vergangene und einzeln geänderte bleiben.",
+  };
+}
 interface GoalTimeSum {
   logged_minutes: number;
   block_minutes: number;
@@ -881,7 +974,8 @@ async function runTool(
       }
       const id = uuid(input.id, "id");
       if (!Object.keys(row).length && input.reminder_minutes === undefined) throw new ToolInputError("nichts zu ändern");
-      const cur = await sb.from("events").select("starts_at, ends_at, all_day, reminder_minutes, kind, source").eq("id", id).maybeSingle();
+      // "*": series_id only after the rhythm's migration
+      const cur = await sb.from("events").select("*").eq("id", id).maybeSingle();
       if (cur.error) throw cur.error;
       if (!cur.data) throw new ToolInputError("Termin nicht gefunden");
       // the trainer's plan from Nolio: only the reminder is hers to change
@@ -905,7 +999,7 @@ async function runTool(
       if (error) throw missingGoal(error);
       if (!data) throw new ToolInputError("Termin nicht gefunden");
       send({ type: "event_updated", event: data });
-      return JSON.stringify({ ok: true });
+      return JSON.stringify(data.series_id ? { ok: true, notiert: SERIES_DAY_NOTE } : { ok: true });
     }
     case "delete_event": {
       const id = uuid(input.id, "id");
@@ -913,11 +1007,109 @@ async function runTool(
       if (cur.error) throw cur.error;
       if (!cur.data) throw new ToolInputError("Termin nicht gefunden");
       if (cur.data.source === "nolio") throw new ToolInputError(NOLIO_EDIT_REFUSAL);
-      const { data, error } = await sb.from("events").delete().eq("id", id).neq("source", "nolio").select("id, title");
+      const { data, error } = await sb.from("events").delete().eq("id", id).neq("source", "nolio").select("*");
       if (error) throw error;
       if (!data?.length) throw new ToolInputError("Termin nicht gefunden");
       send({ type: "event_deleted", id, title: data[0].title });
-      return JSON.stringify({ ok: true });
+      // one day of a rhythm: only that day falls away (the database keeps it as a skip marker)
+      return JSON.stringify(data[0].series_id ? { ok: true, notiert: SERIES_DAY_NOTE } : { ok: true });
+    }
+    case "create_series": {
+      if (ctx.mode !== "checkin") throw new ToolInputError("nur im täglichen Gespräch");
+      const weekdays = parseWeekdays(input.weekdays);
+      if (!weekdays) throw new ToolInputError("weekdays: z.B. [\"di\", \"do\"]");
+      const time = parseClock(input.time);
+      if (!time) throw new ToolInputError("time: HH:MM, z.B. 18:00");
+      const from = optDate(input.from, "from") ?? day;
+      if (from < day) throw new ToolInputError("from liegt in der Vergangenheit");
+      const until = optDate(input.until, "until") ?? null;
+      if (until && until < from) throw new ToolInputError("until liegt vor from");
+      const goalId = optGoalId(input.goal_id) ?? null;
+      const row: Row = {
+        user_id: userId,
+        goal_id: goalId,
+        title: str(input.title, 200, "title"),
+        weekdays,
+        start_time: time,
+        duration_minutes: input.minutes === undefined ? 60 : Math.round(num(input.minutes, 5, 720, "minutes")),
+        location: optText(input.location, 200, "location") ?? null,
+        reminder_minutes: input.reminder_minutes === undefined ? 10 : Math.round(num(input.reminder_minutes, 0, 10080, "reminder_minutes")),
+        time_zone: ctx.tz,
+        start_date: from,
+        until_date: until,
+        source: "coach",
+      };
+      const [goal, others] = await Promise.all([
+        goalId ? sb.from("goals").select("status, target_date").eq("id", goalId).maybeSingle() : Promise.resolve(null),
+        sb.from("series").select("id, goal_id, weekdays, start_time").eq("active", true).limit(20),
+      ]);
+      if (others.error) throw seriesMissing(others.error);
+      if (goal?.error) throw goal.error;
+      if (goal && !goal.data) throw new ToolInputError("Ziel nicht gefunden");
+      if (goal?.data && goal.data.status !== "active") throw new ToolInputError("Das Ziel ist nicht aktiv: erst wieder aufnehmen (update_goal status active)");
+      const active = (others.data ?? []) as { goal_id: string | null; weekdays: number[]; start_time: string }[];
+      if (active.some((o) => o.goal_id === goalId && String(o.start_time).slice(0, 5) === time && o.weekdays.some((w) => weekdays.includes(w))))
+        throw new ToolInputError("Diesen Rhythmus gibt es schon (siehe „Wochenrhythmus“): ändere ihn mit update_series");
+      if (active.length >= SERIES_MAX_ACTIVE) throw new ToolInputError(`Höchstens ${SERIES_MAX_ACTIVE} Wochenrhythmen gleichzeitig: einen ändern oder beenden`);
+      const { data, error } = await sb.from("series").insert(row).select().single();
+      if (error) throw error.code === "23503" ? missingGoal(error) : seriesMissing(error);
+      return JSON.stringify(await seriesResult(sb, data as Row, ctx.tz, send, "created"));
+    }
+    case "update_series": {
+      if (ctx.mode !== "checkin") throw new ToolInputError("nur im täglichen Gespräch");
+      const id = uuid(input.id, "id");
+      const cur = await sb.from("series").select("*").eq("id", id).maybeSingle();
+      if (cur.error) throw seriesMissing(cur.error);
+      if (!cur.data) throw new ToolInputError("Rhythmus nicht gefunden");
+      const s = cur.data as Row;
+      const patch: Row = {};
+      if (input.weekdays !== undefined) {
+        const w = parseWeekdays(input.weekdays);
+        if (!w) throw new ToolInputError("weekdays: z.B. [\"di\", \"do\"]");
+        patch.weekdays = w;
+      }
+      if (input.time !== undefined) {
+        const t = parseClock(input.time);
+        if (!t) throw new ToolInputError("time: HH:MM, z.B. 18:00");
+        patch.start_time = t;
+      }
+      if (input.minutes !== undefined) patch.duration_minutes = Math.round(num(input.minutes, 5, 720, "minutes"));
+      if (input.title !== undefined) patch.title = str(input.title, 200, "title");
+      if (input.location !== undefined) patch.location = optText(input.location, 200, "location") ?? null;
+      if (input.reminder_minutes !== undefined) patch.reminder_minutes = Math.round(num(input.reminder_minutes, 0, 10080, "reminder_minutes"));
+      if (input.until !== undefined) patch.until_date = input.until === "" || input.until === null ? null : optDate(input.until, "until");
+      if (input.pausiert !== undefined) patch.active = !bool(input.pausiert, "pausiert");
+      const ab = optDate(input.ab, "ab") ?? null;
+      if (ab && ab < day) throw new ToolInputError("ab liegt in der Vergangenheit");
+      const ausfall = optDate(input.ausfall, "ausfall") ?? null;
+      if (ausfall && ausfall < day) throw new ToolInputError("ausfall liegt in der Vergangenheit");
+      const ende = input.ende !== undefined && bool(input.ende, "ende");
+      if (ende) {
+        const last = ab ? addDays(ab, -1) : null;
+        // ends after the day before `ab`; without one (or nothing of it before then) it goes: its coming days with it
+        if (last && last >= String(s.start_date) && last >= day) {
+          const { error } = await sb.from("series").update({ until_date: last }).eq("id", id);
+          if (error) throw error;
+        } else {
+          const { error } = await sb.from("series").delete().eq("id", id);
+          if (error) throw error;
+        }
+        send({ type: "event_deleted", id, title: String(s.title) });
+        return JSON.stringify({ ok: true, notiert: last ? `Der Rhythmus endet nach dem ${last}; die Tage danach sind aus dem Kalender.` : "Der Rhythmus ist beendet; seine kommenden Tage sind aus dem Kalender, die vergangenen bleiben." });
+      }
+      if (ausfall) patch.skip_days = [...((s.skip_days as string[] | null) ?? []), ausfall];
+      if (!Object.keys(patch).length) throw new ToolInputError("nichts zu ändern");
+      // «ab Januar»: the rhythm splits there (split_series), the change goes to the part from then on
+      let target = id;
+      if (ab && Object.keys(patch).some((k) => k !== "skip_days")) {
+        const split = await sb.rpc("split_series", { p_id: id, p_from: ab });
+        if (split.error) throw split.error.code === "22023" ? new ToolInputError("Der Rhythmus endet vor diesem Tag") : split.error;
+        target = String(split.data);
+      }
+      const { data, error } = await sb.from("series").update(patch).eq("id", target).select().maybeSingle();
+      if (error) throw error;
+      if (!data) throw new ToolInputError("Rhythmus nicht gefunden");
+      return JSON.stringify(await seriesResult(sb, data as Row, ctx.tz, send, patch.active === false ? "paused" : "changed"));
     }
     case "create_goal": {
       const title = str(input.title, 200, "title");
@@ -1040,6 +1232,8 @@ async function runTool(
         const prior = priorProblem(priorHours, estimate, false);
         if (prior) throw new ToolInputError(prior);
       }
+      // reached, paused or dropped: its weekly rhythm rests with it (trigger goals_series), its coming days go
+      const resting = patch.status !== undefined && patch.status !== "active" ? await goalRhythms(sb, id) : [];
       const [{ data, error }, time] = await Promise.all([
         sb.from("goals").update(patch).eq("id", id).select("*, milestones(*)").maybeSingle(),
         goalTime(sb, id),
@@ -1047,6 +1241,7 @@ async function runTool(
       if (error) throw error;
       if (!data) throw new ToolInputError("Ziel nicht gefunden");
       const goal = toGoal(data, time);
+      for (const r of resting) send({ type: "event_deleted", id: r.id, title: r.title });
       if (notNow && goal.kind === "dream") {
         // its own write: a missing column (migration not applied yet) never undoes the reminder
         const rest = await sb.from("goals").update({ nudge_after: addDays(day, NUDGE_NOT_NOW_DAYS) }).eq("id", id);
@@ -1064,16 +1259,20 @@ async function runTool(
         ...(patch.reminded_at
           ? { notiert: notNow ? "Erinnert; der Traum ruht jetzt drei Monate. Heute keinen weiteren Traum ansprechen." : "Erinnert. Heute keinen weiteren Traum ansprechen." }
           : {}),
+        ...(resting.length && data.status !== "active" ? { rhythmus: RHYTHM_RESTS } : {}),
       });
     }
     case "delete_goal": {
       const id = uuid(input.id, "id");
-      // Milestones go with it; habits and calendar entries stay, without the link.
+      // Milestones go with it; habits and calendar entries stay, without the link; its weekly rhythm goes with
+      // its coming days (the past ones stay as plain blocks).
+      const rhythms = await goalRhythms(sb, id);
       const { data, error } = await sb.from("goals").delete().eq("id", id).select("id, title");
       if (error) throw error;
       if (!data?.length) throw new ToolInputError("Ziel nicht gefunden");
       send({ type: "goal_deleted", id, title: data[0].title });
-      return JSON.stringify({ ok: true });
+      for (const r of rhythms) send({ type: "event_deleted", id: r.id, title: r.title });
+      return JSON.stringify(rhythms.length ? { ok: true, rhythmus: "Sein Wochenrhythmus ist mit dem Ziel beendet: sag es in einem Halbsatz." } : { ok: true });
     }
     case "add_milestone": {
       const goalId = uuid(input.goal_id, "goal_id");
@@ -1281,7 +1480,23 @@ async function runTool(
     }
     case "note_offer": {
       if (ctx.mode !== "checkin") throw new ToolInputError("nur im täglichen Gespräch");
-      const what = oneOf(input.what, ["experiment", "begleitung", "blockmuster", "plan_b"] as const, "what");
+      const what = oneOf(input.what, OFFERS, "what");
+      if (what === "rhythmus") {
+        // once per goal (goals.rhythm_asked_at, the server's clock; a new rhythm for it sets it too)
+        const goalId = uuid(input.goal_id, "goal_id");
+        const res = await sb.from("goals").update({ rhythm_asked_at: new Date().toISOString() }).eq("id", goalId).select("id");
+        if (res.error) throw res.error;
+        if (!res.data?.length) throw new ToolInputError("Ziel nicht gefunden");
+        return JSON.stringify({ ok: true, notiert: "Notiert. Einen Wochenrhythmus für dieses Ziel bietest du nicht nochmals an; legst ihn nur nach ihrem Ja an." });
+      }
+      if (what === "flaute") {
+        // per rhythm (series.lapse_asked_at): the next offer only after another three weeks like this
+        const goalId = uuid(input.goal_id, "goal_id");
+        const res = await sb.from("series").update({ lapse_asked_at: new Date().toISOString() }).eq("goal_id", goalId).select("id");
+        if (res.error) throw seriesMissing(res.error);
+        if (!res.data?.length) throw new ToolInputError("Kein Wochenrhythmus für dieses Ziel");
+        return JSON.stringify({ ok: true, notiert: "Notiert. Geändert oder pausiert wird er erst nach ihrem Ja; bleibt er, ist das in Ordnung." });
+      }
       if (what === "plan_b") {
         // once per goal (goals.plan_b_asked_at, the server's clock): the context never asks again for it
         const goalId = uuid(input.goal_id, "goal_id");
@@ -1419,6 +1634,7 @@ type CoachProfile = {
 };
 
 type PlanBRow = { obstacle: string | null; plan_b: string | null; plan_b_asked_at: string };
+type SeriesRow = ContextSeries;
 
 /** A goal's Plan B for the context: without a row none and never asked; without the rows (unknown) never asked. */
 const planBOf = (rows: Map<string, PlanBRow> | null | undefined, id: string): Pick<ContextGoal, "obstacle" | "plan_b" | "plan_b_asked_at"> => {
@@ -1432,8 +1648,8 @@ const planBOf = (rows: Map<string, PlanBRow> | null | undefined, id: string): Pi
  * marks). Every query only enriches the context: on an error (e.g. a column before its migration) a fallback.
  * `day`: her today (the thread).
  */
-async function loadDaily(sb: SupabaseClient, userId: string, day: string) {
-  const [lastSeen, lastSpoke, lastTalk, talk, profile, openers, todayLog, followed, asked, resting, patternAsked, planB] = await Promise.all([
+async function loadDaily(sb: SupabaseClient, userId: string, day: string, now: number) {
+  const [lastSeen, lastSpoke, lastTalk, talk, profile, openers, todayLog, followed, asked, resting, patternAsked, planB, , series, seriesDays, rhythmAsked] = await Promise.all([
     // the last day before today with a conversation, however long ago (a pause)
     soft<{ thread: string }[]>(sb.from("messages").select("thread").lt("thread", day).order("id", { ascending: false }).limit(1), [], "last seen"),
     // her own last message before today and when (the Wochenblick: a greeting she never answered is no conversation);
@@ -1478,6 +1694,36 @@ async function loadDaily(sb: SupabaseClient, userId: string, day: string) {
       null,
       "plan b",
     ),
+    // the weekly rhythms fill their coming days on every conversation (idempotent; the new ones lie 8 weeks ahead,
+    // beyond what the context lists, so nothing waits for it)
+    soft<number>(sb.rpc("extend_series"), 0, "extend series"),
+    // the rhythms (null: unknown, e.g. before their migration: then no line and no offer) and which entries are their days
+    soft<SeriesRow[] | null>(
+      sb
+        .from("series")
+        .select("id, goal_id, title, weekdays, start_time, duration_minutes, location, reminder_minutes, time_zone, start_date, until_date, active, skip_days, lapse_asked_at")
+        .order("created_at")
+        .limit(20),
+      null,
+      "series",
+    ),
+    soft<{ id: string; series_id: string }[]>(
+      sb
+        .from("events")
+        .select("id, series_id")
+        .not("series_id", "is", null)
+        .gte("starts_at", new Date(now - PATTERN_DAYS * DAY_MS).toISOString())
+        .lt("starts_at", new Date(now + 61 * DAY_MS).toISOString())
+        .limit(600),
+      [],
+      "series days",
+    ),
+    // a rhythm offered once per goal (null: unknown, then never offered)
+    soft<{ id: string; rhythm_asked_at: string }[] | null>(
+      sb.from("goals").select("id, rhythm_asked_at").not("rhythm_asked_at", "is", null).limit(200),
+      null,
+      "rhythm asked",
+    ),
   ]);
   const talkCounts: Record<string, number> = {};
   for (const r of talk) talkCounts[String(r.thread)] = (talkCounts[String(r.thread)] ?? 0) + 1;
@@ -1497,6 +1743,9 @@ async function loadDaily(sb: SupabaseClient, userId: string, day: string) {
     planB: planB
       ? new Map(planB.map((r) => [String(r.id), { obstacle: r.obstacle ?? null, plan_b: r.plan_b ?? null, plan_b_asked_at: String(r.plan_b_asked_at) }]))
       : null,
+    series,
+    seriesOf: new Map(seriesDays.map((r) => [String(r.id), String(r.series_id)])),
+    rhythmAsked: rhythmAsked ? new Map(rhythmAsked.map((r) => [String(r.id), String(r.rhythm_asked_at)])) : null,
   };
 }
 
@@ -1560,7 +1809,7 @@ async function converse({ sb, userId, body, send }: { sb: SupabaseClient; userId
   // the daily conversation (a thread per day): the last week counts for the excerpt and the WHOOP marks
   const daily = mode === "checkin" && DATE_RE.test(thread);
   const weekThreads = daily ? Array.from({ length: 7 }, (_, i) => addDays(thread, -(i + 1))) : [];
-  const dailyP = daily ? loadDaily(sb, userId, thread) : Promise.resolve(null);
+  const dailyP = daily ? loadDaily(sb, userId, thread, now) : Promise.resolve(null);
   const owner = nolioOwner(userId);
   type Msg = { id?: number | string; role: string; content: string };
   // active and paused goals and dreams; bucket = false: without the Bucket List columns (before its migration)
@@ -1718,16 +1967,23 @@ async function converse({ sb, userId, body, send }: { sb: SupabaseClient; userId
       pattern_asked_at: dailyCtx?.patternAsked ? (dailyCtx.patternAsked.get(goal.id) ?? null) : undefined,
       // her Plan B, and whether the coach asked for one (undefined: unknown, then never asked)
       ...planBOf(dailyCtx?.planB, goal.id),
+      // a weekly rhythm offered once (undefined: unknown, then never offered)
+      rhythm_asked_at: dailyCtx?.rhythmAsked ? (dailyCtx.rhythmAsked.get(goal.id) ?? null) : undefined,
       milestones: goal.milestones.map((m) => ({ ...m, overdue_asked_for: dailyCtx?.asked.get(String(m.id)) ?? null })),
     };
   });
   const goalIds = new Set(goals.map((g) => g.id));
-  const events = [...(termineRes.data ?? []), ...(blocksRes.data ?? [])].sort((a, b) => Date.parse(a.starts_at) - Date.parse(b.starts_at));
+  // which entries are days of a weekly rhythm (its own query, so the event queries work before the rhythm's migration)
+  const seriesOf = <E extends { id: string }>(e: E): E & { series_id?: string } => {
+    const sid = dailyCtx?.seriesOf.get(String(e.id));
+    return sid ? { ...e, series_id: sid } : e;
+  };
+  const events = [...(termineRes.data ?? []), ...(blocksRes.data ?? [])].map(seriesOf).sort((a, b) => Date.parse(a.starts_at) - Date.parse(b.starts_at));
   // Her own past blocks for a goal in the context, oldest first, with their answer (null = none): the pattern per goal.
   const recentBlocks = (pastBlocksRes.data ?? [])
     .filter((b) => goalIds.has(String(b.goal_id)))
     .reverse()
-    .map(({ goal_time: answer, ...b }) => ({ ...b, minutes: answerMinutes(answer) }));
+    .map(({ goal_time: answer, ...b }) => seriesOf({ ...b, minutes: answerMinutes(answer) }));
   // Not answered yet, from the last week: the coach may ask once whether it happened.
   const pastBlocks = recentBlocks
     .filter((b) => b.minutes === null && Date.parse(b.starts_at) >= now - 7 * DAY_MS)
@@ -1819,6 +2075,7 @@ async function converse({ sb, userId, body, send }: { sb: SupabaseClient; userId
     events,
     pastBlocks,
     recentBlocks,
+    series: dailyCtx?.series ?? undefined,
   };
 
   if (dailyCtx) {
