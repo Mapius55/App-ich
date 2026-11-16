@@ -31,6 +31,7 @@ import { DetailHost } from "./DetailHost";
 import { DockLeft } from "./Dock";
 import { markTourSeen, tourSeen } from "./flags";
 import { CANCEL_MS, RESUME_KEEP_MS, pagerEnabled } from "./gestures";
+import { motion as motionStore, useStill } from "./motion";
 import { NOW_TITLE_ID, NowLevel } from "./NowLevel";
 import { OrbLayer, type OrbApi, type OrbSlot } from "./OrbLayer";
 import { SkipNav } from "./SkipNav";
@@ -127,6 +128,8 @@ function headingOf(s: Pick<SpaceState, "place" | "level">): HTMLElement | null {
 
 export function Space(props: SpaceProps) {
   const { profile, palette, weather, day: today, focus, hasCoords, onEvent, onProfile, onCoords } = props;
+  // what the levels and the sides show waits while the column moves (motion.ts); ids and callbacks stay live
+  const still = useStill({ profile, palette, weather, focus });
 
   // A deep link (#tag/…) opens there and never starts the tour.
   const initial = useMemo(() => {
@@ -234,15 +237,37 @@ export function Space(props: SpaceProps) {
     paintLevels(m.p, d);
   }, [paintLevels]);
 
-  // will-change only while scrolling or dragging, removed 300 ms after settle
-  const setMoving = useCallback((on: boolean) => {
+  // will-change only while a touch at Jetzt, a scroll or a drag is under way, removed 300 ms after
+  // all of them ended. A touch sets it at once, so the first scroll event changes nothing in the DOM.
+  const movingBy = useRef({ scroll: false, touch: false });
+  const syncMoving = useCallback(() => {
     clearTimeout(willChangeTimer.current);
     const root = spaceRef.current;
     if (!root) return;
-    if (on) root.classList.add("is-moving");
-    else willChangeTimer.current = window.setTimeout(() => root.classList.remove("is-moving"), WILL_CHANGE_KEEP);
-    orbApi.current?.moving(on);
+    const m = movingBy.current;
+    if (m.scroll || m.touch) {
+      if (!root.classList.contains("is-moving")) root.classList.add("is-moving");
+    } else willChangeTimer.current = window.setTimeout(() => root.classList.remove("is-moving"), WILL_CHANGE_KEEP);
   }, []);
+  const setMoving = useCallback(
+    (on: boolean) => {
+      movingBy.current.scroll = on;
+      syncMoving();
+      // (only real scroll and pager motion: a press on the circle must not pause its flow)
+      orbApi.current?.moving(on);
+    },
+    [syncMoving],
+  );
+  useEffect(
+    () =>
+      motionStore.subscribe(() => {
+        const touch = motionStore.busy() && stateRef.current.place === "jetzt";
+        if (touch === movingBy.current.touch) return;
+        movingBy.current.touch = touch;
+        syncMoving();
+      }),
+    [syncMoving],
+  );
 
   const levels = useLevels({
     initial: initial.s?.place === "jetzt" ? initial.s.level : 0,
@@ -543,18 +568,19 @@ export function Space(props: SpaceProps) {
   }, []);
   useEffect(() => {
     const d = document.documentElement.dataset;
-    d.place = place;
-    d.level = String(level);
-    if (detail) d.detail = detail.kind;
-    else delete d.detail;
-    if (typing) d.typing = typing === "detail" ? "detail" : "true";
-    else delete d.typing;
-    if (tour) d.tour = String(tour);
-    else delete d.tour;
-    if (voiceActive) d.voiceActive = "true";
-    else delete d.voiceActive;
-    if (typedOpen) d.typed = "true";
-    else delete d.typed;
+    // (only what changed: a rewrite of the same value is still a DOM change)
+    const set = (k: string, v: string | null) => {
+      if (v === null) {
+        if (k in d) delete d[k];
+      } else if (d[k] !== v) d[k] = v;
+    };
+    set("place", place);
+    set("level", String(level));
+    set("detail", detail ? detail.kind : null);
+    set("typing", typing ? (typing === "detail" ? "detail" : "true") : null);
+    set("tour", tour ? String(tour) : null);
+    set("voiceActive", voiceActive ? "true" : null);
+    set("typed", typedOpen ? "true" : null);
   }, [place, level, detail, typing, tour, voiceActive, typedOpen]);
 
   // hash (replaceState only) and the polite announcement after every settle. The first
@@ -815,7 +841,7 @@ export function Space(props: SpaceProps) {
       <div ref={spaceEl} className="space" data-place={place} inert={!!detail}>
         <OrbLayer
           apiRef={orbApi}
-          palette={palette}
+          palette={still.palette}
           state={orbState}
           slot={slot}
           away={away}
@@ -828,12 +854,12 @@ export function Space(props: SpaceProps) {
         <main ref={timeRef} className="time" inert={sideShown} aria-hidden={sideShown || undefined}>
           <section ref={levels.sectionRef(0)} className="lvl" data-level={0} aria-current={atLevel(0) || undefined} aria-labelledby={NOW_TITLE_ID}>
             <div ref={innerRefs.current[0]} className="lvl-inner">
-              <NowLevel profile={profile} palette={palette} weather={weather} focus={focus} onSlot={setSlot} />
+              <NowLevel profile={still.profile} palette={still.palette} weather={still.weather} focus={still.focus} onSlot={setSlot} />
             </div>
           </section>
           <section ref={levels.sectionRef(1)} className="lvl" data-level={1} aria-current={atLevel(1) || undefined} aria-labelledby={TITLE_IDS.tag}>
             <div ref={innerRefs.current[1]} className="lvl-inner">
-              {levels.mounted.day && <DayLevel titleId={TITLE_IDS.tag} active={atLevel(1)} weather={weather} />}
+              {levels.mounted.day && <DayLevel titleId={TITLE_IDS.tag} active={atLevel(1)} weather={still.weather} />}
             </div>
           </section>
           <section ref={levels.sectionRef(2)} className="lvl" data-level={2} aria-current={atLevel(2) || undefined} aria-labelledby={TITLE_IDS.woche}>
@@ -848,13 +874,13 @@ export function Space(props: SpaceProps) {
           </section>
           <section ref={levels.sectionRef(4)} className="lvl" data-level={4} aria-current={atLevel(4) || undefined} aria-labelledby={TITLE_IDS.leben}>
             <div ref={innerRefs.current[4]} className="lvl-inner">
-              {levels.mounted.life && <LifeLevel titleId={TITLE_IDS.leben} active={atLevel(4)} profile={profile} colors={palette.orb} onProfile={onProfile} />}
+              {levels.mounted.life && <LifeLevel titleId={TITLE_IDS.leben} active={atLevel(4)} profile={still.profile} colors={still.palette.orb} onProfile={onProfile} />}
             </div>
           </section>
         </main>
         <section ref={duRef} id="du" className="side" role="region" aria-labelledby={TITLE_IDS.du} inert={place !== "du"} data-shown={place === "du" || undefined}>
           <div className="side-inner">
-            <YouPlace titleId={TITLE_IDS.du} active={place === "du"} profile={profile} palette={palette} hasCoords={hasCoords} onProfile={onProfile} onCoords={onCoords} />
+            <YouPlace titleId={TITLE_IDS.du} active={place === "du"} profile={still.profile} palette={still.palette} hasCoords={hasCoords} onProfile={onProfile} onCoords={onCoords} />
           </div>
         </section>
         <section ref={zieleRef} id="ziele" className="side" role="region" aria-labelledby={TITLE_IDS.ziele} inert={place !== "ziele"} data-shown={place === "ziele" || undefined}>

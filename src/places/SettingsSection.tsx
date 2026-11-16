@@ -1,7 +1,7 @@
 // Du › Einstellungen: the connections (the same rows as Du › Verbindungen, so they can be set up
 // from either place; only one of the two rows is open at a time), name, location, your data (download;
-// deleting the account as an inline two-step instead of native confirm), and the tour again. Logic copied from
-// screens/Settings.tsx, which stays for the flag-off path.
+// deleting the account as an inline two-step instead of native confirm), the way back to the old view
+// and the tour again. Logic copied from screens/Settings.tsx, which stays for the old view.
 import { useState } from "react";
 import { backend } from "../lib/backend";
 import { disablePush } from "../lib/push";
@@ -156,6 +156,18 @@ export function SettingsSection({
               })
             }
           />
+        </div>
+      </section>
+
+      <section className="du-set" aria-labelledby="du-set-view">
+        <h4 id="du-set-view" className="pl-label">
+          Alte Ansicht
+        </h4>
+        <p className="pl-hint">Die bisherige Ansicht mit Menü, Plan und Kalender, ohne Bucket List und «Leben». Zurück kommst du dort über Menü → Einstellungen → Neue Ansicht öffnen.</p>
+        <div className="row wrap">
+          <button type="button" className="btn ghost" onClick={() => location.assign(`${import.meta.env.BASE_URL}?space=0`)}>
+            Alte Ansicht öffnen
+          </button>
         </div>
       </section>
 

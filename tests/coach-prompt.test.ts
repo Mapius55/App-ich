@@ -665,7 +665,7 @@ describe("prompt rules: the Bucket List", () => {
     expect(PERSONA).toContain("Frag nicht nur nach dem Jahr.");
     // a date the coach proposes waits for her yes (like milestones and blocks); one she names is set at once (like a goal's)
     expect(PERSONA).toContain(
-      "Ein Datum, das du vorschlägst, die Etappen (mit due_date) und den Block speicherst du erst nach ihrem Ja, wie Etappen und Blöcke bei einem Ziel. Nennt sie den Monat oder das Jahr selbst, setzt du target_date sofort.",
+      "Ein Datum, das du vorschlägst, die Etappen (mit due_date) und den Block speicherst du erst nach ihrem Ja, wie Etappen und Blöcke bei einem Ziel, und gibst dabei bei update_goal planen: true mit. Nennt sie den Monat oder das Jahr selbst, setzt du target_date sofort.",
     );
     expect(PERSONA).not.toContain("tust du erst nach ihrem Ja, wie bei einem Ziel");
     expect(PERSONA).toContain("Ungefähre Daten setzt du sofort");
@@ -707,7 +707,13 @@ describe("prompt rules: the Bucket List", () => {
       .filter((l) => /^\d+\. /.test(l))
       .map((line) => line.slice(0, line.indexOf("?") + 1));
     expect(questions.length).toBeGreaterThanOrEqual(10);
-    for (const question of questions) expect(question).not.toMatch(/ oder (wo\w*|was|wie|wann|warum|wer|welche\w*)\b/);
+    const stacked = /, (und )?((wann|was|wo\w*|welche\w*) \w+ du|(bist|hast|kannst|magst|willst) du|wie \w+ (du|dein\w*))\b/;
+    for (const question of questions) {
+      expect(question).not.toMatch(/ oder (wo\w*|was|wie|wann|warum|wer|welche\w*)\b/);
+      expect(question).not.toMatch(stacked);
+    }
+    expect(MODE_ONBOARDING).toContain("4. Wie sieht eine normale Woche bei dir aus?");
+    expect("4. Wie sieht deine Woche aus, wann hast du Energie, bist du eher Morgen- oder Abendmensch?").toMatch(stacked);
     // the check catches both old forms
     for (const old of ["5. Worauf arbeitest du hin oder worauf freust du dich, also Ziele?", "7. Wobei soll ich dir helfen, oder was frisst dir Zeit und Energie?"])
       expect(old).toMatch(/ oder (wo\w*|was|wie|wann|warum|wer|welche\w*)\b/);

@@ -8,6 +8,7 @@ import { localMidnightIso } from "../lib/dates";
 import { dayMinutes, dayOf, heatThresholds } from "../lib/plan";
 import type { CalendarEvent, GoalTime } from "../lib/types";
 import { usePlanData } from "../space/data";
+import { whenStill } from "../space/motion";
 
 export interface YearData {
   loaded: boolean;
@@ -33,8 +34,9 @@ export function useYearData(year: number, goalId: string | null): YearData {
     const y = String(year).padStart(4, "0");
     const next = String(year + 1).padStart(4, "0");
     Promise.all([backend.listGoalTime(`${y}-01-01`, `${y}-12-31`), backend.listEvents(localMidnightIso(`${y}-01-01`), localMidnightIso(`${next}-01-01`))])
-      .then(([log, events]) => alive && setRaw({ year, log, events, at: Date.now() }))
-      .catch(() => alive && setRaw({ year, log: [], events: [], at: Date.now() }));
+      // (shown once the column rests: motion.ts)
+      .then(([log, events]) => whenStill(() => alive && setRaw({ year, log, events, at: Date.now() })))
+      .catch(() => whenStill(() => alive && setRaw({ year, log: [], events: [], at: Date.now() })));
     return () => {
       alive = false;
     };

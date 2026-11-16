@@ -35,7 +35,7 @@ export const MILESTONES_STEP = "Etappen vorschlagen (zwei bis vier, mit Monat), 
  * milestones for a goal more than six weeks away (or without a date) that has none yet. A dream needs
  * no date (it may simply wait on the Bucket List, never nagged), and a date alone doesn't mean she is
  * planning it: she may only have said when («2030 einmal nach Japan»). It gets the milestones like a
- * goal only when the call itself planned it (`planned`: update_goal set its date, after her yes).
+ * goal only when the call itself plans it (`planned`: update_goal with planen: true, after her yes).
  * A fulfilled one without a memory gets the question.
  */
 export function goalHints(

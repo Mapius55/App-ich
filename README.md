@@ -8,7 +8,7 @@ Ein persönlicher Coach für deine Zeit und für die Träume, die du in deinem L
 - **Name:** Bucket List, Untertitel „Deine Ziele. Deine Zeit.“ (früher hiess die App „I am“)
 - **Logo:** „Bucket“ und „List“ auf zwei Zeilen, zentriert, in Bodoni Moda, auf dem blauen Pinsel-Hintergrund. Dateien liegen in `brand/` (`wordmark.svg`, `icon.svg`, `banner.svg`, `banner.png`), die App-Icons in `public/`. Neu erzeugen lassen sie sich mit `scripts/brand/` (siehe Kommentar in `make.cjs`).
 - **Schriften:** Inter Tight (fette Titel in Grossbuchstaben, Labels, Knöpfe) und Bodoni Moda (Logo, Text des Coaches). Beide sind frei (SIL Open Font License).
-- **Farben:** Das Blau gehört nur zum Logo. Die App nimmt **Farbwelten**: abgestimmte Kombinationen aus fünf Farben (z.B. „Tannennacht“, „Erstes Licht“, „Sommerhimmel“, „Glut“, „Regenblau“) in `src/lib/worlds.ts`, gebaut nach Harmonie-Regeln aus der Forschung (nahe Farbtöne, klare Helligkeitsstufen, keine trüben Braun- oder Olivtöne) und mit Wadas „Dictionary of Color Combinations“ als Vorlage. Welche Welt gilt, hängt vom Sonnenstand an deinem Ort, Wetter, Jahreszeit und Höhe über Meer ab. Zwischen zwei Welten wird fliessend über den Farbkreis gewechselt (OKLCh), nie über Grau. Stimmung und Lieblingsnatur färben leicht mit. Im Menü steht unter „Farben heute“, welche Welt gerade gilt.
+- **Farben:** Das Blau gehört nur zum Logo. Die App nimmt **Farbwelten**: abgestimmte Kombinationen aus fünf Farben (z.B. „Tannennacht“, „Erstes Licht“, „Sommerhimmel“, „Glut“, „Regenblau“) in `src/lib/worlds.ts`, gebaut nach Harmonie-Regeln aus der Forschung (nahe Farbtöne, klare Helligkeitsstufen, keine trüben Braun- oder Olivtöne) und mit Wadas „Dictionary of Color Combinations“ als Vorlage. Welche Welt gilt, hängt vom Sonnenstand an deinem Ort, Wetter, Jahreszeit und Höhe über Meer ab. Zwischen zwei Welten wird fliessend über den Farbkreis gewechselt (OKLCh), nie über Grau. Stimmung und Lieblingsnatur färben leicht mit. Welche Welt gerade gilt, zeigt beim Kreis die Pille „Farben heute“.
 - **Hintergrund:** Fast schwarzer Grund, darauf Lichtfelder in den Farben der Welt, als Pinselstreifen. Die Felder überlagern sich wie Licht, nicht wie Farbe, deshalb entsteht kein Braun (WebGL, in niedriger Auflösung, schont den Akku).
 - **Kreis:** Ein flacher Kreis, wie aus Papier ausgeschnitten, durch den man auf weiche, ineinanderfliessende Farben sieht, wie unscharfe Wolken mit feinem Korn. Sie ziehen, falten sich, wirbeln ab und zu und folgen dem Wetter. Drückt man darauf, kommt der Himmel näher. Zieht man den Finger, verschiebt sich der Himmel. Er reagiert auch auf die Stimme und auf jedes Wort des Coaches.
 - **Animationen:** Die Wörter des Coaches erscheinen weich, Seiten zoomen ineinander, Elemente gleiten herein.
@@ -25,10 +25,10 @@ Ein persönlicher Coach für deine Zeit und für die Träume, die du in deinem L
   - **wohin du gehst**: Reisen, Ausflüge, Trainingsorte,
   - **Rennen und Termine** mit Datum. Danach fragt er, wie es lief.
 
-  Smalltalk und zu Persönliches speichert er nicht. Einmal am Tag räumt er still auf und löscht, was unwichtig, zu persönlich, doppelt oder lange vorbei ist. Was du selbst einträgst oder bearbeitest, lässt er stehen. Alles ist unter Menü → „Was ich über dich weiss“ sichtbar und lässt sich ändern oder löschen.
+  Smalltalk und zu Persönliches speichert er nicht. Einmal am Tag räumt er still auf und löscht, was unwichtig, zu persönlich, doppelt oder lange vorbei ist. Was du selbst einträgst oder bearbeitest, lässt er stehen. Alles ist unter Du → „Was ich über dich weiss“ sichtbar und lässt sich ändern oder löschen.
 - **Bucket List**: Rechts vom Kreis stehen zuoberst die Träume, die du in deinem Leben noch erleben möchtest. Erzählst du dem Coach davon („einmal Polarlichter sehen“), setzt er sie auf die Liste. Erfüllte Träume bleiben als schöne Erinnerung stehen: Sie leuchten im Farbfluss des Kreises, mit Datum und dem, was du davon erzählt hast. Darunter folgen konkrete Ziele (Training, Prüfung, Projekt) und Gewohnheiten.
 - **Zeit, die nicht verloren geht**: Das Jahr zeigt sanft, wie viel davon vorbei ist und welche Träume und Ziele darin noch offen sind. Ganz unten liegt „Leben“: 90 Jahre in Wochen, jede Woche ein Punkt (braucht nur dein Geburtsjahr). Und im Gespräch erinnert dich der Coach ab und zu an einen Traum, der lange liegt oder für den bald ein guter Moment kommt.
-- **Kalender „Bucket List“**: Erzählst du dem Coach von einem Termin (z.B. „Samstag um 9 habe ich ein Rennen“), trägt er ihn direkt ein, mit Erinnerung 30 Minuten vorher. Ganztägige Termine erinnern um 8 Uhr. Dein iPhone abonniert den Kalender einmal, danach erscheint alles von selbst. Menü → Kalender zeigt die Termine, dort kannst du auch selbst welche eintragen oder löschen. Wecker in der Uhr-App kann eine Web-App nicht stellen. Stattdessen gibt es Termine mit Erinnerungston.
+- **Kalender „Bucket List“**: Erzählst du dem Coach von einem Termin (z.B. „Samstag um 9 habe ich ein Rennen“), trägt er ihn direkt ein, mit Erinnerung 30 Minuten vorher. Ganztägige Termine erinnern um 8 Uhr. Dein iPhone abonniert den Kalender einmal, danach erscheint alles von selbst. Unter dem Kreis zeigen Tag und Woche die Termine, dort kannst du auch selbst welche eintragen oder löschen. Wecker in der Uhr-App kann eine Web-App nicht stellen. Stattdessen gibt es Termine mit Erinnerungston.
 - **Nachrichten vom Coach** (Push): eine Morgenfrage („Wie geht es dir heute? Heute steht an: 09:00 Rennen.“) und ein Abendrückblick („Wie lief es mit … ?“) zu Zeiten, die du wählst.
 - **Einstellungen**: Name, Benachrichtigungen, Standort, alle Daten herunterladen, Konto löschen.
 - **Sprechen statt Tippen** über den Mikrofon-Knopf, sofern der Browser das kann (Chrome, Safari, Edge).
@@ -70,19 +70,20 @@ Die Schlüssel für Claude und die Datenbank liegen damit nur bei GitHub und auf
 
 ### 4. Aufs iPhone
 1. Die Seite in **Safari** öffnen → **Teilen → „Zum Home-Bildschirm“**, dann „Bucket List“ vom Home-Bildschirm öffnen.
-2. **Menü → Einstellungen → Benachrichtigungen → „Auf diesem Gerät erlauben“** (geht auf dem iPhone nur so, ab iOS 16.4).
-3. **Menü → Kalender → „Kalender abonnieren“ → Abonnieren**. Dabei **„Hinweise entfernen“ ausschalten**, sonst klingeln die Erinnerungen nicht. Neue Termine kommen schneller, wenn du unter *Einstellungen → Kalender → Accounts → Abrufen* „Alle 15 Minuten“ wählst.
+2. **Du → Benachrichtigungen → „Auf diesem Gerät erlauben“** (geht auf dem iPhone nur so, ab iOS 16.4).
+3. **Du → Verbindungen → iPhone-Kalender → „Kalender abonnieren“ → Abonnieren**. Dabei **„Hinweise entfernen“ ausschalten**, sonst klingeln die Erinnerungen nicht. Neue Termine kommen schneller, wenn du unter *Einstellungen → Kalender → Accounts → Abrufen* „Alle 15 Minuten“ wählst.
 
 Auf Android: Seite in Chrome öffnen → Menü → **„App installieren“**.
 
-### Die neue Ansicht (Bucket List, Leben)
-Die Bucket List, «Leben» und das Jahr mit dem, was noch offen ist, gibt es nur in der neuen Ansicht. Sie ist noch hinter einem Schalter:
-- im Browser einmal die Adresse mit `?space=1` öffnen, z.B. https://mapius55.github.io/bucket-list/?space=1 (der Browser merkt es sich; `?space=0` schaltet zurück),
-- in der App vom Home-Bildschirm (sie hat ihren eigenen Speicher und keine Adresszeile): **Menü → Einstellungen → Neue Ansicht öffnen**. Zurück zur alten Ansicht: die App vom Home-Bildschirm löschen und neu hinzufügen.
+### Die neue Ansicht ist der Standard
+Die App öffnet bei Jetzt mit dem Kreis. Darunter liegen Tag, Woche, Jahr und Leben, links ist Du, rechts die Bucket List.
+- Zur alten Ansicht: **Du → Einstellungen → Alte Ansicht öffnen**, oder die Adresse mit `?space=0` öffnen. Die App merkt sich die Wahl pro Browser und pro App vom Home-Bildschirm.
+- Zurück zur neuen: **Menü → Einstellungen → Neue Ansicht öffnen**, oder `?space=1`.
+- Wer früher mit `?space=0` die alte Ansicht gewählt hat, bleibt dort.
 
 ### Neue Adresse (`App-ich` → `bucket-list`)
 Die App rechnet alle Pfade von ihrer eigenen Adresse aus und läuft unter beiden. Nach dem Umbenennen des Repositorys:
-1. Auf dem iPhone die alte App vom Home-Bildschirm löschen, https://mapius55.github.io/bucket-list/?space=1 in Safari öffnen, neu hinzufügen und dort einmal anmelden (gleicher Benutzername, gleiches Passwort). Zeigt die App vom Home-Bildschirm noch die alte Ansicht: **Menü → Einstellungen → Neue Ansicht öffnen** (siehe oben).
+1. Auf dem iPhone die alte App vom Home-Bildschirm löschen, https://mapius55.github.io/bucket-list/ in Safari öffnen, neu hinzufügen und dort einmal anmelden (gleicher Benutzername, gleiches Passwort). Wer die alte Ansicht gewählt hatte: **Menü → Einstellungen → Neue Ansicht öffnen** (siehe oben).
 2. Benachrichtigungen dort einmal erlauben (Du → Benachrichtigungen). In einem Browser, in dem du sie schon für dein Konto eingeschaltet hattest, meldet die App das Gerät beim Start still neu an; nie für ein anderes Konto und nie nach „Auf diesem Gerät ausschalten“. Beim Abmelden entfernt die App die Benachrichtigungen dieses Geräts.
 3. Das Kalender-Abo und WHOOP laufen weiter: Sie hängen an der Supabase-Adresse, nicht an der App-Adresse. WHOOP schickt dich nach der Anmeldung an die Adresse zurück, von der du gestartet bist.
 

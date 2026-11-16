@@ -257,7 +257,7 @@ export function Settings({ profile, hasCoords, onBack, onProfile, onCoords, onOp
       </Section>
 
       <Section label="Neue Ansicht">
-        {/* the space (?space=1) is still behind its flag: in a home-screen app there is no address bar to add it */}
+        {/* back to the new view (?space=1) for someone who chose the old one: in a home-screen app there is no address bar to add it */}
         <p className="hint">Mit der Bucket List und «Leben», deinem Leben in Wochen.</p>
         <button className="btn ghost" onClick={() => location.assign(`${import.meta.env.BASE_URL}?space=1`)}>
           Neue Ansicht öffnen

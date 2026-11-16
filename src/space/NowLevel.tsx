@@ -10,6 +10,7 @@ import type { Weather } from "../lib/weather";
 import type { CalendarEvent, Profile } from "../lib/types";
 import { usePlanData } from "./data";
 import { doorLine, type DoorLine } from "./doorLine";
+import { whenStill } from "./motion";
 import type { OrbSlot } from "./OrbLayer";
 import { useSpace } from "./state";
 import { TourBlock } from "./Tour";
@@ -41,7 +42,8 @@ function useOnline(): boolean {
   return online;
 }
 
-/** the events of the next 8 days, reloaded when the plan data says events changed and every minute */
+/** the events of the next 8 days, reloaded when the plan data says events changed and every minute
+    (a new line waits while the column moves: motion.ts) */
 function useDoorLine(today: string): DoorLine | null {
   const { eventsVersion } = usePlanData();
   const [events, setEvents] = useState<CalendarEvent[] | null>(null);
@@ -50,15 +52,16 @@ function useDoorLine(today: string): DoorLine | null {
     let alive = true;
     backend
       .listEvents(localMidnightIso(today), localMidnightIso(addDays(today, 9)))
-      .then((ev) => alive && setEvents(ev))
-      .catch(() => alive && setEvents((e) => e ?? []));
+      .then((ev) => whenStill(() => alive && setEvents(ev)))
+      .catch(() => whenStill(() => alive && setEvents((e) => e ?? [])));
     return () => {
       alive = false;
     };
   }, [today, eventsVersion]);
   useEffect(() => {
-    const id = setInterval(() => setNow(new Date()), 60 * 1000);
-    return () => clearInterval(id);
+    let alive = true;
+    const id = setInterval(() => whenStill(() => alive && setNow(new Date())), 60 * 1000);
+    return () => ((alive = false), clearInterval(id));
   }, []);
   return events ? doorLine(events, now) : null;
 }
@@ -98,22 +101,25 @@ export function NowLevel({ profile, palette, weather, focus, onSlot }: NowLevelP
   const tourHere = tour !== null && tour !== 2 && level === 0 && place === "jetzt";
 
   // the orb slot: an empty box; its largest square (max 300) is where the circle sits
+  // (a new measure waits while the column moves: the circle's slot sizes its layer)
   useEffect(() => {
     const el = slotRef.current;
     if (!el) return;
     let t = 0;
+    let alive = true;
     const measure = () => {
+      if (!alive) return;
       const size = Math.max(0, Math.floor(Math.min(el.clientWidth, el.clientHeight, 300)));
       const { left, top } = docOffset(el);
       onSlotRef.current({ size, cx: left + el.clientWidth / 2, cy: top + el.clientHeight / 2 });
     };
     const ro = new ResizeObserver(() => {
       clearTimeout(t);
-      t = window.setTimeout(measure, 120);
+      t = window.setTimeout(() => whenStill(measure), 120);
     });
     ro.observe(el);
     measure();
-    return () => (ro.disconnect(), clearTimeout(t));
+    return () => ((alive = false), ro.disconnect(), clearTimeout(t));
   }, []);
 
   // Farben heute opens and closes in 320 ms: tell the circle at once where its slot will

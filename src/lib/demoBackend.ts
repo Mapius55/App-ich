@@ -351,6 +351,18 @@ async function sha256(s: string): Promise<string> {
 const uuid = () => (crypto.randomUUID ? crypto.randomUUID() : String(Math.random()).slice(2));
 const now = () => new Date().toISOString();
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+// UI tests: localStorage "ich.demo.latency" (ms) delays the reads, so data, the greeting and the
+// door arrive the way they do over a real network (e.g. during the first swipe)
+const LATENCY = "ich.demo.latency";
+async function latency(): Promise<void> {
+  let ms = 0;
+  try {
+    ms = Number(localStorage.getItem(LATENCY)) || 0;
+  } catch {
+    /* no storage */
+  }
+  if (ms > 0) await sleep(ms);
+}
 
 /** Leaves out undefined values, as the JSON sent to Supabase does. */
 function defined<T extends object>(patch: T): Partial<T> {
@@ -621,6 +633,7 @@ export interface DemoOptions {
 export class DemoBackend implements Backend {
   readonly kind = "demo" as const;
   private listeners = new Set<(id: string | null) => void>();
+  private watchingVisibility = false;
   private readonly connections: boolean;
   private readonly nolioOwner: boolean;
   private readonly bucket: boolean;
@@ -699,6 +712,15 @@ export class DemoBackend implements Backend {
   }
   onAuthChange(cb: (id: string | null) => void) {
     this.listeners.add(cb);
+    // like supabase-js: the current session once after subscribing (INITIAL_SESSION) and again on
+    // every return to the app (SIGNED_IN from its visibility handler), the same id each time
+    void this.currentUserId().then((id) => this.listeners.has(cb) && cb(id));
+    if (!this.watchingVisibility && typeof document !== "undefined") {
+      this.watchingVisibility = true;
+      document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "visible") this.emit();
+      });
+    }
     return () => this.listeners.delete(cb);
   }
 
@@ -763,6 +785,7 @@ export class DemoBackend implements Backend {
     this.mutate((u) => (u.memories = u.memories.filter((m) => m.id !== id)));
   }
   async listEvents(from?: string, to?: string) {
+    await latency();
     this.syncDemoNolio();
     const since = from ? new Date(from).getTime() : Date.now() - 24 * 3600 * 1000;
     const until = to ? new Date(to).getTime() : Infinity;
@@ -819,6 +842,7 @@ export class DemoBackend implements Backend {
   }
 
   async listGoals(all = false): Promise<Goal[]> {
+    await latency();
     const u = this.user();
     return u.goals
       .filter((g) => all || g.status === "active" || g.status === "paused")
@@ -952,6 +976,7 @@ export class DemoBackend implements Backend {
   }
 
   async listHabits() {
+    await latency();
     const since = habitsSince();
     return this.user()
       .habits.filter((h) => h.active)
@@ -1027,6 +1052,7 @@ export class DemoBackend implements Backend {
   }
 
   async whoopStatus() {
+    await latency();
     return this.whoopStatusOf(this.user());
   }
 
@@ -1163,6 +1189,7 @@ export class DemoBackend implements Backend {
   }
 
   async nolioStatus(): Promise<NolioStatus | null> {
+    await latency();
     if (!this.connections) return null;
     if (!this.nolioOwner) return { available: false, connected: false, last_sync_at: null, last_error: null, running: false, counts: null, garmin: null };
     this.syncDemoNolio();
@@ -1244,9 +1271,11 @@ export class DemoBackend implements Backend {
   }
 
   async getMessages(thread: string) {
+    await latency();
     return this.user().messages[thread] ?? [];
   }
   async getDay(day: string) {
+    await latency();
     return this.user().days[day] ?? null;
   }
 
@@ -1312,6 +1341,7 @@ export class DemoBackend implements Backend {
 
   async coach(req: CoachRequest, onEvent: (e: CoachEvent) => void) {
     await sleep(500);
+    await latency();
     const thread = req.thread;
     const history = (this.user().messages[thread] ?? []).filter((m) => !m.hidden);
     if (req.message) this.push(thread, "user", req.message);

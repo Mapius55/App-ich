@@ -323,6 +323,10 @@ const TOOLS: Anthropic.Beta.BetaTool[] = [
         done_date: { type: "string", description: "YYYY-MM-DD, mit status done: wann es sich erfüllt hat, wenn nicht heute (ungefähr genügt)." },
         memory: { type: "string", description: "Wie es war (erfüllter Traum), kurz und in ihren Worten, in der Ich-Form, so wie sie es sagt (nicht in der dritten Person); leer entfernt es." },
         reminded: { type: "boolean", description: "true, nachdem du sie an diesen Traum erinnert hast (liegt lange, guter Zeitpunkt, passende Jahreszeit)." },
+        planen: {
+          type: "boolean",
+          description: "Nur bei einem Traum: true, wenn ihr ihn gerade zusammen plant und du nach ihrem Ja speicherst (sie will ihn wahr machen oder hat dich darum gebeten). Nicht, wenn sie nur nennt, wann.",
+        },
         why: { type: "string", description: "Leer, um es zu entfernen." },
         target_date: { type: "string", description: "YYYY-MM-DD oder leer, um das Datum zu entfernen." },
         status: { type: "string", enum: [...GOAL_STATUS] },
@@ -946,8 +950,9 @@ async function runTool(
         ok: true,
         ...(goal.kind !== "dream" || goal.effort_hours ? { aufwand: effortLine(goal, day) } : {}),
         // only noting a reminder plans nothing: the invitation was the step (no milestones pushed on top).
-        // A dream gets its milestones only when this call set its date (planning it), never while getting to know her.
-        ...(Object.keys(patch).length === 1 && patch.reminded_at ? {} : goalHints(goal, day, !!patch.target_date && ctx.mode !== "onboarding")),
+        // A dream gets its milestones only when the coach says it is planning it with her (planen, after her
+        // yes), never because she named a year, and never while getting to know her.
+        ...(Object.keys(patch).length === 1 && patch.reminded_at ? {} : goalHints(goal, day, input.planen === true && ctx.mode !== "onboarding")),
         ...(patch.reminded_at ? { notiert: "Erinnert. Heute keinen weiteren Traum ansprechen." } : {}),
       });
     }

@@ -4,6 +4,7 @@
 import { useEffect, useSyncExternalStore } from "react";
 import { backend } from "../lib/backend";
 import type { Goal, Habit, Milestone } from "../lib/types";
+import { whenStill } from "./motion";
 
 export interface PlanSnapshot {
   goals: Goal[] | null; // all, incl. reached and dropped; null until the first load
@@ -26,13 +27,21 @@ let loaded = false;
 
 const listeners = new Set<() => void>();
 let snapshot: PlanSnapshot = build();
+let publishQueued = false;
 
 function build(): PlanSnapshot {
   return { goals, habits, error: errors.action ?? errors.goals ?? errors.habits, eventsVersion, planVersion };
 }
+// The one place goals, habits and the change counters reach the screen (Tag, Woche, Jahr, the Bucket
+// List): while the column moves they wait and go out once, together (motion.ts); at rest (a tap) at once.
 function emit(): void {
-  snapshot = build();
-  listeners.forEach((l) => l());
+  if (publishQueued) return;
+  publishQueued = true;
+  whenStill(() => {
+    publishQueued = false;
+    snapshot = build();
+    listeners.forEach((l) => l());
+  });
 }
 
 function loadGoals(): void {

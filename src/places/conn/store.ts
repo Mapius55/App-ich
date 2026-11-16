@@ -5,6 +5,7 @@
 import { useEffect, useSyncExternalStore } from "react";
 import { backend } from "../../lib/backend";
 import type { NolioStatus, WhoopStatus } from "../../lib/types";
+import { whenStill } from "../../space/motion";
 
 /** value: undefined = loading, null = not deployed / unreachable; failed = the call errored otherwise */
 export interface Loaded<T> {
@@ -22,7 +23,21 @@ let nolioRun: Promise<void> | null = null;
 // put a newer value can't overwrite it.
 const ticket = { whoop: 0, nolio: 0 };
 const subs = new Set<() => void>();
-const emit = () => subs.forEach((f) => f());
+// What the hooks show goes out while the space is still (a status arriving during the first swipe
+// would change Du's rows under the finger: motion.ts); connStore.whoop()/nolio() are always current.
+let shown = { whoop, nolio };
+let publishQueued = false;
+const emit = () => {
+  if (publishQueued) return;
+  publishQueued = true;
+  whenStill(() => {
+    publishQueued = false;
+    shown = { whoop, nolio };
+    subs.forEach((f) => f());
+  });
+};
+const shownWhoop = () => shown.whoop;
+const shownNolio = () => shown.nolio;
 
 function run<T>(key: keyof typeof ticket, call: () => Promise<T | null>, put: (l: Loaded<T>) => void): Promise<void> {
   const at = ++ticket[key];
@@ -125,7 +140,7 @@ watchLogin(backend, () => connStore.reset());
 
 /** the WHOOP state, loaded on first use and again whenever it was cleared (another login) */
 export function useWhoop(): Loaded<WhoopStatus> {
-  const snap = useSyncExternalStore(connStore.subscribe, connStore.whoop, connStore.whoop);
+  const snap = useSyncExternalStore(connStore.subscribe, shownWhoop, shownWhoop);
   useEffect(() => {
     if (snap.value === undefined && !snap.failed) void connStore.loadWhoop();
   }, [snap]);
@@ -134,7 +149,7 @@ export function useWhoop(): Loaded<WhoopStatus> {
 
 /** the Nolio state, loaded on first use and again whenever it was cleared (another login) */
 export function useNolio(): Loaded<NolioStatus> {
-  const snap = useSyncExternalStore(connStore.subscribe, connStore.nolio, connStore.nolio);
+  const snap = useSyncExternalStore(connStore.subscribe, shownNolio, shownNolio);
   useEffect(() => {
     if (snap.value === undefined && !snap.failed) void connStore.loadNolio();
   }, [snap]);

@@ -7,6 +7,7 @@ import { eventWhen, minutesLabel, shortDay } from "../lib/dates";
 import { dayOf, perWeekLabel } from "../lib/plan";
 import { isAudioUnlocked, listenOnce, Speaker, splitSentences, unlockAudio, type ListenHandle } from "../lib/voice";
 import * as coachBus from "../space/coachBus";
+import { useStill } from "../space/motion";
 import { dreamWhen } from "../places/bucket";
 import { requestWash } from "../places/fulfilled";
 import { targetOf, type Target } from "../space/state";
@@ -176,9 +177,6 @@ export function VoiceConversation({
 
   // what the portal shows
   const shown: Phase = speaking ? "speaking" : phase;
-  useEffect(() => {
-    onOrbState(shown === "speaking" ? "speaking" : shown === "listening" ? "listening" : shown === "idle" ? "idle" : "thinking");
-  }, [shown, onOrbState]);
 
   useEffect(() => {
     const off = speaker.current.onState((s) => setSpeaking(s === "speaking"));
@@ -197,8 +195,28 @@ export function VoiceConversation({
     return () => window.removeEventListener("pointerdown", unlock);
   }, [locked]);
 
+  // What the screen shows of the conversation: in the space it waits while the column moves (a status
+  // line, a toast or «Nochmal hören» coming or going under the finger is a layout change: motion.ts).
+  // The typed form stays live (snap is off while typing).
+  const idleText = idleHint === "always" || !spoke ? STATUS.idle : "";
+  const view = {
+    shown,
+    phase,
+    status: locked && speaking ? "Tippe irgendwo, um mich zu hören" : shown === "speaking" ? "" : (note ?? (shown === "idle" ? idleText : STATUS[shown])),
+    heard,
+    error,
+    note,
+    replay: !error && shown === "idle" && !!lastReply && !heard,
+    toasts,
+    typing,
+  };
+  const v = useStill(view);
+  useEffect(() => {
+    onOrbState(v.shown === "speaking" ? "speaking" : v.shown === "listening" ? "listening" : v.shown === "idle" ? "idle" : "thinking");
+  }, [v.shown, onOrbState]);
+
   // one line of what she said fits under the door on Jetzt; a longer one is marked (data-wraps)
-  const hasHeard = !!heard;
+  const hasHeard = !!v.heard;
   useLayoutEffect(() => {
     const el = heardRef.current;
     if (!el) {
@@ -439,11 +457,7 @@ export function VoiceConversation({
     [...sentences, rest].forEach((s) => speaker.current.say(s));
   };
 
-  const idleText = idleHint === "always" || !spoke ? STATUS.idle : "";
-  const status =
-    locked && speaking ? "Tippe irgendwo, um mich zu hören" : shown === "speaking" ? "" : note ?? (shown === "idle" ? idleText : STATUS[shown]);
-
-  const activity = shown !== "idle" || !!heard || !!error || !!note || toasts.length > 0;
+  const activity = v.shown !== "idle" || !!v.heard || !!v.error || !!v.note || v.toasts.length > 0;
   const onActivityRef = useRef(onActivity);
   onActivityRef.current = onActivity;
   useEffect(() => {
@@ -456,17 +470,17 @@ export function VoiceConversation({
   }, [typing]);
 
   return (
-    <div className={`voice${layer ? " layer" : ""}${compact ? " compact" : ""}`} data-phase={shown} data-typed={typing || undefined}>
+    <div className={`voice${layer ? " layer" : ""}${compact ? " compact" : ""}`} data-phase={v.shown} data-typed={typing || undefined}>
       <div className="voice-status" aria-live="polite">
-        {status && <span className={`voice-status-text ${shown}${!note && shown === "idle" ? " idle-hint" : ""}`}>{status}</span>}
-        {heard && (
+        {v.status && <span className={`voice-status-text ${v.shown}${!v.note && v.shown === "idle" ? " idle-hint" : ""}`}>{v.status}</span>}
+        {v.heard && (
           <p ref={heardRef} className="voice-heard" data-wraps={heardWraps || undefined}>
-            „{heard}“
+            „{v.heard}“
           </p>
         )}
-        {error && (
+        {v.error && (
           <div className="msg-error" role="alert">
-            {error}
+            {v.error}
             <div>
               <button className="btn ghost retry" onClick={() => run(lastMessage.current)}>
                 Nochmal versuchen
@@ -474,16 +488,16 @@ export function VoiceConversation({
             </div>
           </div>
         )}
-        {!error && shown === "idle" && lastReply && !heard && (
+        {v.replay && (
           <button className="link voice-replay" onClick={replay}>
             Nochmal hören
           </button>
         )}
-        {shown === "idle" && extra}
+        {v.shown === "idle" && extra}
       </div>
 
       <div className="toasts" aria-live="polite">
-        {toasts.map((t) => (
+        {v.toasts.map((t) => (
           <div key={t.id} className="event-card added">
             <span className="event-card-icon" aria-hidden="true">
               {t.icon === "check" ? (
@@ -574,12 +588,12 @@ export function VoiceConversation({
         {leftButton ?? <span className="dock-spacer" />}
         <button
           type="button"
-          className={`dock-main big ${shown === "listening" ? "listening" : ""}`}
+          className={`dock-main big ${v.shown === "listening" ? "listening" : ""}`}
           onClick={talk}
-          aria-label={shown === "listening" ? "Fertig gesprochen" : shown === "speaking" ? "Unterbrechen und sprechen" : "Sprechen"}
-          disabled={phase === "thinking" || phase === "transcribing"}
+          aria-label={v.shown === "listening" ? "Fertig gesprochen" : v.shown === "speaking" ? "Unterbrechen und sprechen" : "Sprechen"}
+          disabled={v.phase === "thinking" || v.phase === "transcribing"}
         >
-          {shown === "listening" ? (
+          {v.shown === "listening" ? (
             <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
               <path d="M5 13l4 4L19 7" />
             </svg>
@@ -592,10 +606,10 @@ export function VoiceConversation({
         </button>
         <button
           type="button"
-          className={`dock-round ${typing ? "active-soft" : ""}`}
+          className={`dock-round ${v.typing ? "active-soft" : ""}`}
           onClick={() => setTyping((t) => !t)}
-          aria-label={typing ? "Tastatur schliessen" : "Tippen statt sprechen"}
-          aria-pressed={typing}
+          aria-label={v.typing ? "Tastatur schliessen" : "Tippen statt sprechen"}
+          aria-pressed={v.typing}
         >
           <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round">
             <rect x="3" y="6" width="18" height="12" rx="3" />

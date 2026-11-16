@@ -8,6 +8,7 @@ import { localMidnightIso } from "../lib/dates";
 import { addDays } from "../lib/plan";
 import type { CalendarEvent, GoalTime } from "../lib/types";
 import { planData, usePlanData } from "../space/data";
+import { whenStill } from "../space/motion";
 
 /** event_id → minutes (0 = didn't happen); a missing id counts as planned */
 export type Answers = Record<string, number>;
@@ -103,10 +104,14 @@ export function useRangeEvents(from: string, to: string, o: { goalTime?: boolean
         }
         const merged = { ...data, answers };
         remember(key, version, merged);
-        setState({ key, data: merged });
-        setError(null);
+        // (the cache at once; the screen once the column rests: motion.ts)
+        whenStill(() => {
+          if (!alive) return;
+          setState({ key, data: merged });
+          setError(null);
+        });
       })
-      .catch((e) => alive && setError(e instanceof Error ? e.message : String(e)));
+      .catch((e) => alive && whenStill(() => alive && setError(e instanceof Error ? e.message : String(e))));
     return () => {
       alive = false;
     };

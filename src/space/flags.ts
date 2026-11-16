@@ -20,7 +20,17 @@ function write(key: string, value: string): void {
 
 let space: boolean | null = null;
 
-/** ?space=1 / ?space=0 persist "ich.space"; default false until phase 3 */
+/**
+ * The new view is the default. Only an explicit "0" (?space=0, Du › Einstellungen › «Alte Ansicht
+ * öffnen») keeps the old view; ?space=1 / «Neue Ansicht öffnen» switch back. Only "0" and "1" count
+ * as a parameter, and only a parameter is stored: who never chose stays apart from who chose the new.
+ */
+export function spaceChoice(param: string | null, stored: string | null): { on: boolean; persist: "0" | "1" | null } {
+  const valid = param === "0" || param === "1" ? param : null;
+  return { on: (valid ?? stored) !== "0", persist: valid };
+}
+
+/** ?space=1 / ?space=0 persist "ich.space"; on unless "0" was chosen */
 export function spaceEnabled(): boolean {
   if (space !== null) return space;
   let param: string | null = null;
@@ -29,8 +39,9 @@ export function spaceEnabled(): boolean {
   } catch {
     /* no window (tests) */
   }
-  if (param === "1" || param === "0") write(SPACE_KEY, param);
-  space = (param ?? read(SPACE_KEY)) === "1";
+  const choice = spaceChoice(param, read(SPACE_KEY));
+  if (choice.persist) write(SPACE_KEY, choice.persist);
+  space = choice.on;
   return space;
 }
 
