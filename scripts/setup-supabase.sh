@@ -61,7 +61,7 @@ for fn in coach account calendar push voice; do
   echo "   ✓ $fn"
 done
 
-echo "5/5 Zeitplan: Morgenfrage und Abendrückblick (alle 15 Minuten)"
+echo "5/5 Zeitplan: Morgen- und Abendnachricht (alle 15 Minuten)"
 # The job keeps its old name 'i-am-push' (from when the app was called "I am"): the Nolio and WHOOP
 # migrations look it up by that name.
 if [ -n "$CRON_SECRET" ]; then

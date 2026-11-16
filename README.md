@@ -29,7 +29,7 @@ Ein persönlicher Coach für deine Zeit und für die Träume, die du in deinem L
 - **Bucket List**: Rechts vom Kreis stehen zuoberst die Träume, die du in deinem Leben noch erleben möchtest. Erzählst du dem Coach davon („einmal Polarlichter sehen“), setzt er sie auf die Liste. Erfüllte Träume bleiben als schöne Erinnerung stehen: Sie leuchten im Farbfluss des Kreises, mit Datum und dem, was du davon erzählt hast. Darunter folgen konkrete Ziele (Training, Prüfung, Projekt) und Gewohnheiten.
 - **Zeit, die nicht verloren geht**: Das Jahr zeigt sanft, wie viel davon vorbei ist und welche Träume und Ziele darin noch offen sind. Ganz unten liegt „Leben“: 90 Jahre in Wochen, jede Woche ein Punkt (braucht nur dein Geburtsjahr). Und im Gespräch erinnert dich der Coach ab und zu an einen Traum, der lange liegt oder für den bald ein guter Moment kommt.
 - **Kalender „Bucket List“**: Erzählst du dem Coach von einem Termin (z.B. „Samstag um 9 habe ich ein Rennen“), trägt er ihn direkt ein, mit Erinnerung 30 Minuten vorher. Ganztägige Termine erinnern um 8 Uhr. Dein iPhone abonniert den Kalender einmal, danach erscheint alles von selbst. Unter dem Kreis zeigen Tag und Woche die Termine, dort kannst du auch selbst welche eintragen oder löschen. Wecker in der Uhr-App kann eine Web-App nicht stellen. Stattdessen gibt es Termine mit Erinnerungston.
-- **Nachrichten vom Coach** (Push): eine Morgenfrage („Wie geht es dir heute? Heute steht an: 09:00 Rennen.“) und ein Abendrückblick („Wie lief es mit … ?“) zu Zeiten, die du wählst.
+- **Nachrichten vom Coach** (Push), zu Zeiten, die du wählst: am Morgen, was heute ansteht („Heute: 09:00 Rennen.“); am Abend ein kurzer Blick auf deinen Tag („Heute 45 Minuten für Halbmarathon Zürich.“). Keine Fragen, und keine Nachricht, wenn du schon da warst.
 - **Einstellungen**: Name, Benachrichtigungen, Standort, alle Daten herunterladen, Konto löschen.
 - **Sprechen statt Tippen** über den Mikrofon-Knopf, sofern der Browser das kann (Chrome, Safari, Edge).
 - **Installierbar als App** auf dem Handy (PWA), läuft auch offline weiter. Bei Fehlern gibt es „Nochmal versuchen“.
@@ -64,7 +64,7 @@ Die Schlüssel für Claude und die Datenbank liegen damit nur bei GitHub und auf
 2. Den Code auf `main` bringen (Pull Request mergen). Dann laufen automatisch:
    - **Deploy Supabase**: Datenbank-Schema und Server-Funktionen (Coach, Kalender, Benachrichtigungen, Konto),
    - **Deploy to GitHub Pages**: die App unter `https://<dein-github-name>.github.io/<repository-name>/` (hier `bucket-list`; der Pfad folgt dem Namen des Repositorys),
-   - **Coach-Nachrichten**: alle 15 Minuten der Versand von Morgenfrage und Abendrückblick.
+   - **Coach-Nachrichten**: alle 15 Minuten der Versand der Morgen- und Abendnachricht.
 
    Beide Deploy-Workflows lassen sich auch unter **Actions → … → Run workflow** von Hand starten.
 
@@ -131,7 +131,7 @@ supabase/
   migrations/                    Datenbank-Schema mit Row Level Security
   functions/coach/               KI-Coach (Claude): Charakter in prompt.ts, Werkzeuge in index.ts
   functions/calendar/            Kalender „Bucket List“ als Abo (iCalendar)
-  functions/push/                Morgenfrage und Abendrückblick (Web Push, ohne Fremdbibliothek)
+  functions/push/                Morgen- und Abendnachricht (Web Push, ohne Fremdbibliothek)
   functions/account/             Konto löschen
   functions/voice/               Stimme und Spracherkennung (ElevenLabs)
   functions/_shared/             iCalendar- und Web-Push-Bausteine

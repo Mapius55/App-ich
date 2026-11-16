@@ -2,6 +2,7 @@ import { habitStreak, habitWeek, streakLabel } from "../../lib/plan";
 import { longDay, weekdayShort } from "../../lib/dates";
 import type { Habit } from "../../lib/types";
 import { IconCheck } from "./icons";
+import { habitMetaParts } from "../../places/habitMeta";
 
 interface Props {
   habit: Habit;
@@ -15,17 +16,22 @@ export function HabitRow({ habit, goalTitle, today, onOpen, onToggle }: Props) {
   const week = habitWeek(habit, today);
   const streak = streakLabel(habitStreak(habit, today));
   const reached = week.doneThisWeek >= week.target;
+  const meta = habitMetaParts({ done: week.doneThisWeek, target: week.target, streak });
 
   return (
     <li className="habit">
       <button type="button" className="habit-head" onClick={onOpen} aria-label={`Gewohnheit bearbeiten: ${habit.title}`}>
         <span className="habit-title">{habit.title}</span>
-        <span className="habit-meta">
-          <span className={reached ? "reached" : ""}>
-            {week.doneThisWeek} von {week.target} diese Woche
+        {meta.length > 0 && (
+          <span className="habit-meta">
+            {meta.map((m, i) => (
+              <span key={m.key} className={m.key === "week" && reached ? "reached" : ""}>
+                {i > 0 && " · "}
+                {m.text}
+              </span>
+            ))}
           </span>
-          {streak && <span> · {streak}</span>}
-        </span>
+        )}
         {goalTitle && <span className="habit-goal">{goalTitle}</span>}
       </button>
       <div className="habit-days" role="group" aria-label={`${habit.title}, diese Woche`}>

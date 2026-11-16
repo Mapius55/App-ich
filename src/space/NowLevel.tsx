@@ -9,8 +9,10 @@ import { pressOrb } from "../lib/orbSignals";
 import type { Weather } from "../lib/weather";
 import type { CalendarEvent, Profile } from "../lib/types";
 import { usePlanData } from "./data";
+import * as coachBus from "./coachBus";
 import { doorLine, type DoorLine } from "./doorLine";
-import { whenStill } from "./motion";
+import { circleTap } from "./gestures";
+import { motion, whenStill } from "./motion";
 import type { OrbSlot } from "./OrbLayer";
 import { useSpace } from "./state";
 import { TourBlock } from "./Tour";
@@ -157,6 +159,8 @@ export function NowLevel({ profile, palette, weather, focus, onSlot }: NowLevelP
 
   // (the slot never captures the pointer: vertical drags scroll, sideways drags page)
   const press = (down: boolean) => () => pressOrb(down);
+  // a tap on the circle, not a swipe across it, lets the coach speak (sound only when she wants it)
+  const downAt = useRef<{ x: number; y: number } | null>(null);
 
   return (
     <div className="now">
@@ -207,7 +211,15 @@ export function NowLevel({ profile, palette, weather, focus, onSlot }: NowLevelP
         ref={slotRef}
         className="now-orb"
         aria-hidden="true"
-        onPointerDown={press(true)}
+        onPointerDown={(e) => {
+          downAt.current = { x: e.clientX, y: e.clientY };
+          pressOrb(true);
+        }}
+        onClick={(e) => {
+          const up = { x: e.clientX, y: e.clientY };
+          if (circleTap(downAt.current, up, e.currentTarget.getBoundingClientRect(), motion.busy())) coachBus.hear();
+          downAt.current = null;
+        }}
         onPointerUp={press(false)}
         onPointerCancel={press(false)}
         onPointerLeave={press(false)}

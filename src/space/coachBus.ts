@@ -1,4 +1,4 @@
-// Messages for the coach from anywhere in the space ("Mit dem Coach planen").
+// Messages for the coach from anywhere in the space ("Mit dem Coach planen"), and the tap on the circle.
 // The single VoiceConversation subscribes and sends each one once it is ready and
 // quiet; asks made before it subscribed wait here and are handed over on subscribe.
 
@@ -23,5 +23,20 @@ export function onAsk(fn: Listener): () => void {
   }
   return () => {
     listeners.delete(fn);
+  };
+}
+
+// A deliberate tap on the circle (or its hint): the coach's voice may start. Sound only when she
+// wants it: never from any tap anywhere, never from a swipe.
+const hearers = new Set<() => void>();
+
+export function hear(): void {
+  hearers.forEach((fn) => fn());
+}
+
+export function onHear(fn: () => void): () => void {
+  hearers.add(fn);
+  return () => {
+    hearers.delete(fn);
   };
 }

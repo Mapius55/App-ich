@@ -53,3 +53,17 @@ export function atSnapPoint(scrollY: number, sectionH: number, tops?: readonly n
   if (tops?.length) return tops.some(at);
   return at(Math.max(0, Math.round(scrollY / sectionH)) * sectionH);
 }
+
+type Pt = { x: number; y: number };
+
+/**
+ * A tap on the circle lets the coach speak: the pointer went up within AXIS_SLOP of where it went
+ * down (a drag or a swipe across the circle never starts the voice), inside the circle (the largest
+ * square of the orb slot, max 300, with a little slack), and not while the column moves. The old
+ * screens pass the drawn circle itself (max Infinity).
+ */
+export function circleTap(down: Pt | null, up: Pt, slot: { left: number; top: number; width: number; height: number }, moving = false, max = 300): boolean {
+  if (!down || moving || Math.hypot(up.x - down.x, up.y - down.y) >= AXIS_SLOP) return false;
+  const r = Math.min(slot.width, slot.height, max) / 2;
+  return r > 0 && Math.hypot(up.x - (slot.left + slot.width / 2), up.y - (slot.top + slot.height / 2)) <= r + 8;
+}

@@ -153,4 +153,9 @@ describe("supabase backend: export", () => {
     expect(out.profile).toEqual({ id: "u1", username: "zora", display_name: "Zora", birth_year: 1994 });
     expect(JSON.stringify(out)).not.toContain(PROFILE.calendar_token);
   });
+  it("holds every table she can read, the push log too", async () => {
+    const out = await be().exportData();
+    for (const t of ["messages", "goals", "connections", "nolio_sync", "push_log"]) expect(out, t).toHaveProperty(t);
+    expect(calls.some((c) => c.url.includes("/rest/v1/push_log"))).toBe(true);
+  });
 });

@@ -173,8 +173,8 @@ export function useLevels(o: {
       if (!moving && !scrolledSinceTouch) motion.set(false);
       else arm();
     };
-    // pointerdown comes before touchstart, and a first touch changes the screen from it (the sound
-    // unlock ends «Tippe irgendwo, um mich zu hören»): that change must already wait
+    // pointerdown comes before touchstart, and a touch may change the screen from it (the circle's
+    // press; the sound itself starts only on a tap's click, never from a swipe): that change must already wait
     const onPointerDown = (e: PointerEvent) => {
       if (e.pointerType !== "touch") return;
       scrolledSinceTouch = false;
@@ -185,7 +185,7 @@ export function useLevels(o: {
       scrolledSinceTouch = false;
       // typing: snap is off, a re-snap is impossible, nothing needs to wait
       if (cb.current.snap) busy();
-      // a target removed mid-gesture (e.g. «Tippe irgendwo, um mich zu hören» when the sound unlocks)
+      // a target removed mid-gesture (e.g. «Tippe auf den Kreis zum Hören» when the sound starts)
       // no longer passes its touchend on to window; its own listeners still get it (both firing is harmless)
       const t = e.target;
       if (t instanceof Node && t !== document) {

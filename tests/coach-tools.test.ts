@@ -80,4 +80,24 @@ describe("coach tools", () => {
     expect(source).toContain("patch.reminded_at = new Date().toISOString()");
     expect(source).toContain('return zonedToUtc(`${day}T12:00`, tz);');
   });
+
+  it("the daily coach's tools: wochenblick and note_offer only in the daily conversation; tidying keeps its three", () => {
+    expect(tool("wochenblick")).toContain("gemacht");
+    expect(tool("wochenblick")).toContain("will_nicht");
+    expect(tool("note_offer")).toContain('enum: ["experiment", "begleitung"]');
+    expect(source.match(/if \(ctx\.mode !== "checkin"\) throw new ToolInputError\("nur im täglichen Gespräch"\);/g)).toHaveLength(2);
+    expect(source).toContain('TOOLS.filter((t) => ["remember", "update_memory", "forget"].includes(t.name))');
+  });
+
+  it("mark «once» with their own writes, so a missing column never blocks the change itself", () => {
+    expect(tool("update_memory")).toContain("nachgefragt");
+    expect(tool("update_milestone")).toContain("nachgefragt");
+    expect(tool("update_goal")).toContain("nicht_jetzt");
+    for (const col of ["followed_up_at", "overdue_asked_for", "nudge_after"]) expect(source).toMatch(new RegExp(`console\\.error\\("${col}:`));
+  });
+
+  it("log_habit never hands back «0 von N» to repeat", () => {
+    expect(source).toContain("...(habitWeekLabel(h, day) ? { this_week: habitWeekLabel(h, day) } : {}),");
+    expect(source).not.toContain("this_week: `${habitWeek(h, day).doneThisWeek} von ${h.per_week}`");
+  });
 });

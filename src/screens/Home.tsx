@@ -3,6 +3,7 @@ import { backend } from "../lib/backend";
 import { type OrbState } from "../components/Portal";
 import { FitPortal } from "../components/FitPortal";
 import { VoiceConversation } from "../components/VoiceConversation";
+import * as coachBus from "../space/coachBus";
 import { UpNext } from "../components/UpNext";
 import type { Palette } from "../lib/palette";
 import type { Weather } from "../lib/weather";
@@ -155,7 +156,7 @@ export function Home({
       </section>
 
       {/* The portal fills the free space: the conversation is voice only. */}
-      <FitPortal colors={palette.orb} daylight={palette.daylight} clouds={palette.clouds} speed={palette.speed} seed={palette.seed} state={orbState} />
+      <FitPortal colors={palette.orb} daylight={palette.daylight} clouds={palette.clouds} speed={palette.speed} seed={palette.seed} state={orbState} onTap={coachBus.hear} />
 
       <VoiceConversation
         mode="checkin"

@@ -27,7 +27,8 @@ self.addEventListener("push", (event) => {
   }
   event.waitUntil(
     self.registration.showNotification(msg.title ?? "Bucket List", {
-      body: msg.body ?? "Wie geht es dir?",
+      // no question: the server always sends a body; this is only for a broken payload
+      body: msg.body ?? "Bucket List",
       icon: "icon-192.png",
       badge: "icon-192.png",
       data: { url: msg.url ?? self.registration.scope },

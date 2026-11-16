@@ -1,5 +1,5 @@
-// One habit in Ziele (§3.5): name (→ habit Unfold), "2 von 3 diese Woche", the streak,
-// and seven tickable dots Mo–So for this week.
+// One habit in Ziele (§3.5): name (→ habit Unfold), "2 von 3 diese Woche" (from the first one
+// done, never "0 von 7"), the streak, and seven tickable dots Mo–So for this week.
 import { useRef } from "react";
 import { habitStreak, habitWeek, streakLabel } from "../lib/plan";
 import { longDay, weekdayShort } from "../lib/dates";
@@ -8,6 +8,7 @@ import { IconCheck } from "../components/plan/icons";
 import { planData } from "../space/data";
 import { useFresh, useSeenWhenVisible } from "../space/fresh";
 import { useSpace } from "../space/state";
+import { habitMetaParts } from "./habitMeta";
 import { useRevealWhenFresh } from "./reveal";
 
 export function HabitWeekRow({ habit, today, goalTitle, flash, active }: { habit: Habit; today: string; goalTitle: string | null; flash: boolean; active: boolean }) {
@@ -19,6 +20,7 @@ export function HabitWeekRow({ habit, today, goalTitle, flash, active }: { habit
   const week = habitWeek(habit, today);
   const streak = streakLabel(habitStreak(habit, today));
   const reached = week.doneThisWeek >= week.target;
+  const meta = habitMetaParts({ done: week.doneThisWeek, target: week.target, streak, goal: goalTitle });
 
   return (
     <li ref={ref} data-id={habit.id} className={`hw${fresh ? " is-fresh" : ""}${flash ? " is-flash" : ""}`}>
@@ -31,13 +33,16 @@ export function HabitWeekRow({ habit, today, goalTitle, flash, active }: { habit
             </span>
           )}
         </button>
-        <p className="hw-meta">
-          <span className={reached ? "reached" : ""}>
-            {week.doneThisWeek} von {week.target} diese Woche
-          </span>
-          {streak && <span> · {streak}</span>}
-          {goalTitle && <span className="hw-goal"> · {goalTitle}</span>}
-        </p>
+        {meta.length > 0 && (
+          <p className="hw-meta">
+            {meta.map((m, i) => (
+              <span key={m.key} className={m.key === "week" ? (reached ? "reached" : "") : m.key === "goal" ? "hw-goal" : undefined}>
+                {i > 0 && " · "}
+                {m.text}
+              </span>
+            ))}
+          </p>
+        )}
       </div>
       <div className="hw-days" role="group" aria-label={`${habit.title}, diese Woche`}>
         {week.days.map((d) => {

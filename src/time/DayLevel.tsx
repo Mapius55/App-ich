@@ -1,5 +1,6 @@
 // Tag (level 1): the anchor day as a list with the JETZT line, past goal blocks
-// („Hat’s geklappt? Ja · Nein“), a ghost row in the largest free gap, habit chips.
+// („Hat’s geklappt? Ja · Nein“), a ghost row in the largest free gap, habit chips. Today from 17:00
+// the evening is hers: a free gap is just «Frei», without «Mit dem Coach planen».
 // Overflow (measured, not guessed): compact rows → past rows collapse → first K
 // rows + "+N weitere" → an inner scroller. The section height never changes.
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -12,7 +13,7 @@ import { useFresh, useSeenWhenVisible } from "../space/fresh";
 import { useSpace } from "../space/state";
 import { BlockAnswer } from "./BlockAnswer";
 import { HabitChips } from "./HabitChips";
-import { dayRows, dayPlanText, hm, largestGap, minutesIn } from "./layout";
+import { calmEvening, dayRows, dayPlanText, hm, largestGap, minutesIn } from "./layout";
 import { CornerPill, LevelHeader, NextLevelLink } from "./LevelHeader";
 import { useNow, usePeriodSwap, useTimePaging } from "./usePaging";
 import { clearRangeCache, pastBlockMinutes, prefetchRange, useRangeEvents, type Answers } from "./useRangeEvents";
@@ -149,6 +150,7 @@ export function DayLevel({ titleId, active, weather }: DayLevelProps) {
   const srTitle = Math.abs(rel) <= 1 ? `${cap(title)}, ${sub}` : sub;
   const weatherText = rel === 0 && weather ? ` · ${Math.round(weather.temperature)}° ${weather.description}` : "";
   const planText = dayPlanText(shown, today);
+  const calm = calmEvening(shown, today, now);
 
   return (
     <div className="tl tl-day" ref={swipeRef} data-active={active || undefined}>
@@ -174,6 +176,8 @@ export function DayLevel({ titleId, active, weather }: DayLevelProps) {
               <div className="day-empty">
                 {rel < 0 ? (
                   <p className="day-empty-line">Ein freier Tag.</p>
+                ) : calm ? (
+                  <p className="day-empty-line">Ein freier Abend.</p>
                 ) : (
                   <>
                     <p className="day-empty-line">Noch nichts geplant. Erzähl mir, was ansteht.</p>
@@ -207,9 +211,11 @@ export function DayLevel({ titleId, active, weather }: DayLevelProps) {
                         <button type="button" className="day-gap-free" onClick={(ev) => open({ kind: "event", event: null, day: shown, time: hm(it.start) }, ev.currentTarget)}>
                           <span className="day-gap-label">Frei</span> {hm(it.start)}–{hm(it.end)}
                         </button>
-                        <button type="button" className="day-gap-coach" onClick={() => ask(planText)}>
-                          <span className="pill">Mit dem Coach planen</span>
-                        </button>
+                        {!calm && (
+                          <button type="button" className="day-gap-coach" onClick={() => ask(planText)}>
+                            <span className="pill">Mit dem Coach planen</span>
+                          </button>
+                        )}
                       </li>
                     );
                   return (
