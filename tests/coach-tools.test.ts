@@ -61,7 +61,13 @@ describe("coach tools", () => {
   });
 
   it("give no planning hint when update_goal only notes a reminder (a dream is never pushed)", () => {
-    expect(source).toContain("...(Object.keys(patch).length === 1 && patch.reminded_at ? {} : goalHints(goal, day, !!patch.target_date && ctx.mode !== \"onboarding\")),");
+    expect(source).toContain("...(Object.keys(patch).length === 1 && patch.reminded_at ? {} : goalHints(goal, day, input.planen === true && ctx.mode !== \"onboarding\")),");
+  });
+
+  it("let update_goal say it is planning a dream (planen), so a year she only names never brings the milestone step", () => {
+    expect(tool("update_goal")).toContain("planen");
+    expect(tool("update_goal")).toContain("Nicht, wenn sie nur nennt, wann.");
+    expect(source).not.toContain("!!patch.target_date && ctx.mode");
   });
 
   it("give a dream its milestone step only when update_goal set its date, not when create_goal adds one she mentioned", () => {
