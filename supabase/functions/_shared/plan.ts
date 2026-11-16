@@ -438,7 +438,7 @@ export function thousands(n: number): string {
   return String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, "’");
 }
 
-export type DreamNudge = "lange" | "zeitpunkt";
+export type DreamNudge = "lange" | "zeitpunkt" | "neu";
 
 /** «guter Zeitpunkt»: the target date lies at most this many days ahead (8 weeks) … */
 export const NUDGE_SOON_DAYS = 56;
@@ -448,6 +448,11 @@ export const NUDGE_SOON_QUIET_DAYS = 14;
 export const NUDGE_LONG_DAYS = 60;
 /** … and not brought up in the last 30 days */
 export const NUDGE_LONG_QUIET_DAYS = 30;
+/** «neu»: on the list from 7 up to 20 days (its second week), never brought up and not planned: one joyful invitation */
+export const NUDGE_NEW_FROM_DAYS = 7;
+export const NUDGE_NEW_UNTIL_DAYS = 20;
+/** After her «nicht jetzt» a dream rests this long (goals.nudge_after) */
+export const NUDGE_NOT_NOW_DAYS = 90;
 
 export interface NudgeGoal {
   kind?: string | null;
@@ -456,6 +461,8 @@ export interface NudgeGoal {
   created_at?: string | null;
   updated_at?: string | null;
   reminded_at?: string | null;
+  /** after her «nicht jetzt»: no reminder before this day */
+  nudge_after?: string | null;
 }
 
 export interface NudgeActivity {
@@ -472,12 +479,16 @@ export interface NudgeActivity {
 /**
  * The coach's reminder candidates (they go into its context, it mentions at most one per conversation):
  * "zeitpunkt" for an active dream with a target date in the next 8 weeks, not brought up in the last
- * 14 days; "lange" for an active dream with no update, logged time or block for 60 days or more, not
- * brought up in the last 30 days; otherwise null (goals, paused, fulfilled or dropped dreams too).
+ * 14 days; "neu" for a dream in its second week on the list (7 to 20 days), never brought up, without a
+ * date and without anything planned (one invitation about the joy, never about steps); "lange" for an
+ * active dream with no update, logged time or block for 60 days or more, not brought up in the last
+ * 30 days; otherwise null (goals, paused, fulfilled or dropped dreams too, and a dream resting after her
+ * «nicht jetzt» until `nudge_after`).
  * "In the last n days" means fewer than n days ago: reminded exactly 14 days ago may be mentioned again.
  */
 export function dreamNudge(goal: NudgeGoal, today: string = dayOf(), ctx: NudgeActivity = {}): DreamNudge | null {
   if (goal.kind !== "dream" || goal.status !== "active" || !isDay(today)) return null;
+  if (typeof goal.nudge_after === "string" && isDay(goal.nudge_after.slice(0, 10)) && today < goal.nudge_after.slice(0, 10)) return null;
   const local = (iso: string | null | undefined): string | null => {
     if (typeof iso !== "string" || !iso) return null;
     let d: string;
@@ -494,9 +505,314 @@ export function dreamNudge(goal: NudgeGoal, today: string = dayOf(), ctx: NudgeA
     const ahead = daysBetween(today, goal.target_date);
     if (ahead >= 0 && ahead <= NUDGE_SOON_DAYS && quiet(NUDGE_SOON_QUIET_DAYS)) return "zeitpunkt";
   }
+  const created = local(goal.created_at);
+  if (created && reminded === null && !goal.target_date && !ctx.lastTimeDay && !ctx.lastBlockDay && !ctx.lastStepDay) {
+    const age = daysBetween(created, today);
+    if (age >= NUDGE_NEW_FROM_DAYS && age <= NUDGE_NEW_UNTIL_DAYS) return "neu";
+  }
   const seen = [goal.updated_at, goal.created_at, ctx.lastTimeDay, ctx.lastBlockDay, ctx.lastStepDay].map(local).filter((d): d is string => d !== null);
   if (!seen.length) return null;
   const last = seen.reduce((a, b) => (b > a ? b : a));
   if (daysBetween(last, today) >= NUDGE_LONG_DAYS && quiet(NUDGE_LONG_QUIET_DAYS)) return "lange";
   return null;
 }
+
+// ---------- the daily conversation: the opener, a pause, the Wochenblick ----------
+
+/** Days since the last conversation from which it counts as a pause: the coach never mentions it, it offers a small restart. */
+export const PAUSE_DAYS = 5;
+/** The first open from this local time on looks back on the day (17:00). */
+export const EVENING_FROM = 17 * 60;
+/** «Wie hast du geschlafen?» only before this local time (11:00). */
+export const MORNING_UNTIL = 11 * 60;
+/** A mood this heavy (valence) or heavier makes the coach quiet: no wins, no Wochenblick, no goals first. */
+export const HEAVY_VALENCE = -0.3;
+/** At most this many evening questions in seven days, never two evenings in a row. */
+export const EVENING_QUESTIONS_PER_WEEK = 3;
+
+/** Whole days since the last conversation (yesterday = 1); null without an earlier one. */
+export function daysSinceLast(lastDay: string | null | undefined, today: string): number | null {
+  if (typeof lastDay !== "string" || !isDay(lastDay) || !isDay(today)) return null;
+  const d = daysBetween(lastDay, today);
+  return d > 0 ? d : null;
+}
+
+/** After a pause (PAUSE_DAYS or more without a conversation). */
+export function isPause(lastDay: string | null | undefined, today: string): boolean {
+  const d = daysSinceLast(lastDay, today);
+  return d !== null && d >= PAUSE_DAYS;
+}
+
+/** The person's clock at a moment: the local day, minutes since midnight and the weekday (0 = Monday). */
+export function localClock(now: Date, tz: string): { day: string; minutes: number; weekday: number } {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: tz,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(now);
+  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "00";
+  const day = `${get("year")}-${get("month")}-${get("day")}`;
+  return { day, minutes: (Number(get("hour")) % 24) * 60 + Number(get("minute")), weekday: weekdayIndex(day) };
+}
+
+type Mood = { valence?: number } | null | undefined;
+const heavy = (m: Mood) => typeof m?.valence === "number" && m.valence <= HEAVY_VALENCE;
+
+/**
+ * Heavy lately: today's mood is heavy, or two of the moods recorded on the three days before today are.
+ * Read before she has said anything today, so it can only come from what was stored.
+ */
+export function heavyLately(todayMood: Mood, recent: { day: string; mood: Mood }[], today: string): boolean {
+  if (heavy(todayMood)) return true;
+  const last3 = recent.filter((d) => isDay(d.day) && daysBetween(d.day, today) >= 1 && daysBetween(d.day, today) <= 3 && typeof d.mood?.valence === "number");
+  return last3.filter((d) => heavy(d.mood)).length >= 2;
+}
+
+export type OpenerKind = "termin" | "gestern" | "ziel" | "schlaf" | "jahreszeit" | "neustart" | "wochenblick" | "abend" | "abend_frage";
+/** The kinds that take turns from day to day, in the order that wins a tie. */
+export const ROTATING_OPENERS: readonly OpenerKind[] = ["termin", "gestern", "ziel", "schlaf", "jahreszeit"];
+const OPENER_KINDS: readonly string[] = [...ROTATING_OPENERS, "neustart", "wochenblick", "abend", "abend_frage"];
+export const isOpenerKind = (v: unknown): v is OpenerKind => typeof v === "string" && OPENER_KINDS.includes(v);
+
+export interface OpenerSituation {
+  /** local minutes since midnight */
+  minutes: number;
+  /** after a pause: one small restart */
+  pause: boolean;
+  /** a Wochenblick is due (wochenblickDue) */
+  wochenblick: boolean;
+  /** the rotating kinds that have something to say today */
+  available: readonly OpenerKind[];
+  /** heavy lately (heavyLately): only the gentle kinds, sleep or the season */
+  quiet?: boolean;
+}
+
+/**
+ * How today's first greeting opens, chosen in code so it really changes from day to day.
+ * A situation comes first: after a pause a small restart, then a due Wochenblick, then the first open in
+ * the evening (a look back; with a question at most three evenings in seven and never two in a row).
+ * Otherwise the rotating kinds take turns: of those with something to say today, the one used longest ago
+ * (never yesterday's while another fits), ties in the order of ROTATING_OPENERS; in a heavy time only sleep or
+ * the season. Without any: the season.
+ * `recent`: the openers of the days before today.
+ */
+export function chooseOpener(s: OpenerSituation, recent: { day: string; kind: string | null }[], today: string): OpenerKind {
+  if (s.pause) return "neustart";
+  if (s.wochenblick) return "wochenblick";
+  const ago = (kinds: string[]) =>
+    recent
+      .filter((r) => r.kind && kinds.includes(r.kind) && isDay(r.day))
+      .map((r) => daysBetween(r.day, today))
+      .filter((d) => d >= 1);
+  if (s.minutes >= EVENING_FROM) {
+    const asked = ago(["abend_frage"]);
+    const yesterday = asked.includes(1);
+    return !yesterday && asked.filter((d) => d <= 6).length < EVENING_QUESTIONS_PER_WEEK ? "abend_frage" : "abend";
+  }
+  const kinds = ROTATING_OPENERS.filter(
+    (k) => s.available.includes(k) && (k !== "schlaf" || s.minutes < MORNING_UNTIL) && (!s.quiet || k === "schlaf" || k === "jahreszeit"),
+  );
+  if (!kinds.length) return "jahreszeit";
+  const since = (k: OpenerKind) => {
+    const d = ago([k]);
+    return d.length ? Math.min(...d) : Infinity;
+  };
+  const fresh = kinds.filter((k) => since(k) !== 1);
+  const pool = fresh.length ? fresh : kinds;
+  return pool.reduce((best, k) => (since(k) > since(best) ? k : best), pool[0]);
+}
+
+/** The Wochenblick: Sunday from 16:00 (weekday 6), or the first conversation of the new week up to Wednesday. */
+export const REVIEW_FROM = 16 * 60;
+export const REVIEW_LAST_WEEKDAY = 2;
+
+/** The week a Wochenblick looks ahead to (its Monday): from Sunday 16:00 the coming one, else the current one. */
+export function reviewWeek(day: string, minutes: number): string {
+  return weekdayIndex(day) === 6 && minutes >= REVIEW_FROM ? addDays(day, 1) : weekStart(day);
+}
+
+export interface ReviewState {
+  /** the Monday of the last week whose Wochenblick she did or declined */
+  week: string | null;
+  /** declines in a row */
+  declines: number;
+  /** null = never asked whether she wants it; false = she doesn't (never offered again); true = she does */
+  wanted: boolean | null;
+}
+
+/** "anbieten": offer it in this conversation; "fragen": after two declines, ask once whether she wants it at all. */
+export type ReviewDue = "anbieten" | "fragen";
+
+/**
+ * Whether the Wochenblick is due in this conversation: in its window (Sunday from 16:00 up to Wednesday),
+ * not yet done or declined for this week, no earlier conversation since Sunday 16:00 (`lastTalk`: the last
+ * conversation before today, with its local time), at least one goal with weekly hours or blocks, not after a
+ * pause (that is a restart) and not in a heavy time. Never when she said she doesn't want it.
+ */
+export function wochenblickDue(o: {
+  day: string;
+  minutes: number;
+  lastTalk: { day: string; minutes: number } | null;
+  state: ReviewState;
+  hasPlanGoal: boolean;
+  heavy: boolean;
+  pause: boolean;
+}): ReviewDue | null {
+  if (!isDay(o.day) || !o.hasPlanGoal || o.heavy || o.pause || o.state.wanted === false) return null;
+  const wd = weekdayIndex(o.day);
+  const inWindow = (wd === 6 && o.minutes >= REVIEW_FROM) || wd <= REVIEW_LAST_WEEKDAY;
+  if (!inWindow) return null;
+  const week = reviewWeek(o.day, o.minutes);
+  if (o.state.week && isDay(o.state.week) && o.state.week >= week) return null;
+  const sunday = addDays(week, -1);
+  const t = o.lastTalk;
+  if (t && isDay(t.day) && t.day < o.day && (t.day > sunday || (t.day === sunday && t.minutes >= REVIEW_FROM))) return null;
+  return o.state.declines >= 2 && o.state.wanted !== true ? "fragen" : "anbieten";
+}
+
+/** A goal that has a plan to look at: active, not a dream, with weekly hours or with a block in the calendar. */
+export function hasPlanGoal(goals: { id: string; kind?: string | null; status: string; weekly_hours?: number | null }[], blockGoalIds: Iterable<string>): boolean {
+  const blocks = new Set(blockGoalIds);
+  return goals.some((g) => g.kind !== "dream" && g.status === "active" && ((g.weekly_hours ?? 0) > 0 || blocks.has(g.id)));
+}
+
+/**
+ * The one goal to plan for (Wochenblick) or to restart with (after a pause): active and not a dream; the
+ * nearest target date still ahead first, then one with weekly hours, then the first. Null without any.
+ */
+export function focusGoal<G extends { id: string; kind?: string | null; status: string; target_date: string | null; weekly_hours?: number | null }>(goals: G[], today: string): G | null {
+  const active = goals.filter((g) => g.kind !== "dream" && g.status === "active");
+  const dated = active.filter((g) => g.target_date && isDay(g.target_date) && g.target_date >= today).sort((a, b) => (a.target_date! < b.target_date! ? -1 : 1));
+  return dated[0] ?? active.find((g) => (g.weekly_hours ?? 0) > 0) ?? active[0] ?? null;
+}
+
+/**
+ * The length of a small restart: half of her usual block for the goal (the median), or of a third of her weekly
+ * hours, else of 40 minutes; in steps of 5, from 15 up to 45 minutes.
+ */
+export function smallStepMinutes(blockMinutes: number[], weeklyHours: number | null | undefined): number {
+  const v = blockMinutes.filter((m) => m > 0).sort((a, b) => a - b);
+  const usual = v.length ? v[Math.floor((v.length - 1) / 2)] : weeklyHours && weeklyHours > 0 ? (weeklyHours * 60) / 3 : 40;
+  return Math.min(45, Math.max(15, Math.round(usual / 2 / 5) * 5));
+}
+
+export interface WeekGoalSummary {
+  goal_id: string;
+  /** minutes of blocks planned for it that week (the trainer's plan too) */
+  planned_minutes: number;
+  blocks: number;
+  /** minutes recorded for it that week: logged, answered blocks, completed trainings */
+  done_minutes: number;
+  /** minutes of its own past blocks that week nobody answered (they count provisionally) */
+  open_minutes: number;
+}
+
+/**
+ * Planned against done per goal for the week from `monday` (for the Wochenblick). Only confirmed time counts
+ * as done; a block nobody answered is «open», never a miss. Goals with nothing planned and nothing done are left out.
+ */
+export function weekGoalSummary(
+  goalIds: string[],
+  blocks: { id: string; goal_id: string | null; starts_at: string; ends_at: string | null; all_day: boolean; kind?: string; source?: string | null; answered: boolean }[],
+  log: { goal_id: string; day: string; minutes: number }[],
+  monday: string,
+  now: Date,
+  dayOfIso: (iso: string) => string,
+): WeekGoalSummary[] {
+  const sunday = addDays(monday, 6);
+  const inWeek = (d: string) => d >= monday && d <= sunday;
+  const out = new Map(goalIds.map((id) => [id, { goal_id: id, planned_minutes: 0, blocks: 0, done_minutes: 0, open_minutes: 0 }]));
+  for (const b of blocks) {
+    const s = b.goal_id ? out.get(b.goal_id) : undefined;
+    if (!s || (b.kind && b.kind !== "block") || b.all_day || !b.ends_at || !inWeek(dayOfIso(b.starts_at))) continue;
+    const min = Math.min(1440, Math.max(0, Math.round((Date.parse(b.ends_at) - Date.parse(b.starts_at)) / 60000)));
+    if (!min) continue;
+    s.planned_minutes += min;
+    s.blocks++;
+    if (!b.answered && b.source !== "nolio" && Date.parse(b.ends_at) <= now.getTime()) s.open_minutes += min;
+  }
+  for (const t of log) {
+    const s = out.get(t.goal_id);
+    if (s && t.minutes > 0 && inWeek(t.day)) s.done_minutes += t.minutes;
+  }
+  return [...out.values()].filter((s) => s.planned_minutes > 0 || s.done_minutes > 0);
+}
+
+export type TodayWin = { kind: "zeit"; title: string; minutes: number } | { kind: "etappe"; title: string; goal: string } | { kind: "gewohnheit"; title: string };
+
+/**
+ * What really happened today, for the evening look back: time recorded for a goal (logged, an answered block,
+ * a completed training), a step done today, a habit ticked today. Nothing that only was planned.
+ */
+export function todayWins(
+  goals: { id: string; title: string; milestones: { title: string; done_at: string | null }[] }[],
+  habits: { title: string; done_days: string[] }[],
+  log: { goal_id: string; minutes: number }[],
+  today: string,
+  dayOfIso: (iso: string) => string,
+): TodayWin[] {
+  const wins: TodayWin[] = [];
+  const minutes = new Map<string, number>();
+  for (const t of log) if (t.minutes > 0) minutes.set(t.goal_id, (minutes.get(t.goal_id) ?? 0) + t.minutes);
+  for (const g of goals) {
+    const m = minutes.get(g.id);
+    if (m) wins.push({ kind: "zeit", title: g.title, minutes: m });
+  }
+  for (const g of goals) for (const m of g.milestones) if (m.done_at && dayOfIso(m.done_at) === today) wins.push({ kind: "etappe", title: m.title, goal: g.title });
+  for (const h of habits) if (h.done_days.includes(today)) wins.push({ kind: "gewohnheit", title: h.title });
+  return wins;
+}
+
+/** «Viel» in one day: at least this many of her own messages. */
+export const TALK_MANY = 12;
+
+/**
+ * She leans on the coach: over the 14 days before today, at least 10 days with many of her own messages,
+ * and most of the moods recorded then (at least 6, 60 %) heavy. The coach then once points warmly to people
+ * in her life or a professional, and never lengthens a conversation.
+ */
+export function leansOnCoach(talk: Record<string, number>, moods: { day: string; mood: Mood }[], today: string): boolean {
+  const within = (d: string) => isDay(d) && daysBetween(d, today) >= 1 && daysBetween(d, today) <= 14;
+  const busy = Object.entries(talk).filter(([d, n]) => within(d) && n >= TALK_MANY).length;
+  const recorded = moods.filter((m) => within(m.day) && typeof m.mood?.valence === "number");
+  const low = recorded.filter((m) => heavy(m.mood)).length;
+  return busy >= 10 && low >= 6 && low >= 0.6 * recorded.length;
+}
+
+/**
+ * A dated note she might be asked about that the coach never raises on its own: health, relationships,
+ * money, legal matters. A coarse word check; the prompt says the same.
+ */
+export function sensitiveTopic(text: string): boolean {
+  return /arzt|ärzt|zahn|therap|psych|spital|klinik|notfall|operation|\bop\b|diagnos|krank|physio|untersuch|blutt|impf|gyn|schwanger|beziehung|trennung|scheidung|\bpartner|\bdate\b|\bex\b|\bbank|kredit|schulden|steuer|betreibung|\blohn|finanz|hypothek|versicherung|anwalt|anwält|gericht|klage|notar|polizei|\bbusse\b|vormund|kesb/i.test(
+    text,
+  );
+}
+
+/** A dated memory to ask about once: its day lies one to three days back, not asked yet, and nothing sensitive. */
+export function followUpDue(m: { event_date: string | null; content: string; followed_up_at?: string | null }, today: string): boolean {
+  if (!m.event_date || !isDay(m.event_date) || m.followed_up_at) return false;
+  const d = daysBetween(m.event_date, today);
+  return d >= 1 && d <= 3 && !sensitiveTopic(m.content);
+}
+
+/** People without goals or dreams get one small experiment at most every this many days. */
+export const EXPERIMENT_EVERY_DAYS = 7;
+
+/**
+ * One small experiment may be offered (people without any open goal or dream): nothing active or paused,
+ * and the last offer (experiment_at) at least a week ago.
+ */
+export function experimentDue(goals: { status: string }[], lastAt: string | null | undefined, today: string, dayOfIso: (iso: string) => string): boolean {
+  if (goals.some((g) => g.status === "active" || g.status === "paused")) return false;
+  if (!lastAt) return true;
+  const last = dayOfIso(lastAt);
+  return !isDay(last) || daysBetween(last, today) >= EXPERIMENT_EVERY_DAYS;
+}
+
+/** The hint to point to people in her life comes back at most after this many days. */
+export const SUPPORT_EVERY_DAYS = 90;

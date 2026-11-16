@@ -23,7 +23,7 @@ export function priorProblem(prior: number | null | undefined, effort: number | 
 /** Days ahead from which a goal without milestones should get some (six weeks). */
 export const MILESTONE_HINT_DAYS = 42;
 
-/** After a dream came true: the one question, and where the answer goes. */
+/** After a dream came true or a goal was reached: the one question, and where the answer goes. */
 export const DREAM_ASK_HOW =
   "Frag ein einziges Mal „Wie war es?“ und speichere ihre Antwort mit update_goal memory, kurz und in ihren Worten, in der Ich-Form, so wie sie es sagt (nicht in der dritten Person).";
 
@@ -36,7 +36,7 @@ export const MILESTONES_STEP = "Etappen vorschlagen (zwei bis vier, mit Monat), 
  * no date (it may simply wait on the Bucket List, never nagged), and a date alone doesn't mean she is
  * planning it: she may only have said when («2030 einmal nach Japan»). It gets the milestones like a
  * goal only when the call itself plans it (`planned`: update_goal with planen: true, after her yes).
- * A fulfilled one without a memory gets the question.
+ * A fulfilled dream or a reached goal without a memory gets the question «Wie war es?».
  */
 export function goalHints(
   g: { kind?: string | null; status?: string | null; target_date: string | null; milestones?: unknown[] | null; memory?: string | null },
@@ -51,6 +51,7 @@ export function goalHints(
     else if (planned && active && none && g.target_date && daysBetween(today, g.target_date) > MILESTONE_HINT_DAYS) out.naechster_schritt = MILESTONES_STEP;
     return out;
   }
+  if (g.status === "done") return g.memory?.trim() ? out : { naechster_schritt: DREAM_ASK_HOW };
   if (!g.target_date && active) out.hinweis = "Zieldatum fehlt: Näherungsdatum setzen oder fragen";
   const far = !g.target_date || daysBetween(today, g.target_date) > MILESTONE_HINT_DAYS;
   if (active && far && none) out.naechster_schritt = MILESTONES_STEP;
@@ -102,3 +103,47 @@ export function doneDateProblem(day: string, today: string): string | null {
   if (day < "1900-01-01") return "done_date: kein Tag vor 1900";
   return null;
 }
+
+/** After a step was marked done: the next open one to propose in the same reply, or what to do when none is left. */
+export function nextStepHint(
+  milestones: { id: string; title: string; due_date: string | null; done_at: string | null; position: number }[],
+): { naechste_etappe?: { id: string; title: string; due_date: string | null }; naechster_schritt: string } {
+  const next = [...milestones].sort((a, b) => a.position - b.position).find((m) => !m.done_at);
+  if (next)
+    return {
+      naechste_etappe: { id: next.id, title: next.title, due_date: next.due_date },
+      naechster_schritt: "In derselben Antwort die nächste Etappe vorschlagen, mit einem Tag und einer Uhrzeit für den ersten Schritt dazu.",
+    };
+  return { naechster_schritt: "Keine Etappe mehr offen: eine nächste vorschlagen oder fragen, ob das Ziel erreicht ist." };
+}
+
+/** The answers the tool «wochenblick» records. */
+export const REVIEW_RESULTS = ["gemacht", "abgelehnt", "will", "will_nicht"] as const;
+export type ReviewResult = (typeof REVIEW_RESULTS)[number];
+
+/**
+ * What the tool «wochenblick» writes to the profile. `week`: the Monday of the week it is about (reviewWeek),
+ * `declines`: the declines in a row so far. Done: this week settled, the count back to 0. Declined: this week
+ * settled, one more decline. «will»: she wants it (asked after two declines), the count back to 0, this week
+ * still open. «will_nicht»: never offered again.
+ */
+export function reviewPatch(result: ReviewResult, week: string, declines: number): { review_week?: string; review_declines?: number; review_wanted?: boolean } {
+  switch (result) {
+    case "gemacht":
+      return { review_week: week, review_declines: 0 };
+    case "abgelehnt":
+      return { review_week: week, review_declines: Math.min(20, Math.max(0, declines) + 1) };
+    case "will":
+      return { review_wanted: true, review_declines: 0 };
+    case "will_nicht":
+      return { review_wanted: false, review_week: week };
+  }
+}
+
+/** What the coach hears back from «wochenblick». */
+export const REVIEW_NOTES: Record<ReviewResult, string> = {
+  gemacht: "Notiert. Diese Woche kommt kein Wochenblick mehr.",
+  abgelehnt: "Notiert. Diese Woche nicht mehr; sprecht über den Tag.",
+  will: "Notiert: Sie möchte ihn. Biete ihn an, wenn es jetzt passt.",
+  will_nicht: "Notiert: kein Wochenblick mehr, ausser sie fragt selbst danach.",
+};
