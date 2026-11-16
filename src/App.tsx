@@ -1,5 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
-import { flushSync } from "react-dom";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { backend } from "./lib/backend";
 import { storeCoords, storedCoords, type Coords } from "./lib/location";
 import { localDayKey, type Mood } from "./lib/palette";
@@ -18,32 +17,15 @@ import { spaceEnabled, tourSeen } from "./space/flags";
 import { planData, resetPlanData } from "./space/data";
 import { markFresh } from "./space/fresh";
 import { resubscribePushIfNeeded, signOutDevice } from "./lib/push";
-
-// Screen changes zoom through the portal (View Transitions API, where the
-// browser has it; elsewhere screens simply fade in via CSS).
-type VT = { finished: Promise<void>; ready: Promise<void>; updateCallbackDone: Promise<void> };
-let transitionRunning = false;
-function withTransition(fn: () => void) {
-  const d = document as Document & { startViewTransition?: (cb: () => void) => VT };
-  // While one transition plays, further changes just happen inside it.
-  if (!d.startViewTransition || transitionRunning || window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
-    fn();
-    return;
-  }
-  transitionRunning = true;
-  const vt = d.startViewTransition(() => flushSync(fn));
-  const quiet = () => {};
-  vt.ready.catch(quiet);
-  vt.updateCallbackDone.catch(quiet);
-  vt.finished.catch(quiet).finally(() => (transitionRunning = false));
-}
+import { authChange, skipScreenTransition, withTransition } from "./lib/screenTransition";
 
 export default function App() {
-  // the new navigation ("space"), behind ?space=1 until verified on an iPhone
+  // the new navigation ("space") is the default; ?space=0 (or «Alte Ansicht öffnen») keeps the old one
   const space = spaceEnabled();
   // the short tour: once per device, the first time the space opens (incl. right after onboarding)
   const [startTour] = useState(() => space && !tourSeen());
   const [userId, setUserId] = useState<string | null | undefined>(undefined);
+  const userIdRef = useRef<string | null | undefined>(undefined);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [coords, setCoords] = useState<Coords | null>(() => storedCoords());
   const [mood, setMood] = useState<Mood | null>(null);
@@ -60,10 +42,21 @@ export default function App() {
 
   const { palette, weather, context } = useSky(coords, mood, profile?.nature_palette ?? null);
 
-  // Session: restored automatically, so a returning person skips the login.
+  // Session: restored automatically, so a returning person skips the login. Only a real sign-in or
+  // sign-out zooms: supabase-js repeats the same person's session at start, on every return to the
+  // app and at each token refresh, and a whole-page transition then would cut the first swipe short.
   useEffect(() => {
-    backend.currentUserId().then(setUserId);
-    return backend.onAuthChange((id) => withTransition(() => setUserId(id)));
+    const applyUserId = (id: string | null) => {
+      userIdRef.current = id;
+      setUserId(id);
+    };
+    backend.currentUserId().then(applyUserId);
+    return backend.onAuthChange((id) => {
+      const how = authChange(userIdRef.current, id);
+      if (how === "none") return;
+      if (how === "plain") applyUserId(id);
+      else withTransition(() => applyUserId(id));
+    });
   }, []);
 
   useEffect(() => {
@@ -76,7 +69,12 @@ export default function App() {
     backend
       .getProfile()
       .then((p) => {
-        withTransition(() => setProfile(p));
+        // the space opens by itself (its circle and levels are the motion), never inside a whole-page
+        // snapshot; a Login → loading transition still running ends here
+        if (space && p.onboarded) {
+          skipScreenTransition();
+          setProfile(p);
+        } else withTransition(() => setProfile(p));
         // keep the time zone current, so notifications arrive at your local time
         const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
         if (p.timezone !== tz) backend.updateProfile({ timezone: tz }).catch(() => {});
@@ -89,6 +87,7 @@ export default function App() {
         }
       })
       .catch((e) => setLoadError(e instanceof Error ? e.message : String(e)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId]);
 
   // New day → new conversation thread and fresh mood.
@@ -198,7 +197,14 @@ export default function App() {
         onEvent={onEvent}
         onCoords={onCoords}
         hasCoords={!!coords}
-        onDone={() => withTransition(() => setProfile((p) => (p ? { ...p, onboarded: true } : p)))}
+        onDone={() => {
+          const done = () => setProfile((p) => (p ? { ...p, onboarded: true } : p));
+          // into the space at once: the tour's first step asks for a swipe up
+          if (space) {
+            skipScreenTransition();
+            done();
+          } else withTransition(done);
+        }}
       />
     );
   }

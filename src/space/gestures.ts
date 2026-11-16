@@ -19,6 +19,7 @@ export const DISCRETE_COMMIT = 60,
 export const PULL_CLOSE = 96,
   PULL_V = 0.6; // Unfold pull-down
 export const SETTLE_IDLE = 140; // ms without scroll = settled (when scrollend is missing)
+export const STILL_VALVE = 1500; // ms: busy with no touch and no scroll this long = still (motion.ts)
 export const RESUME_KEEP_MS = 30 * 60 * 1000;
 export const SIDEWAYS: "cross" | "everywhere" = "cross"; // D1 switch
 
@@ -35,4 +36,17 @@ export function pagerEnabled(s: Gate, scrollY: number): boolean {
 export function timeSwipeEnabled(s: Gate, level: Level): boolean {
   if ((SIDEWAYS as string) === "everywhere") return false;
   return s.place === "jetzt" && s.level === level && level > 0 && !s.detail && !s.typing;
+}
+
+/**
+ * The column rests on a level: scrollY within 1 px of the nearest section top (`tops`, else k·sectionH).
+ * Without scrollend an idle gap can come in the middle of a fling (a slow frame); a settle by timer
+ * waits until the column is really on a snap point.
+ */
+export function atSnapPoint(scrollY: number, sectionH: number, tops?: readonly number[]): boolean {
+  if (!(sectionH > 0)) return true;
+  let k = Math.max(0, Math.round(scrollY / sectionH));
+  if (tops?.length) k = Math.min(k, tops.length - 1);
+  const top = tops?.[k] ?? k * sectionH;
+  return Math.abs(scrollY - top) <= 1;
 }

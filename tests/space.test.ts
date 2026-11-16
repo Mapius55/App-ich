@@ -2,9 +2,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { anchorIsCurrent, fromHash, showsTarget, stepAnchor, targetOf, toHash, type Detail, type DuSection, type SpaceState } from "../src/space/state";
 import { describeView } from "../src/space/describeView";
 import { FRESH_TTL, isFresh, markFresh, markSeen, resetFreshForTests } from "../src/space/fresh";
-import { pagerEnabled, timeSwipeEnabled } from "../src/space/gestures";
+import { atSnapPoint, pagerEnabled, timeSwipeEnabled } from "../src/space/gestures";
 import { ask, onAsk } from "../src/space/coachBus";
-import { spaceEnabled } from "../src/space/flags";
+import { spaceChoice, spaceEnabled } from "../src/space/flags";
+import { authChange } from "../src/lib/screenTransition";
 import type { CalendarEvent, CoachEvent, Goal, Habit } from "../src/lib/types";
 
 // Saturday, 14 November 2026
@@ -229,6 +230,29 @@ describe("gesture gating (D1, cross)", () => {
   });
 });
 
+describe("settle by timer only on a snap point", () => {
+  const H = 844;
+  it("exactly on a section top, or within 1 px", () => {
+    expect(atSnapPoint(0, H)).toBe(true);
+    expect(atSnapPoint(H, H)).toBe(true);
+    expect(atSnapPoint(H + 1, H)).toBe(true);
+    expect(atSnapPoint(H - 1, H)).toBe(true);
+    expect(atSnapPoint(H + 1.5, H)).toBe(false);
+  });
+  it("in between (mid-fling) is no rest", () => {
+    expect(atSnapPoint(420, H)).toBe(false);
+    expect(atSnapPoint(H + 300, H)).toBe(false);
+  });
+  it("the measured section tops win, clamped to the last level", () => {
+    const tops = [0, 844, 1688, 2532, 3376];
+    expect(atSnapPoint(3376, H, tops)).toBe(true); // Leben
+    expect(atSnapPoint(3375.5, H, tops)).toBe(true);
+    expect(atSnapPoint(3500, H, tops)).toBe(false);
+    expect(atSnapPoint(845, 843.6, [0, 845, 1690])).toBe(true); // rounded heights: the offset, not k·h
+    expect(atSnapPoint(0, 0)).toBe(true); // nothing laid out yet
+  });
+});
+
 describe("anchor steps", () => {
   it("day, week, year (same date, clamped)", () => {
     expect(stepAnchor(TODAY, 1, 1)).toBe("2026-11-15");
@@ -260,7 +284,33 @@ describe("coachBus", () => {
 });
 
 describe("flag", () => {
-  it("is off by default (no window, no storage)", () => {
-    expect(spaceEnabled()).toBe(false);
+  it("is on by default (no window, no storage)", () => {
+    expect(spaceEnabled()).toBe(true);
+  });
+  it("only an explicit 0 keeps the old view; only a valid parameter is stored", () => {
+    expect(spaceChoice(null, null)).toEqual({ on: true, persist: null });
+    expect(spaceChoice(null, "1")).toEqual({ on: true, persist: null });
+    expect(spaceChoice(null, "0")).toEqual({ on: false, persist: null });
+    expect(spaceChoice("0", null)).toEqual({ on: false, persist: "0" });
+    expect(spaceChoice("0", "1")).toEqual({ on: false, persist: "0" });
+    expect(spaceChoice("1", "0")).toEqual({ on: true, persist: "1" });
+    expect(spaceChoice("yes", "0")).toEqual({ on: false, persist: null });
+    expect(spaceChoice(null, "true")).toEqual({ on: true, persist: null });
+  });
+});
+
+describe("auth events and the screen", () => {
+  it("the same person again changes nothing (start, return to the app, token refresh)", () => {
+    expect(authChange("a", "a")).toBe("none");
+    expect(authChange(null, null)).toBe("none");
+  });
+  it("the first answer (the restored session) just shows", () => {
+    expect(authChange(undefined, "a")).toBe("plain");
+    expect(authChange(undefined, null)).toBe("plain");
+  });
+  it("a real sign-in or sign-out zooms", () => {
+    expect(authChange("a", null)).toBe("transition");
+    expect(authChange(null, "a")).toBe("transition");
+    expect(authChange("a", "b")).toBe("transition");
   });
 });
