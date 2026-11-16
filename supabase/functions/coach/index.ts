@@ -44,14 +44,13 @@ import { trainingsForCoach } from "../_shared/nolio.ts";
 import {
   addDays,
   chooseOpener,
+  dailySituation,
   daysBetween,
   experimentDue,
   goalEffort,
   habitStreak,
   hasPlanGoal,
-  heavyLately,
   isOpenerKind,
-  isPause,
   leansOnCoach,
   localClock,
   NUDGE_LONG_DAYS,
@@ -61,9 +60,7 @@ import {
   SUPPORT_EVERY_DAYS,
   weekGoalSummary,
   weekStart,
-  wochenblickDue,
   type OpenerKind,
-  type ReviewDue,
 } from "../_shared/plan.ts";
 import { spokenStream, stripEmoji } from "../_shared/spoken.ts";
 import { whoopForCoach } from "../_shared/whoop.ts";
@@ -1372,12 +1369,15 @@ type CoachProfile = {
  * `day`: her today (the thread).
  */
 async function loadDaily(sb: SupabaseClient, userId: string, day: string) {
-  const [lastSeen, lastTalk, talk, profile, openers, todayLog, followed, asked, resting] = await Promise.all([
-    // the last day before today with a conversation, however long ago (a pause), and when it was
+  const [lastSeen, lastSpoke, lastTalk, talk, profile, openers, todayLog, followed, asked, resting] = await Promise.all([
+    // the last day before today with a conversation, however long ago (a pause)
+    soft<{ thread: string }[]>(sb.from("messages").select("thread").lt("thread", day).order("id", { ascending: false }).limit(1), [], "last seen"),
+    // her own last message before today and when (the Wochenblick: a greeting she never answered is no conversation);
+    // the Kennenlernen has its own thread ("onboarding"), which sorts after every day and so is never found here
     soft<{ thread: string; created_at: string }[]>(
-      sb.from("messages").select("thread, created_at").lt("thread", day).order("id", { ascending: false }).limit(1),
+      sb.from("messages").select("thread, created_at").eq("role", "user").eq("hidden", false).lt("thread", day).order("id", { ascending: false }).limit(1),
       [],
-      "last seen",
+      "last spoke",
     ),
     // the end of the last conversation within a week (not only yesterday): what she said before a gap survives
     soft<{ id: number; role: string; content: string; thread: string }[]>(
@@ -1406,7 +1406,8 @@ async function loadDaily(sb: SupabaseClient, userId: string, day: string) {
   for (const r of talk) talkCounts[String(r.thread)] = (talkCounts[String(r.thread)] ?? 0) + 1;
   const talkThread = lastTalk[0] ? String(lastTalk[0].thread) : null;
   return {
-    lastSeen: lastSeen[0] ? { day: String(lastSeen[0].thread), at: String(lastSeen[0].created_at) } : null,
+    lastSeen: lastSeen[0] ? String(lastSeen[0].thread) : null,
+    lastSpoke: lastSpoke[0] ? { thread: String(lastSpoke[0].thread), created_at: String(lastSpoke[0].created_at) } : null,
     lastTalk: talkThread ? { day: talkThread, rows: lastTalk.filter((m) => String(m.thread) === talkThread).slice(0, 12) } : null,
     talkCounts,
     profile,
@@ -1500,7 +1501,7 @@ async function converse({ sb, userId, body, send }: { sb: SupabaseClient; userId
     fulfilledRows,
     birthYear,
   ] = await Promise.all([
-    sb.from("profiles").select("display_name, location_name, summary, nature_palette").eq("id", userId).single(),
+    sb.from("profiles").select("display_name, location_name, summary, nature_palette, created_at").eq("id", userId).single(),
     sb.from("memories").select("id, category, event_date, content, source").order("created_at", { ascending: true }).limit(400),
     mode === "tidy"
       ? Promise.resolve({ data: [] as { role: string; content: string }[] })
@@ -1693,17 +1694,20 @@ async function converse({ sb, userId, body, send }: { sb: SupabaseClient; userId
     ...h,
     done_days: ((habit_logs as { day: string }[] | null) ?? []).map((l) => l.day).sort(),
   }));
+  const { created_at: startedAt, ...profileRow } = profileRes.data;
   const input: ContextInput = {
     ...context,
     timezone: tz,
     now: iso(now),
-    profile: { ...profileRes.data, birth_year: typeof birthYear?.birth_year === "number" ? birthYear.birth_year : null },
+    profile: { ...profileRow, birth_year: typeof birthYear?.birth_year === "number" ? birthYear.birth_year : null },
+    // the early dream invitation belongs to her second week with the app
+    startedAt: typeof startedAt === "string" ? startedAt : null,
     memories: (memoriesRes.data ?? []).map((m) => ({ ...m, followed_up_at: dailyCtx?.followed.get(String(m.id)) ?? null })),
     recentDays,
     today,
     // only while today's conversation is still empty: the greeting may pick up one point from it
     lastTalk: !(historyRes.data ?? []).length && dailyCtx?.lastTalk && talkVisible.length ? { day: dailyCtx.lastTalk.day, messages: [...talkVisible].reverse() } : undefined,
-    lastSeen: dailyCtx ? (dailyCtx.lastSeen?.day ?? null) : undefined,
+    lastSeen: dailyCtx ? dailyCtx.lastSeen : undefined,
     todayLog: dailyCtx?.todayLog,
     connections,
     trainings: trainingsForCoach(nolioRows),
@@ -1716,28 +1720,27 @@ async function converse({ sb, userId, body, send }: { sb: SupabaseClient; userId
   };
 
   if (dailyCtx) {
-    // her clock (the day she sends; at an odd midnight mismatch, midday)
-    const clock = localClock(new Date(now), tz);
-    const minutes = clock.day === context.day ? clock.minutes : 12 * 60;
-    const pause = isPause(dailyCtx.lastSeen?.day, context.day);
-    const heavy = heavyLately(today?.mood, recentDays, context.day);
     const p = dailyCtx.profile;
-    // unknown state (columns before their migration): no Wochenblick and no rare offers, since nothing could be noted
+    const blockGoals = [...events, ...pastBlocks].filter((e) => e.kind === "block" && e.goal_id).map((e) => String(e.goal_id));
+    // her clock, a pause, a heavy time and the Wochenblick, from what was stored (dailySituation); an unknown
+    // Wochenblick state (columns before their migration): never offered, since nothing could be noted
+    const { minutes, pause, heavy, review: due } = dailySituation({
+      day: context.day,
+      now: new Date(now),
+      tz,
+      lastSeenDay: dailyCtx.lastSeen,
+      lastSpoke: dailyCtx.lastSpoke,
+      todayMood: today?.mood,
+      recentDays,
+      review: p ? { week: p.review_week ?? null, declines: Number(p.review_declines) || 0, wanted: typeof p.review_wanted === "boolean" ? p.review_wanted : null } : null,
+      hasPlanGoal: hasPlanGoal(goals, blockGoals),
+    });
+    if (due) {
+      const monday = addDays(reviewWeek(context.day, minutes), -7);
+      input.review = { due, monday, goals: await weekSummaryFor(sb, goals.map((g) => g.id), monday, tz, now) };
+    }
+    // unknown state (columns before their migration): no rare offers, since nothing could be noted
     if (p) {
-      const blockGoals = [...events, ...pastBlocks].filter((e) => e.kind === "block" && e.goal_id).map((e) => String(e.goal_id));
-      const due: ReviewDue | null = wochenblickDue({
-        day: context.day,
-        minutes,
-        lastTalk: dailyCtx.lastSeen ? { day: dailyCtx.lastSeen.day, minutes: localClock(new Date(dailyCtx.lastSeen.at), tz).minutes } : null,
-        state: { week: p.review_week ?? null, declines: Number(p.review_declines) || 0, wanted: typeof p.review_wanted === "boolean" ? p.review_wanted : null },
-        hasPlanGoal: hasPlanGoal(goals, blockGoals),
-        heavy,
-        pause,
-      });
-      if (due) {
-        const monday = addDays(reviewWeek(context.day, minutes), -7);
-        input.review = { due, monday, goals: await weekSummaryFor(sb, goals.map((g) => g.id), monday, tz, now) };
-      }
       const supportAt = p.support_hint_at ? localDay(p.support_hint_at, tz) : null;
       input.hints = {
         experiment: experimentDue(goals, p.experiment_at, context.day, (t) => localDay(t, tz)),

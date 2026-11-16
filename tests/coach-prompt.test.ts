@@ -577,7 +577,7 @@ describe("prompt rules from the persona tests", () => {
     expect(PERSONA).not.toContain("Emojis nur, wenn");
   });
   it("greets with one concrete point (the opener chosen in code), not only 'Wie geht es dir heute?'", () => {
-    expect(MODE_CHECKIN).toContain("Dann eröffnest du so, wie es unter „Eröffnung“ steht: ein konkreter Punkt in einem Halbsatz und eine einzige Frage.");
+    expect(MODE_CHECKIN).toContain("Dann eröffnest du so, wie es unter „Eröffnung“ steht: ein konkreter Punkt in einem Halbsatz und eine einzige Frage, ausser die Eröffnung sagt „ohne Frage“.");
     expect(MODE_CHECKIN).toContain("Nur „Wie geht es dir heute?“ reicht nicht.");
     expect(MODE_CHECKIN).not.toContain("Nur das, und kurz.");
     // the old fixed ladder (appointment, then health from yesterday, then yesterday's open point) is gone

@@ -109,9 +109,23 @@ describe("the morning in one minute", () => {
     expect(PERSONA).toContain("Was du vorschlägst, hat immer einen Tag („heute“, „morgen“, „am Dienstag“) und eine Uhrzeit, wo es zählt auch einen Ort, nie „diese Woche irgendwann“.");
   });
 
-  it("at most one setup question per conversation, never in the greeting", () => {
-    expect(MODE_CHECKIN).toContain("stellst du höchstens eine solche Frage pro Gespräch, nie in der Begrüssung und nicht an vollen oder müden Tagen");
+  it("at most one setup question per conversation, never in the greeting; the connections ask counts too", () => {
+    expect(MODE_CHECKIN).toContain(
+      "- Einrichtungsfragen: Fehlen bei einem Ziel Etappen, Zieldatum, die Schätzung des Aufwands oder die Zeit pro Woche und sprecht ihr gerade nicht darüber, stellst du von dir aus höchstens eine solche Frage pro Gespräch, nie in der Begrüssung und nicht an vollen oder müden Tagen. Auch die Frage nach Apps und Geräten (unter „Verbindungen“) ist eine Einrichtungsfrage: Pro Gespräch stellst du höchstens eine von allen.",
+    );
+    expect(MODE_CHECKIN).toContain("nie in der Begrüssung und nur in einem Gespräch ohne andere Einrichtungsfrage: Du fragst, welche Apps oder Geräte sie nutzt");
     expect(MODE_CHECKIN).not.toContain("holst du das bei Gelegenheit nach");
+    // the persona's goal rules ask only while a goal is created or talked about, else they point to the cap
+    expect(prompts).not.toContain("spätestens in der übernächsten Antwort");
+    expect(PERSONA).not.toContain("Legst du ein Ziel an oder steht bei einem „Aufwand noch nicht geschätzt“");
+    expect(PERSONA).toContain("Legst du ein Ziel an, oder sprecht ihr über ein Ziel mit „Aufwand noch nicht geschätzt“, schätzt du den gesamten Aufwand");
+    expect(PERSONA).toContain("schlägst du, wenn ihr es anlegt oder darüber sprecht, in einem einzigen Satz zwei bis vier Etappen mit Monat vor");
+    expect(PERSONA.match(/nur als Einrichtungsfrage nach \(höchstens eine pro Gespräch\)/g)).toHaveLength(2);
+  });
+
+  it("the greeting asks only when the opener has a question; the evening plans only for the Wochenblick", () => {
+    expect(MODE_CHECKIN).toContain("ein konkreter Punkt in einem Halbsatz und eine einzige Frage, ausser die Eröffnung sagt „ohne Frage“.");
+    expect(MODE_CHECKIN).toContain("- Am Abend schaust du zurück, statt zu planen, ausser beim Wochenblick.");
   });
 
   it("the opener is chosen in code and stands in the context only for the greeting", () => {
@@ -155,8 +169,36 @@ describe("after a pause: as always, a small step", () => {
     const paused = ctx({ lastSeen: "2026-11-07" });
     expect(paused).toContain("Letztes Gespräch: Sa., 7. Nov. · danach eine Pause (sprich sie nie an)\n");
     expect(paused).not.toMatch(/vor \d+ Tagen|9 Tage/);
-    expect(ctx({ lastSeen: null })).toContain("Letztes Gespräch: keines vor heute\n");
+    expect(ctx({ lastSeen: null })).toContain("Letztes Gespräch: bisher nur das Kennenlernen\n");
     expect(ctx({})).not.toContain("Letztes Gespräch:");
+  });
+
+  const pastBlock = (id: string, start: string, end: string) => ({ id, title: "Lauf", starts_at: start, ends_at: end, all_day: false, location: null, kind: "block", goal_id: "g1" });
+  // a pause from 9 November: blocks on Tuesday and Thursday nobody answered, a step overdue for 6 days
+  const missed = [pastBlock("b1", "2026-11-10T17:00:00Z", "2026-11-10T18:00:00Z"), pastBlock("b2", "2026-11-12T17:00:00Z", "2026-11-12T18:00:00Z")];
+
+  it("never lists what was missed: no past blocks and no «überfällig» after a pause", () => {
+    const out = ctx({ opener: "neustart", lastSeen: "2026-11-09", goals: [race], pastBlocks: missed });
+    expect(out).not.toContain("Vergangene Blöcke ohne Rückmeldung");
+    expect(out).not.toMatch(/Di\., 10\. Nov\.|Do\., 12\. Nov\./);
+    expect(out).not.toContain("überfällig");
+    expect(out).toContain("  - [m1] offen, als Nächstes: 15 km am Stück · bis 2026-11-10\n");
+    // the restart still knows her usual block length
+    expect(section(out, "Eröffnung")).toContain("Neustart: ein kleiner Schritt für „Halbmarathon Zürich“, etwa 30 Minuten, heute oder morgen mit Uhrzeit");
+    expect(MODE_CHECKIN).toContain("Nach einer Pause fragst du weder nach vergangenen Blöcken noch nach überfälligen Etappen.");
+  });
+
+  it("the day after the restart: only blocks since the last conversation, never the ones from the pause", () => {
+    // back on Sunday 15 November after the pause; today is Monday, a block on Sunday evening
+    const sunday = pastBlock("b3", "2026-11-15T17:00:00Z", "2026-11-15T18:00:00Z");
+    const out = ctx({ lastSeen: "2026-11-15", goals: [race], pastBlocks: [...missed, sunday] });
+    expect(section(out, "Vergangene Blöcke ohne Rückmeldung")).toBe(
+      "## Vergangene Blöcke ohne Rückmeldung ([id] Zeit: Titel (Ziel) · zählen von selbst als geschafft)\n- [b3] So., 15. Nov. (gestern), 18:00–19:00: Lauf (Ziel „Halbmarathon Zürich“)",
+    );
+    // no pause: an overdue step is asked about once again
+    expect(out).toContain("· überfällig seit 6 Tagen");
+    // without a known last conversation (not the daily conversation): all of them, as before
+    expect(section(ctx({ goals: [race], pastBlocks: missed }), "Vergangene Blöcke ohne Rückmeldung")).toContain("- [b1] Di., 10. Nov.");
   });
 
   it("the restart: one goal, a smaller version with minutes, today or tomorrow; quiet when it was heavy", () => {
@@ -277,6 +319,28 @@ describe("the Wochenblick", () => {
     expect(openerLine("wochenblick", base)).toBe("Wochenblick (siehe „Wochenblick“)");
   });
 
+  it("is decided from her own last words before today (dailySituation), not from a greeting she never answered", () => {
+    // index.ts can't be loaded here (Deno); the decision itself is tested in plan-daily (dailySituation)
+    expect(source).toContain("dailySituation({");
+    expect(source).toMatch(/select\("thread, created_at"\)\.eq\("role", "user"\)\.eq\("hidden", false\)\.lt\("thread", day\)/);
+    expect(source).not.toContain("wochenblickDue(");
+  });
+
+  it("a week with blocks planned but nothing confirmed: no win to name, the fallback instead", () => {
+    const planned = { due: "anbieten" as const, monday: "2026-11-09", goals: [{ goal_id: "g1", planned_minutes: 180, blocks: 3, done_minutes: 0, open_minutes: 180 }] };
+    const out = section(ctx({ goals: [race], review: planned }), "Wochenblick");
+    expect(out).toContain("- „Halbmarathon Zürich“: geplant 3 Std in 3 Blöcken · erledigt noch nichts eingetragen (nicht als Gewinn nennen) · ohne Rückmeldung 3 Std · sie plant 4 Std/Woche\n");
+    expect(out).toContain("- (nichts Erledigtes eingetragen: frag nach dem, was gut war, und zähl nichts auf, was nicht war)\n");
+    expect(out).not.toMatch(/erledigt \d/);
+    // one confirmed act is a win: then no fallback
+    const habit = [{ id: "h1", title: "Dehnen", per_week: 7, goal_id: null, done_days: ["2026-11-11"] }];
+    expect(section(ctx({ goals: [race], habits: habit, review: planned }), "Wochenblick")).not.toContain("nichts Erledigtes eingetragen:");
+    const someDone = { ...planned, goals: [{ ...planned.goals[0], done_minutes: 60, open_minutes: 120 }] };
+    const withWin = section(ctx({ goals: [race], review: someDone }), "Wochenblick");
+    expect(withWin).toContain("erledigt 1 Std · ohne Rückmeldung 2 Std");
+    expect(withWin).not.toContain("nichts Erledigtes eingetragen:");
+  });
+
   it("asks instead after two declines; with nothing done it names nothing that wasn't", () => {
     const out = section(ctx({ goals: [race], review: { due: "fragen", monday: "2026-11-09", goals: [] } }), "Wochenblick");
     expect(out).toContain("fragen: Sie hat ihn zweimal nacheinander abgelehnt. Frag einmal, ob sie den Wochenblick überhaupt möchte.");
@@ -310,14 +374,26 @@ describe("dreams: the early joyful invitation, and a rest after «nicht jetzt»"
     reminded_at: null,
     ...o,
   });
+  // she started on 5 November: today (16 November) is in her second week with the app
+  const startedAt = "2026-11-05T09:00:00Z";
   it("flags one new dream at a time, about joy, and none while one was brought up lately", () => {
-    const out = section(ctx({ goals: [dream("d1", "2026-11-06"), dream("d2", "2026-11-05")] }), "Bucket List");
+    const out = section(ctx({ startedAt, goals: [dream("d1", "2026-11-06"), dream("d2", "2026-11-05")] }), "Bucket List");
     expect(out).toContain("- [d1] Island umrunden · seit 10 Tagen auf der Liste · ohne Datum · neu, Vorfreude\n");
     expect(out).toContain("- [d2] Polarlichter sehen · seit 11 Tagen auf der Liste · ohne Datum\n");
-    const lately = section(ctx({ goals: [dream("d1", "2026-11-06"), dream("d2", "2026-11-05", { reminded_at: "2026-11-10T08:00:00Z" })] }), "Bucket List");
+    const lately = section(ctx({ startedAt, goals: [dream("d1", "2026-11-06"), dream("d2", "2026-11-05", { reminded_at: "2026-11-10T08:00:00Z" })] }), "Bucket List");
     expect(lately).not.toContain("neu, Vorfreude");
     expect(PERSONA).toContain("Steht dort „neu, Vorfreude“, fragst du einmal nur nach der Freude daran, ohne Schritte und ohne Datum");
     expect(MODE_CHECKIN).toContain("„liegt lange“, „guter Zeitpunkt“ oder „neu, Vorfreude“, nimmst du höchstens einen davon im Gespräch auf");
+  });
+
+  it("only in her second week with the app: a dream added in month 3 gets no early invitation, nor without a start", () => {
+    const later = section(ctx({ startedAt: "2026-08-10T09:00:00Z", goals: [dream("d1", "2026-11-06")] }), "Bucket List");
+    expect(later).toContain("- [d1] Island umrunden · seit 10 Tagen auf der Liste · ohne Datum\n");
+    expect(later).not.toContain("neu, Vorfreude");
+    expect(section(ctx({ goals: [dream("d1", "2026-11-06")] }), "Bucket List")).not.toContain("neu, Vorfreude");
+    // her third week is still the window (she may not have opened the app in her second)
+    expect(section(ctx({ startedAt: "2026-10-28T09:00:00Z", goals: [dream("d1", "2026-10-30")] }), "Bucket List")).toContain("neu, Vorfreude");
+    expect(section(ctx({ startedAt: "2026-10-26T09:00:00Z", goals: [dream("d1", "2026-10-30")] }), "Bucket List")).not.toContain("neu, Vorfreude");
   });
 
   it("«nicht jetzt»: update_goal nicht_jetzt, and the dream rests (nudge_after)", () => {
@@ -326,6 +402,20 @@ describe("dreams: the early joyful invitation, and a rest after «nicht jetzt»"
     expect(source).toContain("nudge_after: addDays(day, NUDGE_NOT_NOW_DAYS)");
     const resting = dream("d1", "2026-01-01", { nudge_after: "2027-02-01" });
     expect(section(ctx({ goals: [resting] }), "Bucket List")).not.toContain("liegt lange");
+  });
+
+  it("a resting dream older than 30 days still says it rests, so the season doesn't bring it up either", () => {
+    // «nicht jetzt» on 10 October: the 30 days of «zuletzt von dir angesprochen» are over, the 90 quiet days not
+    const resting = dream("d1", "2026-01-01", { reminded_at: "2026-10-10T08:00:00Z", nudge_after: "2027-01-08" });
+    const out = section(ctx({ goals: [resting] }), "Bucket List");
+    expect(out).toContain("- [d1] Island umrunden · seit 10 Monaten auf der Liste · ohne Datum · ruht bis 2027-01-08 (sie sagte „nicht jetzt“): nicht von dir aus ansprechen\n");
+    expect(out).not.toContain("zuletzt von dir angesprochen");
+    expect(out).not.toContain("liegt lange");
+    // from the day it rests to, the usual reminders are back
+    const awake = section(contextBlock({ ...base, day: "2027-01-08", goals: [resting] }), "Bucket List");
+    expect(awake).not.toContain("ruht bis");
+    expect(awake).toContain("liegt lange");
+    expect(PERSONA).toContain("Steht bei einem Traum „ruht“, sprichst du ihn nicht von dir aus an, auch nicht wegen der Jahreszeit.");
   });
 });
 
@@ -336,6 +426,9 @@ describe("rare offers: a small experiment, and pointing to people", () => {
     expect(section(ctx({ hints: { support: true } }), "Hinweise")).toContain("- Begleitung: Sie spricht seit gut zwei Wochen fast täglich lange mit dir");
     expect(MODE_CHECKIN).toContain("Steht unter „Hinweise“ „ein kleines Experiment“, darfst du an einer ruhigen Stelle eines vorschlagen, aus ihren Werten oder der Jahreszeit");
     expect(tools).toContain('name: "note_offer"');
+    // the example states nothing the context doesn't have (no sunset time there, only the light)
+    expect(MODE_CHECKIN).toContain("etwa „Magst du heute zehn Minuten hinaus, solange es noch hell ist?“");
+    expect(prompts).not.toMatch(/Sonne um \d/);
   });
 });
 

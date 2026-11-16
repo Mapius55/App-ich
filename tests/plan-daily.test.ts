@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
   addDays,
   chooseOpener,
+  dailySituation,
   daysSinceLast,
   dreamNudge,
   EVENING_QUESTIONS_PER_WEEK,
@@ -16,10 +17,12 @@ import {
   leansOnCoach,
   localClock,
   PAUSE_DAYS,
+  restingUntil,
   reviewWeek,
   ROTATING_OPENERS,
   sensitiveTopic,
   smallStepMinutes,
+  talkClock,
   todayWins,
   weekGoalSummary,
   wochenblickDue,
@@ -52,6 +55,23 @@ describe("her clock", () => {
     expect(localClock(new Date("2026-11-16T06:40:00Z"), "Europe/Zurich")).toEqual({ day: "2026-11-16", minutes: 7 * 60 + 40, weekday: 0 });
     expect(localClock(new Date("2026-11-15T23:30:00Z"), "Europe/Zurich")).toEqual({ day: "2026-11-16", minutes: 30, weekday: 0 });
     expect(localClock(new Date("2026-11-16T03:00:00Z"), "America/New_York")).toEqual({ day: "2026-11-15", minutes: 22 * 60, weekday: 6 });
+  });
+
+  it("in summer time too: Sunday 16:00 on the day the clocks go forward (CEST, UTC+2)", () => {
+    expect(localClock(new Date("2027-03-28T13:59:00Z"), "Europe/Zurich")).toEqual({ day: "2027-03-28", minutes: 959, weekday: 6 });
+    expect(localClock(new Date("2027-03-28T14:00:00Z"), "Europe/Zurich")).toEqual({ day: "2027-03-28", minutes: 960, weekday: 6 });
+    // the hour that doesn't exist: 01:59 CET is followed by 03:00 CEST
+    expect(localClock(new Date("2027-03-28T00:59:00Z"), "Europe/Zurich").minutes).toBe(1 * 60 + 59);
+    expect(localClock(new Date("2027-03-28T01:00:00Z"), "Europe/Zurich").minutes).toBe(3 * 60);
+  });
+
+  it("the clock of her last conversation: a Sunday evening that ran past midnight is still Sunday evening", () => {
+    expect(talkClock("2026-11-15", "2026-11-15T17:30:00Z", "Europe/Zurich")).toEqual({ day: "2026-11-15", minutes: 18 * 60 + 30 });
+    expect(talkClock("2026-11-15", "2026-11-15T23:10:00Z", "Europe/Zurich")).toEqual({ day: "2026-11-15", minutes: 24 * 60 - 1 });
+    expect(talkClock("2027-03-28", "2027-03-28T14:00:00Z", "Europe/Zurich")).toEqual({ day: "2027-03-28", minutes: 960 });
+    // the Kennenlernen has its own thread: no day
+    expect(talkClock("onboarding", "2026-11-15T17:30:00Z", "Europe/Zurich")).toBeNull();
+    expect(talkClock("2026-11-15", "kaputt", "Europe/Zurich")).toBeNull();
   });
 });
 
@@ -169,6 +189,17 @@ describe("the Wochenblick", () => {
     expect(wochenblickDue({ ...base, state: { week: "2026-11-09", declines: 1, wanted: null } })).toBe("anbieten");
   });
 
+  it("never before her first own conversation on an earlier day: there is no week of hers to look back on", () => {
+    expect(wochenblickDue({ ...base, lastTalk: null })).toBeNull();
+    expect(wochenblickDue({ ...base, day: "2026-11-16", minutes: 8 * 60, lastTalk: null })).toBeNull();
+  });
+
+  it("from Sunday 16:00 in summer time as well", () => {
+    const summer = { ...base, lastTalk: { day: "2027-03-25", minutes: 8 * 60 } };
+    expect(wochenblickDue({ ...summer, day: "2027-03-28", minutes: 959 })).toBeNull();
+    expect(wochenblickDue({ ...summer, day: "2027-03-28", minutes: 960 })).toBe("anbieten");
+  });
+
   it("needs a goal with a plan, and never comes in a heavy time or after a pause", () => {
     expect(wochenblickDue({ ...base, hasPlanGoal: false })).toBeNull();
     expect(wochenblickDue({ ...base, heavy: true })).toBeNull();
@@ -222,6 +253,81 @@ describe("the Wochenblick", () => {
   });
 });
 
+describe("the Wochenblick over the day the clocks go back (25 October 2026)", () => {
+  it("counts the week Monday to Sunday by her days, and a block across the change by its real length", () => {
+    const now = new Date("2026-10-26T08:00:00Z");
+    const block = (id: string, start: string, end: string) => ({ id, goal_id: "g1", starts_at: start, ends_at: end, all_day: false, kind: "block", source: "coach", answered: false });
+    const out = weekGoalSummary(
+      ["g1"],
+      [
+        block("b1", "2026-10-18T22:30:00Z", "2026-10-18T23:30:00Z"), // Monday 19 Oct, 00:30 CEST: in the week
+        block("b2", "2026-10-24T23:30:00Z", "2026-10-25T02:30:00Z"), // Sunday 01:30 CEST to 03:30 CET: three real hours
+        block("b3", "2026-10-25T21:30:00Z", "2026-10-25T22:30:00Z"), // Sunday 22:30 CET: in the week
+        block("b4", "2026-10-25T23:30:00Z", "2026-10-26T00:30:00Z"), // Monday 26 Oct, 00:30 CET: the next week
+        block("b5", "2026-10-18T21:30:00Z", "2026-10-18T22:00:00Z"), // Sunday 18 Oct, 23:30 CEST: the week before
+      ],
+      [
+        { goal_id: "g1", day: "2026-10-25", minutes: 45 },
+        { goal_id: "g1", day: "2026-10-26", minutes: 30 },
+      ],
+      "2026-10-19",
+      now,
+      zurich,
+    );
+    expect(out).toEqual([{ goal_id: "g1", planned_minutes: 60 + 180 + 60, blocks: 3, done_minutes: 45, open_minutes: 300 }]);
+  });
+});
+
+describe("the daily situation, from what was stored", () => {
+  const state: ReviewState = { week: null, declines: 0, wanted: null };
+  // Monday 16 November, 07:40 in Zurich; she talked on Friday
+  const base = {
+    day: "2026-11-16",
+    now: new Date("2026-11-16T06:40:00Z"),
+    tz: "Europe/Zurich",
+    lastSeenDay: "2026-11-13",
+    lastSpoke: { thread: "2026-11-13", created_at: "2026-11-13T07:00:00Z" },
+    todayMood: null,
+    recentDays: [],
+    review: state,
+    hasPlanGoal: true,
+  };
+
+  it("reads her clock, a pause, a heavy time and whether the Wochenblick is due", () => {
+    expect(dailySituation(base)).toEqual({ minutes: 7 * 60 + 40, pause: false, heavy: false, review: "anbieten" });
+    // her clock and the thread disagree around midnight: midday
+    expect(dailySituation({ ...base, now: new Date("2026-11-15T22:30:00Z") }).minutes).toBe(12 * 60);
+  });
+
+  it("a new person's first daily conversation (only the Kennenlernen before): no Wochenblick", () => {
+    expect(dailySituation({ ...base, lastSeenDay: null, lastSpoke: null })).toEqual({ minutes: 7 * 60 + 40, pause: false, heavy: false, review: null });
+  });
+
+  it("a greeting on Sunday evening she never answered doesn't use up the Wochenblick", () => {
+    // the app opened on Sunday at 18:00 (a hidden opener and the greeting), her own last words on Friday
+    expect(dailySituation({ ...base, lastSeenDay: "2026-11-15" }).review).toBe("anbieten");
+    // she did talk on Sunday evening: that was the first conversation of the new week
+    expect(dailySituation({ ...base, lastSeenDay: "2026-11-15", lastSpoke: { thread: "2026-11-15", created_at: "2026-11-15T17:05:00Z" } }).review).toBeNull();
+    // a Sunday conversation that ran past midnight counts as Sunday evening
+    expect(dailySituation({ ...base, lastSeenDay: "2026-11-15", lastSpoke: { thread: "2026-11-15", created_at: "2026-11-15T23:10:00Z" } }).review).toBeNull();
+    // Sunday morning is not the new week yet
+    expect(dailySituation({ ...base, lastSeenDay: "2026-11-15", lastSpoke: { thread: "2026-11-15", created_at: "2026-11-15T09:00:00Z" } }).review).toBe("anbieten");
+  });
+
+  it("after a pause a restart, not a Wochenblick; in a heavy time neither; an unknown state never offers it", () => {
+    expect(dailySituation({ ...base, lastSeenDay: "2026-11-09", lastSpoke: { thread: "2026-11-09", created_at: "2026-11-09T07:00:00Z" } })).toMatchObject({ pause: true, review: null });
+    expect(dailySituation({ ...base, todayMood: { valence: -0.6 } })).toMatchObject({ heavy: true, review: null });
+    expect(dailySituation({ ...base, review: null }).review).toBeNull();
+    expect(dailySituation({ ...base, hasPlanGoal: false }).review).toBeNull();
+  });
+
+  it("Sunday 16:00 in summer time: due from that minute on", () => {
+    const sunday = { ...base, day: "2027-03-28", lastSeenDay: "2027-03-26", lastSpoke: { thread: "2027-03-26", created_at: "2027-03-26T07:00:00Z" } };
+    expect(dailySituation({ ...sunday, now: new Date("2027-03-28T13:59:00Z") })).toMatchObject({ minutes: 959, review: null });
+    expect(dailySituation({ ...sunday, now: new Date("2027-03-28T14:00:00Z") })).toMatchObject({ minutes: 960, review: "anbieten" });
+  });
+});
+
 describe("a small restart", () => {
   it("is half her usual block, in steps of 5, from 15 up to 45 minutes", () => {
     expect(smallStepMinutes([60, 90, 60], null)).toBe(30);
@@ -271,9 +377,46 @@ describe("leaning on the coach", () => {
 
 describe("follow-ups: once, and never on sensitive topics", () => {
   it("knows health, relationships, money and legal matters, and leaves sport and friends alone", () => {
-    for (const t of ["Zahnarzt am Freitag", "Termin bei der Ärztin", "Therapie um 16 Uhr", "Gespräch mit der Bank", "Treffen mit dem Anwalt", "Trennung besprechen", "Physio wegen dem Knie"])
-      expect(sensitiveTopic(t)).toBe(true);
-    for (const t of ["Läuft am Samstag den Greifenseelauf.", "Lauf mit dem Trainingspartner", "Prüfung in Statistik", "Belohnt sich mit einem Konzert", "Reist nach Norwegen"]) expect(sensitiveTopic(t)).toBe(false);
+    for (const t of [
+      "Zahnarzt am Freitag",
+      "Termin bei der Ärztin",
+      "Therapie um 16 Uhr",
+      "Gespräch mit der Bank",
+      "Treffen mit dem Anwalt",
+      "Trennung besprechen",
+      "Physio wegen dem Knie",
+      "Termin beim Doktor",
+      "Dr. Meier um 9",
+      "MRI am Knie",
+      "MRT vom Rücken",
+      "Röntgen Schulter",
+      "Chemo-Termin",
+      "Mammografie",
+      "Ultraschall",
+      "Reha in Valens",
+      "Hebamme kommt",
+      "Gehaltsgespräch mit dem Chef",
+      "Stundenlohn verhandeln",
+      "Miete zu hoch",
+      "Geld von Papa zurückzahlen",
+      "Budget für den Monat",
+      "Klage einreichen",
+    ])
+      expect(sensitiveTopic(t), t).toBe(true);
+    for (const t of [
+      "Läuft am Samstag den Greifenseelauf.",
+      "Lauf mit dem Trainingspartner",
+      "Prüfung in Statistik",
+      "Belohnt sich mit einem Konzert",
+      "Reist nach Norwegen",
+      "Ferien in Klagenfurt",
+      "Bankett der Firma",
+      "Bankdrücken mit 60 kg",
+      "Das lohnt sich",
+      "Velo mieten in Amsterdam",
+      "Beim langen Lauf durchgehalten",
+    ])
+      expect(sensitiveTopic(t), t).toBe(false);
   });
 
   it("a dated note one to three days back, not asked yet", () => {
@@ -300,14 +443,27 @@ describe("dreams: the early invitation and the rest after «nicht jetzt»", () =
     ...o,
   });
 
-  it("«neu» in its second week on the list (7 to 20 days), never brought up and not planned", () => {
-    expect(dreamNudge(dream(), today)).toBe("neu");
-    for (const age of [6, 21]) expect(dreamNudge(dream({ created_at: `${addDays(today, -age)}T10:00:00.000Z` }), today)).toBeNull();
-    expect(dreamNudge(dream({ created_at: `${addDays(today, -7)}T10:00:00.000Z` }), today)).toBe("neu");
-    expect(dreamNudge(dream({ reminded_at: `${addDays(today, -2)}T10:00:00.000Z` }), today)).toBeNull();
-    expect(dreamNudge(dream({ target_date: "2028-06-30" }), today)).toBeNull();
-    expect(dreamNudge(dream(), today, { lastStepDay: addDays(today, -3) })).toBeNull();
-    expect(dreamNudge(dream({ status: "paused" }), today)).toBeNull();
+  // she started ten days ago, the dream is from her first day
+  const start = { startDay: addDays(today, -10) };
+  it("«neu» in her second week with the app (7 to 20 days), for a dream of her first week, never brought up and not planned", () => {
+    expect(dreamNudge(dream(), today, start)).toBe("neu");
+    for (const since of [6, 21]) expect(dreamNudge(dream({ created_at: `${addDays(today, -since)}T10:00:00.000Z` }), today, { startDay: addDays(today, -since) })).toBeNull();
+    expect(dreamNudge(dream({ created_at: `${addDays(today, -7)}T10:00:00.000Z` }), today, { startDay: addDays(today, -7) })).toBe("neu");
+    expect(dreamNudge(dream({ created_at: `${addDays(today, -20)}T10:00:00.000Z` }), today, { startDay: addDays(today, -20) })).toBe("neu");
+    expect(dreamNudge(dream({ reminded_at: `${addDays(today, -2)}T10:00:00.000Z` }), today, start)).toBeNull();
+    expect(dreamNudge(dream({ target_date: "2028-06-30" }), today, start)).toBeNull();
+    expect(dreamNudge(dream(), today, { ...start, lastStepDay: addDays(today, -3) })).toBeNull();
+    expect(dreamNudge(dream({ status: "paused" }), today, start)).toBeNull();
+  });
+
+  it("never «neu» for a dream added later than her first week, or without knowing when she started", () => {
+    // added on her 8th day: a later dream waits on the list like any other
+    expect(dreamNudge(dream({ created_at: `${addDays(today, -3)}T10:00:00.000Z` }), today, { startDay: addDays(today, -11) })).toBeNull();
+    expect(dreamNudge(dream({ created_at: `${addDays(today, -4)}T10:00:00.000Z` }), today, { startDay: addDays(today, -10) })).toBe("neu");
+    // a dream added in her third month, in its own second week: nothing
+    expect(dreamNudge(dream(), today, { startDay: addDays(today, -90) })).toBeNull();
+    expect(dreamNudge(dream(), today)).toBeNull();
+    expect(dreamNudge(dream(), today, { startDay: "irgendwann" })).toBeNull();
   });
 
   it("rests until nudge_after, then the usual reminders come back", () => {
@@ -317,6 +473,10 @@ describe("dreams: the early invitation and the rest after «nicht jetzt»", () =
     expect(dreamNudge({ ...old, nudge_after: today }, today)).toBe("lange");
     expect(dreamNudge({ ...dream(), nudge_after: addDays(today, 80) }, today)).toBeNull();
     expect(dreamNudge({ ...old, target_date: addDays(today, 20), nudge_after: addDays(today, 30) }, today)).toBeNull();
+    expect(restingUntil(addDays(today, 1), today)).toBe(addDays(today, 1));
+    expect(restingUntil(today, today)).toBeNull();
+    expect(restingUntil(null, today)).toBeNull();
+    expect(restingUntil("bald", today)).toBeNull();
   });
 });
 

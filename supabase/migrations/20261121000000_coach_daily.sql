@@ -53,3 +53,20 @@ begin
   return new;
 end;
 $$;
+
+-- Asking once about an overdue step is no change of the step either: noting overdue_asked_for keeps updated_at,
+-- which the Bucket List reads as activity on a dream («liegt lange»). Every other change touches it as before
+-- (touch_updated_at). Its own function, so the other tables keep theirs.
+create or replace function public.milestones_touch() returns trigger language plpgsql set search_path = '' as $$
+begin
+  if (to_jsonb(new) - array['overdue_asked_for', 'updated_at']) = (to_jsonb(old) - array['overdue_asked_for', 'updated_at']) then
+    new.updated_at := old.updated_at;
+  else
+    new.updated_at := now();
+  end if;
+  return new;
+end;
+$$;
+drop trigger if exists milestones_touch on public.milestones;
+create trigger milestones_touch before update on public.milestones
+  for each row execute function public.milestones_touch();

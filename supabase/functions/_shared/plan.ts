@@ -448,9 +448,11 @@ export const NUDGE_SOON_QUIET_DAYS = 14;
 export const NUDGE_LONG_DAYS = 60;
 /** … and not brought up in the last 30 days */
 export const NUDGE_LONG_QUIET_DAYS = 30;
-/** «neu»: on the list from 7 up to 20 days (its second week), never brought up and not planned: one joyful invitation */
+/** «neu»: one joyful invitation in her second week with the app (7 up to 20 days after she started), for a dream she
+ *  named in her first week (NUDGE_NEW_FIRST_WEEK_DAYS), never brought up and not planned */
 export const NUDGE_NEW_FROM_DAYS = 7;
 export const NUDGE_NEW_UNTIL_DAYS = 20;
+export const NUDGE_NEW_FIRST_WEEK_DAYS = 7;
 /** After her «nicht jetzt» a dream rests this long (goals.nudge_after) */
 export const NUDGE_NOT_NOW_DAYS = 90;
 
@@ -474,13 +476,23 @@ export interface NudgeActivity {
   lastStepDay?: string | null;
   /** an ISO timestamp → the person's local day; default its date as written (UTC from the database) */
   dayOfIso?: (iso: string) => string;
+  /** the day she started with the app (profiles.created_at, local): only then can a dream be «neu» */
+  startDay?: string | null;
+}
+
+/** The day a dream rests until after her «nicht jetzt» (goals.nudge_after), while it still rests; else null. */
+export function restingUntil(nudgeAfter: string | null | undefined, today: string): string | null {
+  if (typeof nudgeAfter !== "string") return null;
+  const d = nudgeAfter.slice(0, 10);
+  return isDay(d) && today < d ? d : null;
 }
 
 /**
  * The coach's reminder candidates (they go into its context, it mentions at most one per conversation):
  * "zeitpunkt" for an active dream with a target date in the next 8 weeks, not brought up in the last
- * 14 days; "neu" for a dream in its second week on the list (7 to 20 days), never brought up, without a
- * date and without anything planned (one invitation about the joy, never about steps); "lange" for an
+ * 14 days; "neu" in her second week with the app (7 to 20 days after `ctx.startDay`) for a dream she named in
+ * her first week, never brought up, without a date and without anything planned (one invitation about the
+ * joy, never about steps; a dream added later never gets it, nor without a start day); "lange" for an
  * active dream with no update, logged time or block for 60 days or more, not brought up in the last
  * 30 days; otherwise null (goals, paused, fulfilled or dropped dreams too, and a dream resting after her
  * «nicht jetzt» until `nudge_after`).
@@ -488,7 +500,7 @@ export interface NudgeActivity {
  */
 export function dreamNudge(goal: NudgeGoal, today: string = dayOf(), ctx: NudgeActivity = {}): DreamNudge | null {
   if (goal.kind !== "dream" || goal.status !== "active" || !isDay(today)) return null;
-  if (typeof goal.nudge_after === "string" && isDay(goal.nudge_after.slice(0, 10)) && today < goal.nudge_after.slice(0, 10)) return null;
+  if (restingUntil(goal.nudge_after, today)) return null;
   const local = (iso: string | null | undefined): string | null => {
     if (typeof iso !== "string" || !iso) return null;
     let d: string;
@@ -506,9 +518,10 @@ export function dreamNudge(goal: NudgeGoal, today: string = dayOf(), ctx: NudgeA
     if (ahead >= 0 && ahead <= NUDGE_SOON_DAYS && quiet(NUDGE_SOON_QUIET_DAYS)) return "zeitpunkt";
   }
   const created = local(goal.created_at);
-  if (created && reminded === null && !goal.target_date && !ctx.lastTimeDay && !ctx.lastBlockDay && !ctx.lastStepDay) {
-    const age = daysBetween(created, today);
-    if (age >= NUDGE_NEW_FROM_DAYS && age <= NUDGE_NEW_UNTIL_DAYS) return "neu";
+  const start = typeof ctx.startDay === "string" && isDay(ctx.startDay) ? ctx.startDay : null;
+  if (start && created && reminded === null && !goal.target_date && !ctx.lastTimeDay && !ctx.lastBlockDay && !ctx.lastStepDay) {
+    const withApp = daysBetween(start, today);
+    if (daysBetween(start, created) < NUDGE_NEW_FIRST_WEEK_DAYS && withApp >= NUDGE_NEW_FROM_DAYS && withApp <= NUDGE_NEW_UNTIL_DAYS) return "neu";
   }
   const seen = [goal.updated_at, goal.created_at, ctx.lastTimeDay, ctx.lastBlockDay, ctx.lastStepDay].map(local).filter((d): d is string => d !== null);
   if (!seen.length) return null;
@@ -649,9 +662,11 @@ export type ReviewDue = "anbieten" | "fragen";
 
 /**
  * Whether the Wochenblick is due in this conversation: in its window (Sunday from 16:00 up to Wednesday),
- * not yet done or declined for this week, no earlier conversation since Sunday 16:00 (`lastTalk`: the last
- * conversation before today, with its local time), at least one goal with weekly hours or blocks, not after a
- * pause (that is a restart) and not in a heavy time. Never when she said she doesn't want it.
+ * not yet done or declined for this week, no earlier conversation since Sunday 16:00 (`lastTalk`: her own last
+ * message before today, its day and local time, talkClock; a greeting she never answered is no conversation),
+ * at least one goal with weekly hours or blocks, not after a pause (that is a restart) and not in a heavy time.
+ * Never when she said she doesn't want it, and never before she ever talked on an earlier day (`lastTalk` null:
+ * there is no week of hers to look back on yet; the Kennenlernen has its own thread and doesn't count).
  */
 export function wochenblickDue(o: {
   day: string;
@@ -662,7 +677,7 @@ export function wochenblickDue(o: {
   heavy: boolean;
   pause: boolean;
 }): ReviewDue | null {
-  if (!isDay(o.day) || !o.hasPlanGoal || o.heavy || o.pause || o.state.wanted === false) return null;
+  if (!isDay(o.day) || !o.lastTalk || !o.hasPlanGoal || o.heavy || o.pause || o.state.wanted === false) return null;
   const wd = weekdayIndex(o.day);
   const inWindow = (wd === 6 && o.minutes >= REVIEW_FROM) || wd <= REVIEW_LAST_WEEKDAY;
   if (!inWindow) return null;
@@ -670,8 +685,67 @@ export function wochenblickDue(o: {
   if (o.state.week && isDay(o.state.week) && o.state.week >= week) return null;
   const sunday = addDays(week, -1);
   const t = o.lastTalk;
-  if (t && isDay(t.day) && t.day < o.day && (t.day > sunday || (t.day === sunday && t.minutes >= REVIEW_FROM))) return null;
+  if (isDay(t.day) && t.day < o.day && (t.day > sunday || (t.day === sunday && t.minutes >= REVIEW_FROM))) return null;
   return o.state.declines >= 2 && o.state.wanted !== true ? "fragen" : "anbieten";
+}
+
+/**
+ * When she last talked, on the clock of that conversation: the day of its thread, and the local time of her message,
+ * or the end of that day when the message came after midnight (a conversation of Sunday evening that ran past
+ * midnight is still Sunday evening). Null when the thread is no day (the Kennenlernen) or the time is unreadable.
+ */
+export function talkClock(thread: string, createdAt: string, tz: string): { day: string; minutes: number } | null {
+  if (!isDay(thread) || !Number.isFinite(Date.parse(createdAt))) return null;
+  const c = localClock(new Date(createdAt), tz);
+  return { day: thread, minutes: c.day === thread ? c.minutes : c.day > thread ? 24 * 60 - 1 : 0 };
+}
+
+export interface DailySituation {
+  /** her local minutes now (midday when her clock and the thread disagree around midnight) */
+  minutes: number;
+  /** after a pause: a small restart, nothing about what was missed */
+  pause: boolean;
+  /** heavy lately (heavyLately) */
+  heavy: boolean;
+  /** the Wochenblick, when it is due */
+  review: ReviewDue | null;
+}
+
+/**
+ * What the daily conversation knows before she says anything, from what was stored: her clock, a pause (by the
+ * last day with any conversation), a heavy time, and whether the Wochenblick is due (by her own last message:
+ * talkClock). `review` null: its state is unknown (the columns before their migration), so it is never offered.
+ */
+export function dailySituation(o: {
+  /** her today (the thread) */
+  day: string;
+  now: Date;
+  tz: string;
+  /** the last day before today with any message, null = none */
+  lastSeenDay: string | null;
+  /** her own last message before today (its thread and created_at), null = none */
+  lastSpoke: { thread: string; created_at: string } | null;
+  todayMood: Mood;
+  recentDays: { day: string; mood: Mood }[];
+  review: ReviewState | null;
+  hasPlanGoal: boolean;
+}): DailySituation {
+  const clock = localClock(o.now, o.tz);
+  const minutes = clock.day === o.day ? clock.minutes : 12 * 60;
+  const pause = isPause(o.lastSeenDay, o.day);
+  const heavy = heavyLately(o.todayMood, o.recentDays, o.day);
+  const review = o.review
+    ? wochenblickDue({
+        day: o.day,
+        minutes,
+        lastTalk: o.lastSpoke ? talkClock(o.lastSpoke.thread, o.lastSpoke.created_at, o.tz) : null,
+        state: o.review,
+        hasPlanGoal: o.hasPlanGoal,
+        heavy,
+        pause,
+      })
+    : null;
+  return { minutes, pause, heavy, review };
 }
 
 /** A goal that has a plan to look at: active, not a dream, with weekly hours or with a block in the calendar. */
@@ -783,14 +857,32 @@ export function leansOnCoach(talk: Record<string, number>, moods: { day: string;
   return busy >= 10 && low >= 6 && low >= 0.6 * recorded.length;
 }
 
+// Word parts for sensitiveTopic. Anchored where a short part sits inside harmless words: «Bankett» and
+// «Bankdrücken» are no bank, «Klagenfurt» no lawsuit, «belohnt» and «lohnt sich» no wage, «festgehalten» no salary,
+// «Velo mieten» no rent, the «Trainingspartner» no partner.
+const SENSITIVE = new RegExp(
+  [
+    // health
+    "arzt", "ärzt", "doktor", "\\bdr\\.", "zahn", "therap", "psych", "spital", "klinik", "notfall", "operation", "\\bop\\b", "diagnos",
+    "krank", "physio", "\\breha", "untersuch", "blutt", "blutdruck", "impf", "gyn", "schwanger", "hebamm", "mammo", "ultraschall", "röntgen",
+    "\\bmrt\\b", "\\bmri\\b", "\\bct\\b", "chemo", "onkolog", "kardiolog", "orthopäd", "chirurg",
+    // relationships
+    "beziehung", "trennung", "scheidung", "\\bpartner", "\\bdate\\b", "\\bex\\b",
+    // money
+    "\\bbank(?!ett|drück)", "kredit", "schulden", "steuer", "betreibung", "(?<!be)lohn(?!t)", "gehalt(?!en)", "gehält", "geld", "miete\\b", "\\bmieter",
+    "mietzins", "budget", "finanz", "hypothek", "versicherung",
+    // legal matters
+    "anwalt", "anwält", "gericht", "klage\\b", "\\bklagt\\b", "notar", "polizei", "\\bbusse\\b", "vormund", "kesb",
+  ].join("|"),
+  "i",
+);
+
 /**
  * A dated note she might be asked about that the coach never raises on its own: health, relationships,
  * money, legal matters. A coarse word check; the prompt says the same.
  */
 export function sensitiveTopic(text: string): boolean {
-  return /arzt|ärzt|zahn|therap|psych|spital|klinik|notfall|operation|\bop\b|diagnos|krank|physio|untersuch|blutt|impf|gyn|schwanger|beziehung|trennung|scheidung|\bpartner|\bdate\b|\bex\b|\bbank|kredit|schulden|steuer|betreibung|\blohn|finanz|hypothek|versicherung|anwalt|anwält|gericht|klage|notar|polizei|\bbusse\b|vormund|kesb/i.test(
-    text,
-  );
+  return SENSITIVE.test(text);
 }
 
 /** A dated memory to ask about once: its day lies one to three days back, not asked yet, and nothing sensitive. */
