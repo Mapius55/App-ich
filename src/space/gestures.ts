@@ -39,14 +39,17 @@ export function timeSwipeEnabled(s: Gate, level: Level): boolean {
 }
 
 /**
- * The column rests on a level: scrollY within 1 px of the nearest section top (`tops`, else k·sectionH).
- * Without scrollend an idle gap can come in the middle of a fling (a slow frame); a settle by timer
- * waits until the column is really on a snap point.
+ * The column rests on a level: scrollY within 1 px of the nearest snap position (`tops`, else
+ * k·sectionH). A section top past `maxScroll` (scrollHeight − innerHeight) snaps to maxScroll: in
+ * a Safari tab with the toolbar collapsed the viewport is taller than the 100svh sections, so Leben's
+ * top cannot be reached and mandatory snap rests at the end. Without scrollend an idle gap can come
+ * in the middle of a fling (a slow frame); a settle by timer waits until the column is really on a
+ * snap point.
  */
-export function atSnapPoint(scrollY: number, sectionH: number, tops?: readonly number[]): boolean {
+export function atSnapPoint(scrollY: number, sectionH: number, tops?: readonly number[], maxScroll = Infinity): boolean {
   if (!(sectionH > 0)) return true;
-  let k = Math.max(0, Math.round(scrollY / sectionH));
-  if (tops?.length) k = Math.min(k, tops.length - 1);
-  const top = tops?.[k] ?? k * sectionH;
-  return Math.abs(scrollY - top) <= 1;
+  const max = maxScroll >= 0 ? maxScroll : Infinity;
+  const at = (top: number) => Math.abs(scrollY - Math.min(top, max)) <= 1;
+  if (tops?.length) return tops.some(at);
+  return at(Math.max(0, Math.round(scrollY / sectionH)) * sectionH);
 }

@@ -126,9 +126,11 @@ export function useLevels(o: {
       clearTimeout(idle);
       if (moving) idle = window.setTimeout(onIdle, idleMs);
     };
-    // a settle by timer only on a snap point (a slow frame mid-fling is no rest); scrollend settles as it comes
+    // a settle by timer only on a snap point (a slow frame mid-fling is no rest); scrollend settles as it comes.
+    // (A top past the end counts as the end: in a Safari tab the viewport can be taller than a section.)
     const onIdle = () => {
-      if (cb.current.snap && moving && !touches && rearms < 10 && !atSnapPoint(window.scrollY, height(), sections.current.map((el, l) => el?.offsetTop ?? l * height()))) {
+      const maxScroll = document.documentElement.scrollHeight - window.innerHeight;
+      if (cb.current.snap && moving && !touches && rearms < 10 && !atSnapPoint(window.scrollY, height(), sections.current.map((el, l) => el?.offsetTop ?? l * height()), maxScroll)) {
         rearms++;
         arm();
         return;

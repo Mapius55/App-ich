@@ -255,8 +255,17 @@ html[data-typing="detail"][data-kb] .voice-layer { opacity: 0; visibility: hidde
    band is where a thumb starts); at Jetzt its buttons pan the time column, on a side they
    stay put (a drag there must not scroll the hidden column) */
 .voice-layer .dock > button { touch-action: pan-y; }
+/* with a detail open or a field being typed in, the dock row is solid again: nothing under a
+   detail scrolls (Unfold), and a near miss of ✓ or the mic lands on the row, not on the scrim
+   (a tap there closes the detail) or on a row of the level below */
+html.space-on[data-detail] .voice-layer .dock,
+html.space-on[data-typing] .voice-layer .dock { pointer-events: auto; }
 /* on a side a drag on the dock, the status or a toast must not scroll the hidden time column */
 html.space-on:not([data-place="jetzt"]) .voice-layer .dock > button,
+html.space-on[data-detail] .voice-layer .dock,
+html.space-on[data-detail] .voice-layer .dock > button,
+html.space-on[data-typing] .voice-layer .dock,
+html.space-on[data-typing] .voice-layer .dock > button,
 html.space-on:not([data-place="jetzt"]) .voice-layer .voice-status > *,
 html.space-on:not([data-place="jetzt"]) .voice-layer .toasts > * { touch-action: none; }
 

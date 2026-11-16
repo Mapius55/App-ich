@@ -251,6 +251,19 @@ describe("settle by timer only on a snap point", () => {
     expect(atSnapPoint(845, 843.6, [0, 845, 1690])).toBe(true); // rounded heights: the offset, not k·h
     expect(atSnapPoint(0, 0)).toBe(true); // nothing laid out yet
   });
+  it("a top past the end of the scroll counts as the end (Safari tab, toolbar collapsed: viewport taller than 100svh)", () => {
+    // sections 664 px (svh), viewport 750 px (lvh): max scroll 5·664 − 750 = 2570, Leben's top 2656 is out of reach
+    const svh = 664;
+    const tops = [0, 664, 1328, 1992, 2656];
+    const max = 5 * svh - 750;
+    expect(atSnapPoint(max, svh, tops)).toBe(false); // unclamped: never a rest at Leben
+    expect(atSnapPoint(max, svh, tops, max)).toBe(true);
+    expect(atSnapPoint(max - 0.5, svh, tops, max)).toBe(true);
+    expect(atSnapPoint(max - 60, svh, tops, max)).toBe(false); // still on its way
+    expect(atSnapPoint(1992, svh, tops, max)).toBe(true); // Jahr is reachable as before
+    expect(atSnapPoint(max, svh, undefined, max)).toBe(true); // without measured tops: k·h, clamped
+    expect(atSnapPoint(844, 844, [0, 844], -10)).toBe(true); // nothing to scroll yet: no clamp
+  });
 });
 
 describe("anchor steps", () => {
