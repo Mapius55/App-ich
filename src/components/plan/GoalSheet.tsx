@@ -110,6 +110,9 @@ export function GoalForm({ goal, focusEffort, dream: newDream, onKind, variant, 
   const [why, setWhy] = useState(goal?.why ?? "");
   // her Plan B, one if-then sentence (the coach asks once for a serious goal; she can write or change it here)
   const [planB, setPlanB] = useState(goal?.plan_b ?? "");
+  // a dream shows the field only when it has a Plan B (stored, or written while it was a goal); once shown it
+  // stays while she empties it, so clearing it never pulls the field away under her fingers
+  const [planBShown, setPlanBShown] = useState(() => !!goal?.plan_b?.trim());
   const [status, setStatus] = useState<GoalStatus>(goal?.status ?? "active");
   const [hours, setHours] = useState<Record<HoursKey, string>>({
     effort: hoursText(goal?.effort_hours),
@@ -437,10 +440,19 @@ export function GoalForm({ goal, focusEffort, dream: newDream, onKind, variant, 
       </label>
 
       {/* a goal's Plan B; a dream shows one only if it has it (nothing stored stays out of sight) */}
-      {(!isDream || planB.trim() !== "") && (
+      {(!isDream || planBShown) && (
         <label className="sheet-field">
           <span>Plan B (optional)</span>
-          <textarea value={planB} onChange={(e) => setPlanB(e.target.value)} rows={2} maxLength={PLAN_B_MAX} placeholder="Wenn …, dann …" />
+          <textarea
+            value={planB}
+            onChange={(e) => {
+              setPlanB(e.target.value);
+              if (e.target.value.trim()) setPlanBShown(true);
+            }}
+            rows={2}
+            maxLength={PLAN_B_MAX}
+            placeholder="Wenn …, dann …"
+          />
         </label>
       )}
 

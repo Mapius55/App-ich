@@ -477,14 +477,18 @@ const planBText = (g: ContextGoal) =>
 /**
  * The Plan B line per goal: hers when there is one; else, for one serious goal at a time that was never asked
  * (planBDue: a target date ahead and hours per week or blocks), the one question to ask. Never after a pause or
- * in a heavy time (`quiet`).
+ * in a heavy time (`quiet`), not while the Wochenblick waits (its five short turns are enough for one
+ * conversation; its obstacle step names her Plan B), and not on a day it was already asked for a goal (the
+ * context is built anew each turn: the next goal waits for another day, a setup question at most once per
+ * conversation).
  */
-function planBLines(c: ContextInput, goals: ContextGoal[], quiet: boolean): Map<string, string> {
+function planBLines(c: ContextInput, goals: ContextGoal[], quiet: boolean, localDay: (iso: string) => string): Map<string, string> {
   const out = new Map<string, string>();
   const withBlocks = new Set(
     [...(c.events ?? []), ...(c.recentBlocks ?? []), ...(c.pastBlocks ?? [])].filter((e) => e.kind === "block" && e.goal_id).map((e) => String(e.goal_id)),
   );
-  let asking = quiet;
+  const askedToday = (c.goals ?? []).some((g) => !!g.plan_b_asked_at && localDay(g.plan_b_asked_at) === c.day);
+  let asking = quiet || askedToday || !!c.review;
   for (const g of goals) {
     const own = planBText(g);
     if (own) out.set(g.id, own);
@@ -1028,7 +1032,7 @@ export function contextBlock(c: ContextInput): string {
     : (c.pastBlocks ?? []).filter((b) => !inReview.has(b.id) && (!c.lastSeen || localDay(b.ends_at ?? b.starts_at) >= c.lastSeen));
   const startDay = c.startedAt ? localDay(c.startedAt) : null;
   const patterns = patternLines(c, localDay, pause || quietNow(c));
-  const planB = planBLines(c, goals, pause || quietNow(c));
+  const planB = planBLines(c, goals, pause || quietNow(c), localDay);
   const opener = c.opener ? `\n\n## Eröffnung (nur für die Begrüssung)\n${openerLine(c.opener, c)}` : "";
   const wins = winLines(c, localDay);
   const asks = followUps(c);

@@ -126,6 +126,21 @@ describe("Plan B in the coach's context", () => {
     expect(ctx({ goals: [{ ...race, plan_b_asked_at: "2026-11-10T08:00:00Z" }] })).not.toContain("Plan B");
   });
 
+  it("one Plan B question a day: once asked for a goal today, the next serious goal waits for another day", () => {
+    const asked = { ...exam, plan_b_asked_at: "2026-11-16T07:40:00Z" };
+    // the exam was asked this morning (nothing came of it yet): the race is not asked today
+    expect(ctx({ goals: [asked, race], events: [block] })).not.toContain(ASK);
+    // asked yesterday: today the race may be asked
+    const yesterday = ctx({ goals: [{ ...exam, plan_b_asked_at: "2026-11-15T09:00:00Z" }, race], events: [block] });
+    expect(yesterday.slice(yesterday.indexOf("[g1]"))).toContain(ASK);
+    // her local day decides: 23:30 UTC on the 15th is 00:30 on the 16th in Zurich (today)
+    expect(ctx({ goals: [{ ...exam, plan_b_asked_at: "2026-11-15T23:30:00Z" }, race], events: [block] })).not.toContain(ASK);
+    // her own Plan B written today (the trigger notes it as asked): no new question today either, hers shows
+    const own = ctx({ goals: [{ ...exam, plan_b: "Wenn ich müde bin, lerne ich nur 20 Minuten.", plan_b_asked_at: "2026-11-16T07:40:00Z" }, race], events: [block] });
+    expect(own).toContain("Plan B: „Wenn ich müde bin, lerne ich nur 20 Minuten.“");
+    expect(own).not.toContain(ASK);
+  });
+
   it("never after a pause, in a heavy time, unknown, or for a dream", () => {
     expect(ctx({ goals: [race], lastSeen: "2026-11-01" })).not.toContain(ASK);
     expect(ctx({ goals: [race], today: { mood: { word: "schwer", valence: -0.7, energy: 0.2 }, focus: null } })).not.toContain(ASK);
@@ -143,6 +158,10 @@ describe("Plan B in the coach's context", () => {
     const out = contextBlock({ ...base, goals: [{ ...race, plan_b: "Wenn es regnet, laufe ich auf dem Laufband.", plan_b_asked_at: "2026-11-10T08:00:00Z" }], review });
     const wb = out.slice(out.indexOf("## Wochenblick"));
     expect(wb).toContain("sie plant 4 Std/Woche · Plan B „Wenn es regnet, laufe ich auf dem Laufband.“");
+    // while the Wochenblick waits, no Plan B question on top of its five short turns (another day)
+    expect(goalsOf(contextBlock({ ...base, goals: [race], review }))).not.toContain(ASK);
+    expect(goalsOf(contextBlock({ ...base, goals: [race], review: { ...review, due: "fragen" as const } }))).not.toContain(ASK);
+    expect(goalsOf(contextBlock({ ...base, goals: [race] }))).toContain(ASK);
   });
 
   it("the rule: once, while planning, as a setup question; a reminder only after a «Nein» and in the Wochenblick, never a reproach", () => {
@@ -222,7 +241,11 @@ describe("Plan B: the goal's detail and the backends", () => {
     expect(form).toContain("<span>Plan B (optional)</span>");
     expect(form).toContain('placeholder="Wenn …, dann …"');
     expect(form).toContain("maxLength={PLAN_B_MAX}");
-    expect(form).toContain('{(!isDream || planB.trim() !== "") && (');
+    // a dream: only with a Plan B; once shown it stays while she empties it (never pulled away under her fingers)
+    expect(form).toContain("const [planBShown, setPlanBShown] = useState(() => !!goal?.plan_b?.trim());");
+    expect(form).toContain("{(!isDream || planBShown) && (");
+    expect(form).toContain("if (e.target.value.trim()) setPlanBShown(true);");
+    expect(form).not.toContain('planB.trim() !== "") && (');
     expect(form).toContain("const planPatch = plan !== (goal?.plan_b?.trim() || null) ? { plan_b: plan, ...(goal ? { obstacle: null } : {}) } : {};");
   });
 
