@@ -278,7 +278,7 @@ const TOOLS: Anthropic.Beta.BetaTool[] = [
             "active (Standard). paused für ein zu grosses Ziel, das mit ihrer Zeit oder ihrem Stand klar unerreichbar wirkt, bis ihr ehrlich darüber gesprochen habt. done nur für einen Traum, der sich schon erfüllt hat.",
         },
         done_date: { type: "string", description: "YYYY-MM-DD, nur mit status done: wann sich der Traum erfüllt hat (ungefähr genügt)." },
-        memory: { type: "string", description: "Nur bei einem erfüllten Traum: wie es war, kurz und in ihren Worten." },
+        memory: { type: "string", description: "Nur bei einem erfüllten Traum: wie es war, kurz und in ihren Worten, in der Ich-Form, so wie sie es sagt (nicht in der dritten Person)." },
         effort_hours: {
           type: "number",
           minimum: 0,
@@ -321,7 +321,7 @@ const TOOLS: Anthropic.Beta.BetaTool[] = [
         title: { type: "string" },
         kind: { type: "string", enum: [...GOAL_KINDS], description: "goal oder dream (auf der Bucket List)." },
         done_date: { type: "string", description: "YYYY-MM-DD, mit status done: wann es sich erfüllt hat, wenn nicht heute (ungefähr genügt)." },
-        memory: { type: "string", description: "Wie es war (erfüllter Traum), kurz und in ihren Worten; leer entfernt es." },
+        memory: { type: "string", description: "Wie es war (erfüllter Traum), kurz und in ihren Worten, in der Ich-Form, so wie sie es sagt (nicht in der dritten Person); leer entfernt es." },
         reminded: { type: "boolean", description: "true, nachdem du sie an diesen Traum erinnert hast (liegt lange, guter Zeitpunkt, passende Jahreszeit)." },
         why: { type: "string", description: "Leer, um es zu entfernen." },
         target_date: { type: "string", description: "YYYY-MM-DD oder leer, um das Datum zu entfernen." },
@@ -945,7 +945,8 @@ async function runTool(
       return JSON.stringify({
         ok: true,
         ...(goal.kind !== "dream" || goal.effort_hours ? { aufwand: effortLine(goal, day) } : {}),
-        ...goalHints(goal, day),
+        // only noting a reminder plans nothing: the invitation was the step (no milestones pushed on top)
+        ...(Object.keys(patch).length === 1 && patch.reminded_at ? {} : goalHints(goal, day)),
         ...(patch.reminded_at ? { notiert: "Erinnert. Heute keinen weiteren Traum ansprechen." } : {}),
       });
     }

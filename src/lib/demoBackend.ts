@@ -432,15 +432,18 @@ function goalMemory(v: string | null | undefined): string | null {
   if (String(v).length > 1000) throw new Error("Die Erinnerung ist zu lang (höchstens 1000 Zeichen).");
   return String(v);
 }
-/** Like the trigger goals_done_at: a done goal keeps (or gets) its date, any other has none. */
+/** Like the trigger goals_done_at: a done goal keeps (or gets) its date, never later than now; any other has none. */
 function followDone(status: Goal["status"], doneAt: string | null | undefined): string | null {
-  return status === "done" ? (doneAt ?? now()) : null;
+  if (status !== "done") return null;
+  const at = now();
+  return doneAt && Date.parse(doneAt) <= Date.parse(at) ? doneAt : at;
 }
 
-// Like the check on profiles.birth_year.
+// Like the check on profiles.birth_year and its trigger profiles_birth_year (no year after this one).
 function checkBirthYear(v: unknown) {
   if (v === undefined || v === null) return;
   if (typeof v !== "number" || !Number.isInteger(v) || v < 1900 || v > 2100) throw new Error("Bitte ein Geburtsjahr zwischen 1900 und 2100.");
+  if (v > new Date().getFullYear()) throw new Error("Das Geburtsjahr kann nicht in der Zukunft liegen.");
 }
 
 // ---------- the Bucket List in the demo ----------

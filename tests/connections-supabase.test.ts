@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SupabaseBackend } from "../src/lib/supabaseBackend";
 
 const URL_ = "https://example.supabase.co";
+const PROFILE = { id: "u1", username: "zora", display_name: "Zora", birth_year: 1994, calendar_token: "0b9f5c1e-7d1a-4c55-9a43-2f1f4b9e6a10" };
 type Reply = { status: number; body?: unknown } | "network";
 let replies: Record<string, Reply> = {};
 const calls: { url: string; method: string; body: string | null }[] = [];
@@ -22,6 +23,7 @@ beforeEach(() => {
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       calls.push({ url, method: init?.method ?? "GET", body: typeof init?.body === "string" ? init.body : null });
+      if (url.includes("/rest/v1/profiles")) return respond({ status: 200, body: PROFILE });
       if (url.includes("/rest/v1/")) return respond({ status: 200, body: [] });
       const name = url.replace(`${URL_}/functions/v1/`, "");
       const action = init?.body ? (JSON.parse(String(init.body)) as { action?: string }).action : null;
@@ -32,7 +34,12 @@ beforeEach(() => {
 });
 afterEach(() => vi.unstubAllGlobals());
 
-const be = () => new SupabaseBackend(URL_, "anon-key");
+// logged in unless asked otherwise: the connection calls go out only with a login
+const be = (userId: string | null = "u1") => {
+  const b = new SupabaseBackend(URL_, "anon-key");
+  vi.spyOn(b, "currentUserId").mockResolvedValue(userId);
+  return b;
+};
 
 const STATUS = {
   available: true,
@@ -127,5 +134,23 @@ describe("supabase backend: WHOOP start and Nolio", () => {
     expect(await be().nolioStatus()).toBeNull();
     replies["nolio?action=status"] = { status: 200, body: { available: false, connected: false, last_sync_at: null, last_error: null, running: false, counts: null } };
     expect(await be().nolioStatus()).toMatchObject({ available: false, connected: false, counts: null, garmin: null });
+  });
+});
+
+describe("supabase backend: signed out", () => {
+  it("sends no connection call without a login (signing out clears the states while Du is still shown)", async () => {
+    const b = be(null);
+    expect(await b.whoopStatus()).toBeNull();
+    expect(await b.nolioStatus()).toBeNull();
+    expect(await b.whoopConfirm("c")).toEqual({ ok: false, reason: "error" });
+    expect(calls.filter((c) => c.url.includes("/functions/v1/"))).toHaveLength(0);
+  });
+});
+
+describe("supabase backend: export", () => {
+  it("leaves the calendar link's token out of the file", async () => {
+    const out = await be().exportData();
+    expect(out.profile).toEqual({ id: "u1", username: "zora", display_name: "Zora", birth_year: 1994 });
+    expect(JSON.stringify(out)).not.toContain(PROFILE.calendar_token);
   });
 });

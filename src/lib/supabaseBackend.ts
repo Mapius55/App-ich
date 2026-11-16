@@ -465,8 +465,11 @@ export class SupabaseBackend implements Backend {
   /**
    * A call to a connection function. Null when the function isn't deployed or can't be reached
    * (network error, CORS-less gateway answer, 404, 502–504): the app then shows "Bald verfügbar".
+   * Null without a call when nobody is logged in: signing out clears the connection states while Du
+   * is still on screen, and their reload would only get a 401.
    */
   private async connFn(name: string, init: RequestInit = {}): Promise<Response | null> {
+    if (!(await this.currentUserId())) return null;
     let res: Response;
     try {
       res = await this.fn(name, init);
@@ -646,7 +649,9 @@ export class SupabaseBackend implements Backend {
   }
 
   async exportData() {
-    const out: Record<string, unknown> = { exported_at: new Date().toISOString(), profile: await this.getProfile() };
+    // never the calendar link's token: whoever holds the file could read the calendar with it
+    const { calendar_token: _token, ...profile } = await this.getProfile();
+    const out: Record<string, unknown> = { exported_at: new Date().toISOString(), profile };
     for (const [table, order] of EXPORT_TABLES) out[table] = await this.readAll(table, order);
     // the connections' own rows (WHOOP, Nolio), where the server has them; never the tokens
     for (const [table, order] of EXPORT_CONNECTION_TABLES) {

@@ -114,13 +114,15 @@ html.space-on #root { height: auto; }
 @keyframes orb-think { to { opacity: 0.85; } }
 
 /* ---------- Jetzt (§3.1) ---------- */
+/* the bottom keeps the room of the voice stack under the door: the dock, its two gaps and the 44 px
+   «Nochmal hören» (once she has spoken), so the replay pill never covers the door */
 .space .now {
   height: 100vh;
   height: 100svh;
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: calc(var(--safe-t) + 4px) var(--gutter) calc(var(--dock-bottom) + var(--mic-big) + 44px);
+  padding: calc(var(--safe-t) + 4px) var(--gutter) calc(var(--dock-bottom) + var(--mic-big) + 64px);
   text-align: center;
 }
 .space .now-top { width: 100%; flex: none; display: flex; flex-direction: column; align-items: center; }
@@ -215,6 +217,14 @@ html.space-on #root { height: auto; }
 .space .now-door-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .space .now-door-chev { flex: none; color: var(--text-soft); margin-top: 1px; }
 .space .now-door:active { opacity: 0.7; }
+/* when the voice stack rises over the door (the typed field, what she said, an error, a toast, a note
+   above «Nochmal hören») the door gives way, like «WOCHE ⌄» on the levels (time.css). A single status
+   line («Tippe irgendwo, um mich zu hören», the coach speaking) leaves it in place and tappable. */
+html[data-typed] .space .now-door,
+html:has(.voice-layer :is(.voice-heard, .msg-error, .toasts > *, .voice-status-text:not(.idle-hint) ~ .voice-replay)) .space .now-door {
+  opacity: 0;
+  visibility: hidden;
+}
 
 /* ---------- the voice layer: status, toasts, typed field, dock ---------- */
 .voice-layer {

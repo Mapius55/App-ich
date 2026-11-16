@@ -1,6 +1,7 @@
 // Supabase Edge Function: your own account.
 //   POST {action:"export"} (login) → everything stored about you as JSON, read with your login (Row Level
-//                                    Security): profile (with the birth year), memories, conversations, days,
+//                                    Security): profile (with the birth year; without the token of the
+//                                    calendar link, which would open the calendar), memories, conversations, days,
 //                                    calendar, goals and the dreams of the Bucket List (kind, done_at, memory,
 //                                    reminded_at: every column, "*"), habits, push subscriptions, and from the
 //                                    connections: the connection rows (never tokens), WHOOP daily summaries
@@ -67,9 +68,11 @@ async function readAll(sb: SupabaseClient, table: string, cols: string, order: s
 }
 
 async function exportData(sb: SupabaseClient, userId: string) {
-  const { data: profile, error } = await sb.from("profiles").select("*").eq("id", userId).maybeSingle();
+  const { data: row, error } = await sb.from("profiles").select("*").eq("id", userId).maybeSingle();
   if (error) throw error;
-  const out: Record<string, unknown> = { exported_at: new Date().toISOString(), profile };
+  // never the calendar link's token: whoever holds the file could read the calendar with it
+  const { calendar_token: _token, ...profile } = (row ?? {}) as Record<string, unknown>;
+  const out: Record<string, unknown> = { exported_at: new Date().toISOString(), profile: row ? profile : null };
   for (const [table, cols, order] of TABLES) out[table] = (await readAll(sb, table, cols, order)) ?? [];
   for (const [table, cols, order] of CONNECTION_TABLES) {
     const rows = await readAll(sb, table, cols, order);

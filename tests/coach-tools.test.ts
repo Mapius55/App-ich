@@ -35,6 +35,8 @@ describe("coach tools", () => {
     expect(tool("update_profile")).toContain("nie danach fragen");
     expect(tool("update_profile")).toContain("null entfernt es");
     expect(source).toContain("if (input.birth_year === null) patch.birth_year = null;");
+    // a future year is a clear tool error before any write (the database refuses it too)
+    expect(source).toContain("const problem = birthYearProblem(input.birth_year, day);");
   });
 
   it("tell the app when a call made a dream come true (its done_at may lie days back)", () => {
@@ -50,6 +52,16 @@ describe("coach tools", () => {
   it("stay static, so the prompt can be cached: nothing computed per request, no dates", () => {
     expect(tools).not.toMatch(/\$\{|\d{4}-\d{2}-\d{2}/);
     expect(tools).not.toContain("ß");
+  });
+
+  it("ask for a fulfilled dream's memory in her own words, in the first person", () => {
+    for (const t of ["create_goal", "update_goal"]) expect(tool(t)).toContain("in der Ich-Form, so wie sie es sagt (nicht in der dritten Person)");
+    // remember keeps its own convention
+    expect(tool("remember")).not.toContain("Ich-Form");
+  });
+
+  it("give no planning hint when update_goal only notes a reminder (a dream is never pushed)", () => {
+    expect(source).toContain("...(Object.keys(patch).length === 1 && patch.reminded_at ? {} : goalHints(goal, day)),");
   });
 
   it("set reminded_at on the server and keep done_at to the trigger unless a date is given", () => {
