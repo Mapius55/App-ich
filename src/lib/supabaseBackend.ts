@@ -97,12 +97,14 @@ const EXPORT_TABLES: [string, string[]][] = [
   ["messages", ["id"]],
   ["push_subscriptions", ["id"]],
 ];
-// readable by the person (RLS), present once the WHOOP / Nolio migrations ran
+// readable by the person (RLS), present once the WHOOP / Nolio / push log migrations ran
 const EXPORT_CONNECTION_TABLES: [string, string[]][] = [
   ["connections", ["provider"]],
   ["whoop_days", ["day"]],
   ["nolio_trainings", ["id"]],
   ["nolio_sync", ["user_id"]],
+  // which notifications went out or stayed out (template ids and reasons, never a text)
+  ["push_log", ["id"]],
 ];
 
 // A habit row with its embedded logs (only the days).

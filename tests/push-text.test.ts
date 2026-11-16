@@ -48,7 +48,7 @@ const ev = (local: string, title: string, extra: Partial<MorningFacts["events"][
   goal_id: null,
   ...extra,
 });
-const morning = (f: Partial<MorningFacts>, when = `${MON}T07:30:00`) => morningCandidates({ events: [], focus: null, goals, ...f }, at(when), TZ);
+const morning = (f: Partial<MorningFacts>, when = `${MON}T07:30:00`) => morningCandidates({ events: [], dueSteps: [], goals, ...f }, at(when), TZ);
 const evening = (f: Partial<EveningFacts>, when = `${MON}T21:00:00`) => eveningCandidates({ goals, goalTime: [], milestones: [], habits: [], ...f }, at(when), TZ);
 const first = (groups: Candidate[][]) => groups[0][0].body;
 const all = (groups: Candidate[][]) => groups.flat().map((c) => c.body);
@@ -57,6 +57,17 @@ describe("time", () => {
   it("reads her local day, time and weekday", () => {
     expect(localParts(at(`${MON}T07:30:00`), TZ)).toEqual({ date: MON, minutes: 450, weekday: 0 });
     expect(localParts(new Date("2026-11-21T23:30:00Z"), TZ)).toEqual({ date: "2026-11-22", minutes: 30, weekday: 6 });
+  });
+  it("reads summer time (CEST) and the days the clocks change", () => {
+    // Saturday 4 July 2026, 09:00 in Zurich = 07:00 UTC
+    expect(localParts(new Date("2026-07-04T07:00:00Z"), TZ)).toEqual({ date: "2026-07-04", minutes: 540, weekday: 5 });
+    // Sunday 29 March 2026: 02:00 becomes 03:00, so 09:00 is 07:00 UTC; just before the switch it's 01:59 CET
+    expect(localParts(new Date("2026-03-29T07:00:00Z"), TZ)).toEqual({ date: "2026-03-29", minutes: 540, weekday: 6 });
+    expect(localParts(new Date("2026-03-29T00:59:00Z"), TZ)).toEqual({ date: "2026-03-29", minutes: 119, weekday: 6 });
+    // Sunday 25 October 2026: 03:00 becomes 02:00 again, so 09:00 is 08:00 UTC
+    expect(localParts(new Date("2026-10-25T08:00:00Z"), TZ)).toEqual({ date: "2026-10-25", minutes: 540, weekday: 6 });
+    // after midnight in summer: already the next local day while UTC is still the day before
+    expect(localParts(new Date("2026-07-04T22:30:00Z"), TZ)).toEqual({ date: "2026-07-05", minutes: 30, weekday: 6 });
   });
   it("falls back to Zurich for a missing or unknown zone", () => {
     expect(zoneOr(null)).toBe(TZ);
@@ -109,6 +120,17 @@ describe("dueSlot", () => {
     expect(dueSlot(p, now("2026-11-22T21:15:00"))).toBeNull();
     expect(dueSlot(p, now("2026-11-22T22:40:00"))).toBe("evening");
     expect(dueSlot({ ...p, notify_morning: "07:00:00" }, now("2026-11-21T07:10:00"))).toBe("morning");
+  });
+  it("comes at 09:00 local on a summer Saturday and on the day the clocks go forward", () => {
+    const local = (utc: string) => localParts(new Date(utc), TZ);
+    expect(dueSlot(p, local("2026-07-04T05:31:00Z"))).toBeNull(); // 07:31 CEST
+    expect(dueSlot(p, local("2026-07-04T07:01:00Z"))).toBe("morning"); // 09:01 CEST
+    // the day the clocks go forward: 09:59 CEST is due, 10:01 CEST is past the window (in CET both would be an hour earlier)
+    expect(dueSlot(p, local("2026-03-29T07:59:00Z"))).toBe("morning");
+    expect(dueSlot(p, local("2026-03-29T08:01:00Z"))).toBeNull();
+    // the day they go back: 09:05 CET (it would be 10:05 in CEST)
+    expect(dueSlot(p, local("2026-10-25T08:05:00Z"))).toBe("morning");
+    expect(dueSlot(p, local("2026-07-06T05:35:00Z"))).toBe("morning"); // Monday 07:35 CEST
   });
   it("never when switched off", () => {
     expect(dueSlot({ ...p, notify_morning: null, notify_evening: null }, now(`${MON}T07:30:00`))).toBeNull();
@@ -164,12 +186,29 @@ describe("skipReason", () => {
 
 describe("lock-screen safety", () => {
   it("knows words that don't belong on a lock screen", () => {
-    for (const t of ["Psychotherapie", "Zahnarzttermin", "Termin bei Dr. Meier (Hausarzt)", "5 kg abnehmen", "Physio Knie", "OP-Vorbereitung", "Blutentnahme", "Paarberatung", "Betreibungsamt", "Schlaf tracken", "HRV messen", "Angst vor Prüfung", "Termin bei Dr. Keller", "Doktor Huber"])
+    for (const t of [
+      "Psychotherapie", "Zahnarzttermin", "Termin bei Dr. Meier (Hausarzt)", "5 kg abnehmen", "Physio Knie", "OP-Vorbereitung", "Blutentnahme", "Paarberatung",
+      "Betreibungsamt", "Schlaf tracken", "HRV messen", "Angst vor Prüfung", "Termin bei Dr. Keller", "Doktor Huber",
+      "Operation", "Knie-Operation", "Knie operieren lassen", "Spitex", "Mammografie", "Mammographie", "Darmspiegelung", "Koloskopie", "Biopsie", "Bluttest",
+      "Spritze", "Medis holen", "Gyn", "Selbsthilfegruppe", "Zahnkontrolle", "Wundkontrolle", "IV-Abklärung", "Kontrolltermin", "Ernährungsberatung buchen",
+    ])
       expect(isSensitive(t), t).toBe(true);
   });
   it("leaves everyday titles alone", () => {
-    for (const t of ["Vorlesung Statistik", "Lauftraining", "10 Kilometer laufen", "Oma besucht", "Kooperation mit Lena", "Geburtstag Anna", "Impulsvortrag", "Langstreckenlauf", "1 Std Japanisch", "Doktorarbeit schreiben", "Teil IV lesen"])
+    for (const t of [
+      "Vorlesung Statistik", "Lauftraining", "10 Kilometer laufen", "Oma besucht", "Kooperation mit Lena", "Kooperationspartner treffen", "Geburtstag Anna",
+      "Impulsvortrag", "Langstreckenlauf", "1 Std Japanisch", "Doktorarbeit schreiben", "Teil IV lesen", "Archiv-Tag", "Oper besuchen", "Operatives Meeting", "Krafttraining",
+    ])
       expect(isSensitive(t), t).toBe(false);
+  });
+  it("hides a title that serves a goal with a sensitive title", () => {
+    expect(safeLabel("Krafttraining", goals, "g-weight")).toBeNull();
+    expect(safeLabel("Krafttraining", goals, "g-run")).toBe("Krafttraining");
+    expect(safeLabel("Krafttraining", goals)).toBe("Krafttraining");
+  });
+  it("shows no title at all when her goals could not be read (a dream could hide in any title)", () => {
+    expect(safeLabel("Island-Reise buchen", null)).toBeNull();
+    expect(safeLabel("Vorlesung Statistik", null)).toBeNull();
   });
   it("recognises her dreams in free text", () => {
     expect(mentionsDream("Island-Reise buchen", goals)).toBe(true);
@@ -216,26 +255,41 @@ describe("morning: what is on today", () => {
     expect(all(g).join(" ")).not.toMatch(/Island|Nordlicht/);
   });
   it("leaves out entries of an unknown goal when the goals could not be read", () => {
-    const g = morningCandidates({ events: [ev(`${MON}T09:00:00`, "Etwas für ein Ziel", { kind: "block", goal_id: "g-run" })], focus: null, goals: null }, at(`${MON}T07:30:00`), TZ);
+    const g = morningCandidates({ events: [ev(`${MON}T09:00:00`, "Etwas für ein Ziel", { kind: "block", goal_id: "g-run" })], dueSteps: [], goals: null }, at(`${MON}T07:30:00`), TZ);
     expect(all(g).join(" ")).not.toMatch(/Ziel/);
-    expect(g[0][0].template).toMatch(/^m\.plain\./); // there is an entry, so no «nichts im Kalender»
+    expect(g[0][0].template).toMatch(/^m\.plain\./);
+  });
+  it("shows entries only by their time when the goals could not be read (no dream in a free title)", () => {
+    const g = morningCandidates({ events: [ev(`${MON}T11:00:00`, "Island-Reise buchen")], dueSteps: [], goals: null }, at(`${MON}T07:30:00`), TZ);
+    expect(first(g)).toBe("Heute: 11:00 Termin.");
+    expect(all(g).join(" ")).not.toMatch(/Island/);
+  });
+  it("shows a block for a goal with a sensitive title only by its time", () => {
+    expect(first(morning({ events: [ev(`${MON}T18:00:00`, "Krafttraining", { kind: "block", goal_id: "g-weight" })] }))).toBe("Heute: 18:00 Zeitblock.");
   });
   it("skips what is already over and what is not today", () => {
     const g = morning({ events: [ev(`${MON}T06:00:00`, "Frühsport"), ev("2026-11-17T09:00:00", "Morgen"), ev(`${MON}T19:00:00`, "Konzert")] });
     expect(first(g)).toBe("Heute: 19:00 Konzert.");
   });
-  it("uses the focus when nothing is timed", () => {
-    expect(first(morning({ focus: "Kapitel 2 schreiben" }))).toBe("Dein Fokus heute: Kapitel 2 schreiben.");
-    expect(first(morning({ focus: "Arzttermin vorbereiten" }))).toBe("Heute steht nichts im Kalender. Der Tag gehört dir.");
+  it("names a step due today when nothing is timed, never a dream's, a sensitive one only as «eine Etappe»", () => {
+    expect(first(morning({ dueSteps: [{ title: "Anmeldung abschicken", goal_id: "g-run" }] }))).toBe("Heute an der Reihe: Anmeldung abschicken.");
+    expect(first(morning({ dueSteps: [{ title: "Waage kaufen", goal_id: "g-weight" }] }))).toBe("Heute ist eine Etappe an der Reihe.");
+    expect(first(morning({ dueSteps: [{ title: "A", goal_id: "g-run" }, { title: "B", goal_id: "g-jp" }] }))).toBe("Heute sind zwei Etappen an der Reihe.");
+    const dream = morning({ dueSteps: [{ title: "Flüge vergleichen", goal_id: "g-island" }] });
+    expect(dream[0][0].template).toMatch(/^m\.plain\./);
+    expect(all(dream).join(" ")).not.toMatch(/Flüge|Etappe/);
+    // timed entries come first
+    expect(first(morning({ events: [ev(`${MON}T10:15:00`, "Vorlesung")], dueSteps: [{ title: "Anmeldung abschicken", goal_id: "g-run" }] }))).toBe("Heute: 10:15 Vorlesung.");
   });
   it("names all-day entries, also over several days", () => {
     const allDay = { all_day: true, starts_at: at("2026-11-15T00:00:00").toISOString(), ends_at: at("2026-11-17T00:00:00").toISOString() };
     expect(first(morning({ events: [{ ...ev(`${MON}T00:00:00`, "Ferien im Tessin"), ...allDay }] }))).toBe("Heute: Ferien im Tessin.");
   });
-  it("on a free day says so, with a plain line", () => {
+  it("without entries: a gentle plain line, never a claim about her day (the app doesn't see every calendar)", () => {
     const g = morning({});
-    expect(first(g)).toBe("Heute steht nichts im Kalender. Der Tag gehört dir.");
-    expect(all(g)).toContain("Ein freier Montag liegt vor dir.");
+    expect(g).toHaveLength(1);
+    expect(first(g)).toBe("Einen guten Montag.");
+    expect(all(g).join(" ")).not.toMatch(/nichts|leer|frei|ohne Termin|gehört dir|geplant|Kalender/i);
   });
 });
 
@@ -288,14 +342,17 @@ describe("every body", () => {
   const facts = [
     morning({ events: [ev(`${MON}T10:15:00`, "Vorlesung Statistik"), ev(`${MON}T17:30:00`, "Lauftraining")] }),
     morning({ events: [ev(`${MON}T10:15:00`, "Vorlesung")] }),
-    morning({ focus: "Kapitel 2" }),
+    morning({ dueSteps: [{ title: "Kapitel 2", goal_id: "g-jp" }] }),
+    morning({ dueSteps: [{ title: "A", goal_id: "g-jp" }, { title: "B", goal_id: "g-jp" }] }),
     morning({}),
     morning({}, "2026-11-21T09:00:00"),
     evening({ goals: [...goals, { id: "d", title: "Umzug", kind: "goal", status: "done", done_at: at(`${MON}T09:00:00`).toISOString() }] }),
     evening({ milestones: [{ title: "Schritt", goal_id: "g-run", done_at: at(`${MON}T09:00:00`).toISOString() }] }),
     evening({ milestones: [1, 2].map(() => ({ title: "Schritt", goal_id: "g-run", done_at: at(`${MON}T09:00:00`).toISOString() })) }),
     evening({ goalTime: [{ goal_id: "g-jp", minutes: 40 }] }),
+    evening({ goalTime: [{ goal_id: "g-weight", minutes: 40 }] }),
     evening({ habits: [{ title: "Lesen" }] }),
+    evening({ habits: [{ title: "A" }, { title: "B" }, { title: "C" }] }),
     evening({}),
   ];
   const bodies = facts.flatMap(all);
@@ -321,6 +378,9 @@ describe("every body", () => {
   });
   it("the settings text explains the pause and the skips, without a question or ß", () => {
     expect(NOTIFY_RULES).toMatch(/zwei Wochen/);
+    // the evening also stays out after a bare open this evening (skipReason «this_evening»)
+    expect(NOTIFY_RULES).toMatch(/am Abend schon in der App warst/);
+    expect(NOTIFY_RULES).toMatch(/kurz vorher mit dem Coach gesprochen/);
     expect(NOTIFY_RULES).toMatch(/Einstellungen bleiben/);
     expect(NOTIFY_RULES).not.toMatch(/[?ß]/);
   });
@@ -360,16 +420,27 @@ describe("rotation: no identical body within 7 days", () => {
     expect(sent.every((s) => s.body.includes("08:00"))).toBe(true);
     expect(sent.slice(0, 5).map((s) => s.template)).toEqual(["m.day.1", "m.day.2", "m.day.3", "m.day.4", "m.day.5"]);
   });
-  it("the same small win every evening", () => {
-    noRepeatWithin7(run("evening", 21, (day) => evening({ habits: [{ title: "Lesen" }] }, `${day}T21:00:00`)));
+  it("the same small win every evening: named every evening, never the same line within 7 days", () => {
+    const cases: [Partial<EveningFacts>, RegExp][] = [
+      [{ habits: [{ title: "Lesen" }] }, /Lesen|Gewohnheit/],
+      [{ habits: [{ title: "Lesen" }, { title: "Meditieren" }] }, /Lesen und Meditieren|Gewohnheiten/],
+      [{ habits: [{ title: "A" }, { title: "B" }, { title: "C" }] }, /drei Gewohnheiten/i],
+      [{ goalTime: [{ goal_id: "g-jp", minutes: 30, source: "person" }] }, /30 Minuten für (Japanisch lernen|dein Ziel)/],
+      [{ goalTime: [{ goal_id: "g-weight", minutes: 30, source: "person" }] }, /30 Minuten für dein Ziel/],
+    ];
+    for (const [f, win] of cases) {
+      const sent = run("evening", 21, (day) => evening(f, `${day}T21:00:00`));
+      noRepeatWithin7(sent);
+      for (const s of sent) expect(s.body, `${s.day} ${s.template}`).toMatch(win);
+    }
   });
   it("evenings without a win", () => {
     noRepeatWithin7(run("evening", 30, (day) => evening({}, `${day}T21:00:00`)));
   });
   it("falls back to the next group when a body was already sent", () => {
-    const g = morning({ focus: "Kapitel 2" });
+    const g = morning({ dueSteps: [{ title: "Kapitel 2", goal_id: "g-jp" }] });
     const log: SentBefore[] = g[0].map((c, i) => ({ day: addDays(MON, -1 - i), slot: "morning", status: "sent", template: c.template, fingerprint: fingerprint(c.body) }));
-    expect(chooseBody(g, log, MON, "morning")?.template).toMatch(/^m\.free\./);
+    expect(chooseBody(g, log, MON, "morning")?.template).toMatch(/^m\.plain\./);
   });
   it("forgets what was sent 7 or more days ago, and ignores skipped days", () => {
     const g = morning({});

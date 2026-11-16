@@ -3,14 +3,17 @@
 // Days are her local calendar days ("YYYY-MM-DD") in her time zone (profiles.timezone).
 //
 // The rules (BUILD-SPEC, owner decision 1 «Morgens und abends, schlauer»):
-// - The bodies are statements from her data, never questions. Morning: what is on today. Evening: one
-//   small win of the day, else a gentle neutral line. No identical body within 7 days.
+// - The bodies are statements from her data, never questions. Morning: what is on today (her entries, a
+//   step due today), else a gentle neutral line: never a claim about her whole day, the app doesn't see
+//   every calendar. Evening: one small win of the day, else a gentle neutral line. No identical body
+//   within 7 days.
 // - Morning: none once she has opened the app today. Evening: none when she talked in the last 3 hours
 //   or the app already greeted her this evening.
 // - Saturday and Sunday 90 minutes later, only at the default times.
 // - After 14 days without opening the app: none at all, silently, until she opens it again. Her own
 //   switches stay as they are.
-// - Lock-screen safe: short, no health words, no WHOOP values, never a dream.
+// - Lock-screen safe: short, no health words (also not the title of something that serves a goal with
+//   one), no WHOOP values, never a dream. Goals unknown (the query failed): times and counts only.
 
 export type Slot = "morning" | "evening";
 
@@ -165,6 +168,8 @@ const SENSITIVE_STEMS = [
   "untersuchung", "vorsorge", "check-up", "checkup", "diagnos", "befund", "laborwert", "blutentnahme", "blutdruck", "blutzucker", "blutbild",
   "impf", "röntgen", "roentgen", "ultraschall", "narkose", "chemo", "bestrahl", "krebs", "tumor", "diabet", "insulin", "dialyse", "infusion",
   "medikament", "tablette", "krank", "schmerz", "migräne", "migraene", "allergi", "asthma", "nachkontrolle", "jahreskontrolle", "unfall",
+  "spitex", "mammo", "spiegelung", "skopie", "biops", "bluttest", "blutwert", "spritze", "kontrolltermin", "zahnkontroll", "wundkontroll",
+  "abklärung", "abklaerung", "invalid", "ernährungsberat", "ernaehrungsberat", "selbsthilfe",
   // mind
   "depress", "panik", "burnout", "burn-out", "trauma", "angststör", "angststoer", "angstattack", "prüfungsangst", "essstör", "essstoer", "bulimi", "magersucht", "suchtberatung", "spielsucht",
   "alkohol", "entzug", "rehab",
@@ -177,7 +182,9 @@ const SENSITIVE_STEMS = [
   "schulden", "betreibung", "inkasso", "anwalt", "anwält", "anwaelt", "gerichtstermin", "polizei", "vorladung", "kündigung", "kuendigung",
   "arbeitslos", "sozialamt", "sozialhilfe", "sozialdienst", "lawyer",
 ];
-const SENSITIVE_WORDS = ["op", "ct", "mrt", "mri", "kg", "kilo", "kilos", "bmi", "hrv", "puls", "kur", "reha", "praxis", "sucht", "sex", "date", "pille", "pillen", "gericht", "diet", "rav", "ivf", "hiv", "aa", "angst", "doktor", "dr"];
+const SENSITIVE_WORDS = ["op", "ct", "mrt", "mri", "kg", "kilo", "kilos", "bmi", "hrv", "puls", "kur", "reha", "praxis", "sucht", "sex", "date", "pille", "pillen", "gericht", "diet", "rav", "ivf", "hiv", "aa", "angst", "doktor", "dr", "gyn", "medis"];
+// stems that need a guard: «Operation», «operiert», not «Kooperation»; «IV-Abklärung», not «Archiv-Tag»
+const SENSITIVE_PATTERNS = [/(?<!ko)oper(?:ation|ier)/u, /(?<![\p{L}\p{N}])iv-/u];
 
 const LETTER = /[\p{L}\p{N}]/u;
 const norm = (s: string) => s.toLowerCase().normalize("NFC");
@@ -188,7 +195,7 @@ function words(s: string): string[] {
 /** true when a text of hers holds a word that doesn't belong on a lock screen */
 export function isSensitive(text: string): boolean {
   const t = norm(text);
-  if (SENSITIVE_STEMS.some((s) => t.includes(s))) return true;
+  if (SENSITIVE_STEMS.some((s) => t.includes(s)) || SENSITIVE_PATTERNS.some((r) => r.test(t))) return true;
   const w = new Set(words(t));
   return SENSITIVE_WORDS.some((s) => w.has(s));
 }
@@ -213,9 +220,14 @@ export function mentionsDream(text: string, goals: PushGoal[] | null): boolean {
   return false;
 }
 
-/** her title, tidied and shortened for the lock screen; null when it must not be shown */
-export function safeLabel(text: string | null | undefined, goals: PushGoal[] | null): string | null {
-  if (!text) return null;
+/**
+ * Her title, tidied and shortened for the lock screen; null when it must not be shown: a sensitive
+ * word, a dream named in it, the goal it serves (`goalId`) has a sensitive title, or her goals could
+ * not be read (`goals` null: then no title at all, only times and counts, so no dream slips through).
+ */
+export function safeLabel(text: string | null | undefined, goals: PushGoal[] | null, goalId?: string | null): string | null {
+  if (!text || !goals) return null;
+  if (goalId && isSensitive(goals.find((g) => g.id === goalId)?.title ?? "")) return null;
   let t = text.replace(/\s+/g, " ").trim().replace(/[\s.,;:!?…]+$/u, "");
   if (!t || !LETTER.test(t) || isSensitive(t) || mentionsDream(t, goals)) return null;
   if (t.length > TITLE_MAX) {
@@ -257,9 +269,9 @@ export interface PushEvent {
 export interface MorningFacts {
   /** her entries around today (the function filters today's) */
   events: PushEvent[];
-  /** today's focus (days.focus) */
-  focus: string | null;
-  /** her goals and dreams; null when they could not be read (then nothing linked to a goal is shown) */
+  /** open steps (milestones) due today */
+  dueSteps: { title: string; goal_id: string }[];
+  /** her goals and dreams; null when they could not be read (then nothing linked to a goal and no title is shown) */
   goals: PushGoal[] | null;
 }
 
@@ -291,11 +303,13 @@ function duration(min: number): string {
   return `${h} Std ${m} Min`;
 }
 
-/** the morning bodies, best first: today's entries, the focus, all-day entries, a free day, a plain line */
+/**
+ * The morning bodies, best first: today's entries, a step due today, all-day entries, a plain line.
+ * Nothing claims a free day: the app knows only her own entries, not every calendar of hers.
+ */
 export function morningCandidates(f: MorningFacts, at: Date, tz: string): Candidate[][] {
   const now = localParts(at, tz);
   const wd = WEEKDAYS[now.weekday];
-  let anyToday = false;
   const timed: { ms: number; time: string; label: string }[] = [];
   const allDay: string[] = [];
   for (const e of f.events) {
@@ -303,10 +317,8 @@ export function morningCandidates(f: MorningFacts, at: Date, tz: string): Candid
     let today: boolean;
     if (e.all_day) today = start.date <= now.date && now.date <= (e.ends_at ? localParts(new Date(e.ends_at), tz).date : start.date);
     else today = start.date === now.date;
-    if (!today) continue;
-    anyToday = true;
-    if (servesDream(e.goal_id, f.goals)) continue;
-    const label = safeLabel(e.title, f.goals);
+    if (!today || servesDream(e.goal_id, f.goals)) continue;
+    const label = safeLabel(e.title, f.goals, e.goal_id);
     if (e.all_day) {
       if (label && !allDay.includes(label)) allDay.push(label);
       continue;
@@ -335,13 +347,26 @@ export function morningCandidates(f: MorningFacts, at: Date, tz: string): Candid
       },
     ]);
   }
-  const focus = safeLabel(f.focus, f.goals);
-  if (focus) {
-    groups.push([
-      { template: "m.focus.1", body: `Dein Fokus heute: ${focus}.` },
-      { template: "m.focus.2", body: `Heute im Mittelpunkt: ${focus}.` },
-      { template: "m.focus.3", body: `Für heute vorgenommen: ${focus}.` },
-    ]);
+  const steps = f.dueSteps.filter((m) => !servesDream(m.goal_id, f.goals));
+  if (steps.length) {
+    const l = steps.length === 1 ? safeLabel(steps[0].title, f.goals, steps[0].goal_id) : null;
+    groups.push(
+      l
+        ? [
+            { template: "m.step.1", body: `Heute an der Reihe: ${l}.` },
+            { template: "m.step.2", body: `Für heute vorgesehen: ${l}.` },
+            { template: "m.step.3", body: `${wd}: ${l} steht an.` },
+          ]
+        : steps.length === 1
+          ? [
+              { template: "m.step.4", body: "Heute ist eine Etappe an der Reihe." },
+              { template: "m.step.5", body: `${wd}: eine Etappe steht an.` },
+            ]
+          : [
+              { template: "m.step.6", body: `Heute sind ${count(steps.length)} Etappen an der Reihe.` },
+              { template: "m.step.7", body: `${wd}: ${count(steps.length)} Etappen stehen an.` },
+            ],
+    );
   }
   if (allDay.length) {
     const l = and(allDay.slice(0, 2));
@@ -349,19 +374,6 @@ export function morningCandidates(f: MorningFacts, at: Date, tz: string): Candid
       { template: "m.allday.1", body: `Heute: ${l}.` },
       { template: "m.allday.2", body: `Heute steht an: ${l}.` },
       { template: "m.allday.3", body: `${wd}: ${l}.` },
-    ]);
-  }
-  // «nothing in the calendar» only when it's true (a hidden or a dream entry is still an entry)
-  if (!anyToday) {
-    groups.push([
-      { template: "m.free.1", body: "Heute steht nichts im Kalender. Der Tag gehört dir." },
-      { template: "m.free.2", body: `Ein freier ${wd} liegt vor dir.` },
-      { template: "m.free.3", body: "Heute ohne Termine, alles ist offen." },
-      { template: "m.free.4", body: "Dein Kalender ist heute leer." },
-      { template: "m.free.5", body: "Kein Eintrag heute. Viel Raum für dich." },
-      { template: "m.free.6", body: `${wd} ohne Termine.` },
-      { template: "m.free.7", body: "Heute ist nichts geplant." },
-      { template: "m.free.8", body: "Ein offener Tag, ganz ohne Termine." },
     ]);
   }
   groups.push([
@@ -377,9 +389,14 @@ export function morningCandidates(f: MorningFacts, at: Date, tz: string): Candid
   return groups;
 }
 
-/** the evening bodies, best first: one win of today (a goal reached, a step, time for a goal, a habit), a plain line */
+/**
+ * The evening bodies, best first: one win of today (a goal reached, a step, time for a goal, a habit), a
+ * plain line. Each win group has a line with the weekday, which is new every day of the 7-day window, so
+ * a win she has every day (a daily habit, her daily minutes) is still named every evening.
+ */
 export function eveningCandidates(f: EveningFacts, at: Date, tz: string): Candidate[][] {
   const now = localParts(at, tz);
+  const wd = WEEKDAYS[now.weekday];
   const doneToday = (iso: string | null | undefined) => !!iso && localParts(new Date(iso), tz).date === now.date;
   const groups: Candidate[][] = [];
 
@@ -402,22 +419,27 @@ export function eveningCandidates(f: EveningFacts, at: Date, tz: string): Candid
 
   const steps = f.milestones.filter((m) => doneToday(m.done_at) && !servesDream(m.goal_id, f.goals));
   if (steps.length) {
-    const l = steps.length === 1 ? safeLabel(steps[0].title, f.goals) : null;
+    const l = steps.length === 1 ? safeLabel(steps[0].title, f.goals, steps[0].goal_id) : null;
+    const oneStep = [
+      { template: "e.step.4", body: "Heute eine Etappe erledigt." },
+      { template: "e.step.5", body: "Eine Etappe ist heute geschafft." },
+      { template: "e.step.8", body: `${wd}: eine Etappe erledigt.` },
+    ];
     groups.push(
       l
         ? [
             { template: "e.step.1", body: `Heute erledigt: ${l}.` },
             { template: "e.step.2", body: `Etappe geschafft: ${l}.` },
             { template: "e.step.3", body: `${cap(l)}: heute erledigt.` },
+            { template: "e.step.9", body: `${wd}: ${l} erledigt.` },
+            ...oneStep,
           ]
         : steps.length === 1
-          ? [
-              { template: "e.step.4", body: "Heute eine Etappe erledigt." },
-              { template: "e.step.5", body: "Eine Etappe ist heute geschafft." },
-            ]
+          ? oneStep
           : [
               { template: "e.step.6", body: `Heute ${count(steps.length)} Etappen erledigt.` },
               { template: "e.step.7", body: `${cap(count(steps.length))} Etappen sind heute geschafft.` },
+              { template: "e.step.10", body: `${wd}: ${count(steps.length)} Etappen erledigt.` },
             ],
     );
   }
@@ -432,39 +454,47 @@ export function eveningCandidates(f: EveningFacts, at: Date, tz: string): Candid
   if (top) {
     const d = duration(Math.min(top[1], 1440));
     const l = safeLabel(f.goals?.find((g) => g.id === top[0])?.title, f.goals);
+    const noLabel = [
+      { template: "e.time.4", body: `Heute ${d} für dein Ziel.` },
+      { template: "e.time.5", body: `${d} für dein Ziel heute. Das zählt.` },
+      { template: "e.time.7", body: `${wd}: ${d} für dein Ziel.` },
+    ];
     groups.push(
       l
         ? [
             { template: "e.time.1", body: `Heute ${d} für ${l}.` },
             { template: "e.time.2", body: `${d} für ${l} heute. Das zählt.` },
             { template: "e.time.3", body: `Heute geschafft: ${d} für ${l}.` },
+            { template: "e.time.6", body: `${wd}: ${d} für ${l}.` },
+            ...noLabel,
           ]
-        : [
-            { template: "e.time.4", body: `Heute ${d} für dein Ziel.` },
-            { template: "e.time.5", body: `${d} für dein Ziel heute. Das zählt.` },
-          ],
+        : noLabel,
     );
   }
 
   const habits = f.habits.filter((h) => !servesDream(h.goal_id, f.goals));
   if (habits.length) {
-    const labels = habits.map((h) => safeLabel(h.title, f.goals));
+    const labels = habits.map((h) => safeLabel(h.title, f.goals, h.goal_id));
     const l = habits.length <= 2 && labels.every(Boolean) ? and(labels as string[]) : null;
+    const one = habits.length === 1;
+    const noLabel = [
+      { template: "e.habit.4", body: one ? "Heute eine Gewohnheit abgehakt." : `Heute ${count(habits.length)} Gewohnheiten abgehakt.` },
+      { template: "e.habit.5", body: one ? "Eine Gewohnheit ist heute erledigt." : `${cap(count(habits.length))} Gewohnheiten sind heute erledigt.` },
+      { template: "e.habit.7", body: one ? `${wd}: eine Gewohnheit abgehakt.` : `${wd}: ${count(habits.length)} Gewohnheiten abgehakt.` },
+    ];
     groups.push(
       l
         ? [
             { template: "e.habit.1", body: `Heute abgehakt: ${l}.` },
             { template: "e.habit.2", body: `${cap(l)}: heute erledigt.` },
             { template: "e.habit.3", body: `Heute dabei: ${l}.` },
+            { template: "e.habit.6", body: `${wd}: ${l} abgehakt.` },
+            ...noLabel,
           ]
-        : [
-            { template: "e.habit.4", body: habits.length === 1 ? "Heute eine Gewohnheit abgehakt." : `Heute ${count(habits.length)} Gewohnheiten abgehakt.` },
-            { template: "e.habit.5", body: habits.length === 1 ? "Eine Gewohnheit ist heute erledigt." : `${cap(count(habits.length))} Gewohnheiten sind heute erledigt.` },
-          ],
+        : noLabel,
     );
   }
 
-  const wd = WEEKDAYS[now.weekday];
   groups.push([
     { template: "e.plain.1", body: "Schönen Abend." },
     { template: "e.plain.2", body: "Der Abend gehört dir." },

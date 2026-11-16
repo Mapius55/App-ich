@@ -1,7 +1,7 @@
 name: Coach-Nachrichten (Morgen/Abend)
 
 # Alle 15 Minuten fragt dieser Workflow die Funktion "push", ob jemandem
-# gerade seine Morgenfrage oder sein Abendrückblick zusteht. Braucht dieselben
+# gerade seine Morgen- oder Abendnachricht zusteht. Braucht dieselben
 # Einstellungen wie "Deploy Supabase" (SUPABASE_PROJECT_REF, PUSH_CRON_SECRET).
 # Hinweis: GitHub startet geplante Läufe manchmal ein paar Minuten später.
 

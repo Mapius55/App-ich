@@ -78,24 +78,46 @@ async function activityOf(sb: SupabaseClient, userId: string): Promise<Activity 
   return { lastOpen: open[0]?.created_at ?? null, lastTalk: talk[0]?.created_at ?? null };
 }
 
+const EVENT_COLS = "title, starts_at, ends_at, all_day, kind, goal_id";
+
 async function morningFacts(sb: SupabaseClient, userId: string, at: Date, today: string): Promise<MorningFacts> {
-  const [events, goals, day] = await Promise.all([
-    // a few days back too, so an all-day entry over several days is still seen
+  const from = new Date(at.getTime() - 3 * 86400e3).toISOString();
+  const [near, longer, goals, steps] = await Promise.all([
+    // a few days back too, so an all-day entry over a few days is still seen
     rows<PushEvent>(
       sb
         .from("events")
-        .select("title, starts_at, ends_at, all_day, kind, goal_id")
+        .select(EVENT_COLS)
         .eq("user_id", userId)
-        .gte("starts_at", new Date(at.getTime() - 3 * 86400e3).toISOString())
+        .gte("starts_at", from)
         .lte("starts_at", new Date(at.getTime() + 36 * 3600e3).toISOString())
         .order("starts_at")
         .limit(80),
       "events",
     ),
+    // all-day entries that began before that and still run (two weeks of holidays): ends_at is the local
+    // midnight of the last day, so a day and a half back is early enough (the pure function checks the day)
+    rows<PushEvent>(
+      sb
+        .from("events")
+        .select(EVENT_COLS)
+        .eq("user_id", userId)
+        .eq("all_day", true)
+        .lt("starts_at", from)
+        .gte("ends_at", new Date(at.getTime() - 36 * 3600e3).toISOString())
+        .order("starts_at")
+        .limit(20),
+      "long events",
+    ),
     rows<PushGoal>(sb.from("goals").select("id, title, kind, status, done_at").eq("user_id", userId).limit(500), "goals"),
-    rows<{ focus: string | null }>(sb.from("days").select("focus").eq("user_id", userId).eq("day", today).limit(1), "focus"),
+    // the open steps due today: known before she opens the app (unlike the day's focus, set in conversation)
+    rows<MorningFacts["dueSteps"][number]>(
+      sb.from("milestones").select("title, goal_id").eq("user_id", userId).eq("due_date", today).is("done_at", null).limit(20),
+      "due steps",
+    ),
   ]);
-  return { events: events ?? [], goals, focus: day?.[0]?.focus ?? null };
+  // an entry list that could not be read is treated as empty: the morning then says nothing about the day
+  return { events: [...(near ?? []), ...(longer ?? [])], dueSteps: steps ?? [], goals };
 }
 
 async function eveningFacts(sb: SupabaseClient, userId: string, at: Date, today: string): Promise<EveningFacts> {

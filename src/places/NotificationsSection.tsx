@@ -24,7 +24,7 @@ export function notifyHint(slot: "morning" | "evening", time: string): string {
 
 /** how the messages hold back, so nothing about them is a surprise */
 export const NOTIFY_RULES =
-  "Warst du heute schon da, kommt am Morgen keine Nachricht. Am Abend bleibt sie aus, wenn du kurz vorher mit dem Coach gesprochen hast. Öffnest du die App zwei Wochen lang nicht, machen die Nachrichten von selbst Pause, bis du wieder vorbeischaust. Deine Einstellungen bleiben dabei, wie sie sind.";
+  "Warst du heute schon da, kommt am Morgen keine Nachricht. Am Abend bleibt sie aus, wenn du am Abend schon in der App warst oder kurz vorher mit dem Coach gesprochen hast. Öffnest du die App zwei Wochen lang nicht, machen die Nachrichten von selbst Pause, bis du wieder vorbeischaust. Deine Einstellungen bleiben dabei, wie sie sind.";
 
 export function NotificationsSection({ profile, onProfile }: { profile: Profile; onProfile(patch: Partial<Profile>): void }) {
   const [pushOn, setPushOn] = useState(false);
