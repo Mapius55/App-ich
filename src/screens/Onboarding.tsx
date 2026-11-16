@@ -2,8 +2,9 @@ import { useCallback, useRef, useState } from "react";
 import { type OrbState } from "../components/Portal";
 import { FitPortal } from "../components/FitPortal";
 import { VoiceConversation } from "../components/VoiceConversation";
+import * as coachBus from "../space/coachBus";
 import { requestCoords, type Coords } from "../lib/location";
-import { isAudioUnlocked } from "../lib/voice";
+import { isAudioUnlocked, unlockAudio } from "../lib/voice";
 import type { Palette } from "../lib/palette";
 import type { CoachContext, CoachEvent } from "../lib/types";
 import { ConnChooser } from "../places/conn/ConnChooser";
@@ -32,7 +33,7 @@ export function Onboarding({ palette, context, onEvent, onCoords, hasCoords, onD
   const [lastAsk, setLastAsk] = useState<"location" | "connections" | null>(null);
   // back from WHOOP: the chooser shows the result and the conversation goes on. After a page
   // load (back from WHOOP's site) the sound is still locked: the coach would wait for a tap with
-  // the chooser hidden, so the news waits for "Weiter" (that tap also unlocks the sound).
+  // the chooser hidden, so the news waits for "Weiter" (that tap unlocks the sound).
   const [kickoff, setKickoff] = useState<string | null>(null);
   const [news, setNews] = useState<string | null>(null);
   const whoop = useWhoopConnect("onboarding", (o) => {
@@ -97,7 +98,10 @@ export function Onboarding({ palette, context, onEvent, onCoords, hasCoords, onD
 
   const closeChooser = () => {
     setAskConnections(false);
-    if (news) setKickoff(news);
+    if (news) {
+      void unlockAudio().catch(() => {}); // "Weiter" is a deliberate tap: the coach's answer may play
+      setKickoff(news);
+    }
     setNews(null);
   };
   const connectionsUi = askConnections ? <ConnChooser flow={whoop} onClose={closeChooser} /> : null;
@@ -108,7 +112,7 @@ export function Onboarding({ palette, context, onEvent, onCoords, hasCoords, onD
       <header className="topbar center">
         <span className="pill">Kennenlernen</span>
       </header>
-      <FitPortal colors={palette.orb} daylight={palette.daylight} clouds={palette.clouds} speed={palette.speed} seed={palette.seed} state={orbState} min={72} />
+      <FitPortal colors={palette.orb} daylight={palette.daylight} clouds={palette.clouds} speed={palette.speed} seed={palette.seed} state={orbState} onTap={coachBus.hear} min={72} />
       <VoiceConversation
         mode="onboarding"
         thread="onboarding"

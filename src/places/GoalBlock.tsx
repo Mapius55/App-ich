@@ -1,6 +1,7 @@
 // One goal in Ziele (§3.5): typography, not a card. Title (→ goal Unfold), date line,
 // a 3 px progress line (hours if estimated, else steps), the hours line with the
-// feasibility word, the next step to tick, and the other steps folded in place.
+// feasibility word, the next step to tick, and the other steps folded in place. Without an estimate
+// only the hours invested show: «Aufwand schätzen» lives in the goal's detail, not under every goal.
 import { useEffect, useRef, useState } from "react";
 import { daysBetween, daysLeftLabel, durationLabel, goalEffort, goalProgress, hoursLabel, type GoalEffort } from "../lib/plan";
 import { shortDay } from "../lib/dates";
@@ -154,7 +155,7 @@ export function GoalBlock({ goal, today, flash, active }: { goal: Goal; today: s
   };
 
   const ratio = e.effort !== null ? Math.min(1, e.done / e.effort) : p.total > 0 ? p.ratio : null;
-  const openGoal = (focusEffort?: boolean) => open({ kind: "goal", goal, focusEffort }, ref.current);
+  const openGoal = () => open({ kind: "goal", goal }, ref.current);
   const regionId = `gb-more-${goal.id}`;
 
   return (
@@ -195,12 +196,11 @@ export function GoalBlock({ goal, today, flash, active }: { goal: Goal; today: s
           <Feasibility e={e} />
         </p>
       ) : (
-        <p className="gb-hours quiet">
-          {e.done > 0 && <span>{hoursLabel(e.done)} Std investiert</span>}
-          <button type="button" className="pl-quiet gb-estimate" onClick={() => openGoal(true)}>
-            Aufwand schätzen
-          </button>
-        </p>
+        e.done > 0 && (
+          <p className="gb-hours quiet">
+            <span>{hoursLabel(e.done)} Std investiert</span>
+          </p>
+        )
       )}
 
       {step && <StepRow m={step} next label={`Als Nächstes · ${p.done} von ${p.total} Etappen`} onToggle={() => tickNext(step)} />}

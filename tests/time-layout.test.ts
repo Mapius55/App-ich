@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { spokenMinutes } from "../src/lib/dates";
 import {
+  calmEvening,
+  CALM_FROM,
   dayPlanText,
   dayRows,
   hm,
@@ -14,7 +16,9 @@ import {
   sumDays,
   trackRange,
   weekKind,
+  weekendHandsOver,
   weekPlanText,
+  weekReviewText,
   weekSummary,
   weekTrack,
   yearSummary,
@@ -191,9 +195,46 @@ describe("planning texts", () => {
     expect(dayPlanText("2026-11-15", TODAY)).toBe("Lass uns den Tag morgen planen.");
     expect(dayPlanText("2026-11-17", TODAY)).toBe("Lass uns den Tag am Dienstag, 17. November planen.");
     expect(dayPlanText("2027-01-05", TODAY)).toBe("Lass uns den Tag am Dienstag, 5. Januar 2027 planen.");
-    expect(weekPlanText("2026-11-12", TODAY)).toBe("Lass uns meine Woche planen.");
+    // a weekday: the current week; TODAY is a Saturday (below)
+    expect(weekPlanText("2026-11-12", "2026-11-11")).toBe("Lass uns meine Woche planen.");
     expect(weekPlanText("2026-11-25", TODAY)).toBe("Lass uns die Woche vom 23. November planen.");
-    for (const t of [dayPlanText("2026-11-17", TODAY), weekPlanText("2026-11-25", TODAY)]) expect(t).toMatch(/\b(tag|woche)\b.*\bplanen\b/i);
+    for (const t of [dayPlanText("2026-11-17", TODAY), weekPlanText("2026-11-25", TODAY), weekPlanText("2026-11-12", TODAY)]) expect(t).toMatch(/\b(tag|woche)\b.*\bplanen\b/i);
+  });
+
+  it("hands the ending week over to the next one on Saturday and Sunday", () => {
+    expect(weekendHandsOver("2026-11-14")).toBe(true); // Saturday
+    expect(weekendHandsOver("2026-11-15")).toBe(true); // Sunday
+    for (const d of ["2026-11-09", "2026-11-11", "2026-11-13"]) expect(weekendHandsOver(d)).toBe(false); // Mon, Wed, Fri
+    expect(weekPlanText("2026-11-12", TODAY)).toBe("Lass uns nächste Woche planen.");
+    expect(weekPlanText("2026-11-09", "2026-11-15")).toBe("Lass uns nächste Woche planen.");
+    expect(weekPlanText("2026-11-09", "2026-11-13")).toBe("Lass uns meine Woche planen.");
+    // next week, seen on the weekend, keeps its date
+    expect(weekPlanText("2026-11-16", "2026-11-15")).toBe("Lass uns die Woche vom 16. November planen.");
+  });
+
+  it("looks back at a past week", () => {
+    expect(weekReviewText("2026-11-04", TODAY)).toBe("Lass uns auf die letzte Woche zurückschauen.");
+    expect(weekReviewText("2026-11-09", "2026-11-16")).toBe("Lass uns auf die letzte Woche zurückschauen.");
+    expect(weekReviewText("2026-10-28", TODAY)).toBe("Lass uns auf die Woche vom 26. Oktober zurückschauen.");
+    expect(weekReviewText("2025-12-30", "2026-01-20")).toBe("Lass uns auf die Woche vom 29. Dezember 2025 zurückschauen.");
+  });
+});
+
+describe("a calm evening on Tag", () => {
+  it("is today from 17:00 only", () => {
+    expect(CALM_FROM).toBe(17 * 60);
+    expect(calmEvening(TODAY, TODAY, new Date(2026, 10, 14, 16, 59))).toBe(false);
+    expect(calmEvening(TODAY, TODAY, new Date(2026, 10, 14, 17, 0))).toBe(true);
+    expect(calmEvening(TODAY, TODAY, new Date(2026, 10, 14, 18, 45))).toBe(true);
+    // earlier in the day and other days keep «Mit dem Coach planen»
+    expect(calmEvening(TODAY, TODAY, new Date(2026, 10, 14, 9, 0))).toBe(false);
+    expect(calmEvening("2026-11-15", TODAY, new Date(2026, 10, 14, 18, 45))).toBe(false);
+    expect(calmEvening("2026-11-13", TODAY, new Date(2026, 10, 14, 18, 45))).toBe(false);
+  });
+
+  it("still finds the evening's free gap (shown as «Frei»)", () => {
+    const evening = new Date(2026, 10, 14, 18, 45);
+    expect(largestGap([ev(TODAY, [8, 0], [9, 0])], TODAY, TODAY, evening)).toEqual({ start: 18 * 60 + 45, end: 22 * 60 });
   });
 });
 

@@ -82,6 +82,14 @@ export function largestGap(events: EventLike[], day: string, today: string, now:
   return best;
 }
 
+/** from 17:00 today's free time is hers: Tag shows «Frei» without «Mit dem Coach planen» */
+export const CALM_FROM = 17 * 60;
+
+/** today after 17:00 (a calm evening: no invitation to fill it); earlier today and other days: false */
+export function calmEvening(day: string, today: string, now: Date): boolean {
+  return daysBetween(today, day) === 0 && now.getHours() * 60 + now.getMinutes() >= CALM_FROM;
+}
+
 /** "14:00" for minutes since midnight */
 export function hm(min: number): string {
   const m = Math.max(0, Math.min(DAY_MIN, Math.round(min)));
@@ -203,9 +211,21 @@ export function dayPlanText(day: string, today: string): string {
   return `Lass uns den Tag am ${wd}, ${dateWords(day, today)} planen.`;
 }
 
+/** on Saturday and Sunday the current week is ending: its hand-off plans the next one */
+export function weekendHandsOver(today: string): boolean {
+  const wd = new Date(`${today}T12:00:00Z`).getUTCDay();
+  return wd === 6 || wd === 0;
+}
+
 export function weekPlanText(day: string, today: string): string {
-  if (weekKind(day, today) === "current") return "Lass uns meine Woche planen.";
+  if (weekKind(day, today) === "current") return weekendHandsOver(today) ? "Lass uns nächste Woche planen." : "Lass uns meine Woche planen.";
   return `Lass uns die Woche vom ${dateWords(weekStart(day), today)} planen.`;
+}
+
+/** a past week's quiet hand-off («Mit dem Coach anschauen»): a look back (the coach's Wochenblick) */
+export function weekReviewText(day: string, today: string): string {
+  if (weekStart(day) === addDays(weekStart(today), -7)) return "Lass uns auf die letzte Woche zurückschauen.";
+  return `Lass uns auf die Woche vom ${dateWords(weekStart(day), today)} zurückschauen.`;
 }
 
 // ---------- Jahr ----------

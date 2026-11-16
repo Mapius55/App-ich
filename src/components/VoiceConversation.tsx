@@ -5,7 +5,8 @@ import type { OrbState } from "./Portal";
 import { pulseOrb } from "../lib/orbSignals";
 import { eventWhen, minutesLabel, shortDay } from "../lib/dates";
 import { dayOf, perWeekLabel } from "../lib/plan";
-import { isAudioUnlocked, listenOnce, Speaker, splitSentences, unlockAudio, type ListenHandle } from "../lib/voice";
+import { listenOnce, Speaker, splitSentences, unlockAudio, type ListenHandle, type SpeakerState } from "../lib/voice";
+import { greetingOffer, greetingStale, markHeard, wasHeard } from "../lib/heard";
 import * as coachBus from "../space/coachBus";
 import { useStill } from "../space/motion";
 import { dreamWhen } from "../places/bucket";
@@ -102,6 +103,9 @@ interface Props {
 
 const dayOfIso = (iso: string) => dayOf(new Date(iso));
 
+/** the coach's words wait for her tap (sound only when she wants it); the hint says where to tap */
+export const HEAR_HINT = "Tippe auf den Kreis zum Hören";
+
 const STATUS: Record<Phase, string> = {
   idle: "Tippe und sprich",
   listening: "Ich höre zu …",
@@ -132,7 +136,10 @@ export function VoiceConversation({
   onTurn,
 }: Props) {
   const [phase, setPhase] = useState<Phase>("idle");
-  const [speaking, setSpeaking] = useState(false);
+  // the speaker: "waiting" = a reply is ready and waits for her tap (the circle, the hint, the mic)
+  const [sound, setSound] = useState<SpeakerState>("idle");
+  const speaking = sound === "speaking";
+  const waiting = sound === "waiting";
   const [heard, setHeard] = useState("");
   const [note, setNote] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -140,8 +147,16 @@ export function VoiceConversation({
   const toasted = useRef(new Map<string, number>()); // goal and step ids → when they last had a toast
   const [typing, setTyping] = useState(false);
   const [input, setInput] = useState("");
-  const [locked, setLocked] = useState(!isAudioUnlocked());
   const [lastReply, setLastReply] = useState("");
+  // the last reply's sound really started (heard), and when that reply was made: a greeting she never
+  // heard stays offered («Hören»); one from an earlier part of the day gives way to a fresh one on her tap
+  const [lastHeard, setLastHeard] = useState(true);
+  const [lastAt, setLastAt] = useState(0);
+  const [clock, setClock] = useState(() => Date.now());
+  // the reply whose sound may start now: marked heard once it does
+  const voiced = useRef<{ text: string | null; sounded: boolean }>({ text: null, sounded: false });
+  const threadRef = useRef(thread);
+  threadRef.current = thread;
   // what she said runs over more than one line (on Jetzt it then reaches up to the «Dein Tag» door)
   const heardRef = useRef<HTMLParagraphElement>(null);
   const [heardWraps, setHeardWraps] = useState(false);
@@ -179,34 +194,48 @@ export function VoiceConversation({
   const shown: Phase = speaking ? "speaking" : phase;
 
   useEffect(() => {
-    const off = speaker.current.onState((s) => setSpeaking(s === "speaking"));
+    const off = speaker.current.onState(setSound);
+    const offSound = speaker.current.onSound(() => {
+      const v = voiced.current;
+      v.sounded = true;
+      if (v.text) {
+        markHeard(threadRef.current, v.text);
+        setLastHeard(true);
+      }
+    });
     return () => {
       off();
+      offSound();
     };
   }, []);
   useEffect(() => () => (speaker.current.stop(), listening.current?.cancel()), []);
 
-  // Any first tap unlocks sound on iPhone; a waiting greeting then plays. Every tap tries again until
-  // it has worked: a first try that never settles (no user activation yet) must not leave it locked.
+  // Back after a while: a greeting she never heard may no longer fit the part of the day.
   useEffect(() => {
-    if (!locked) return;
-    const unlock = () => unlockAudio().then(() => setLocked(false));
-    window.addEventListener("pointerdown", unlock);
-    return () => window.removeEventListener("pointerdown", unlock);
-  }, [locked]);
+    const on = () => document.visibilityState === "visible" && setClock(Date.now());
+    document.addEventListener("visibilitychange", on);
+    return () => document.removeEventListener("visibilitychange", on);
+  }, []);
 
   // What the screen shows of the conversation: in the space it waits while the column moves (a status
   // line, a toast or «Nochmal hören» coming or going under the finger is a layout change: motion.ts).
   // The typed form stays live (snap is off while typing).
   const idleText = idleHint === "always" || !spoke ? STATUS.idle : "";
+  // the day's greeting she has not heard (she said nothing yet): «Hören» while it fits, else the hint
+  // (her tap then makes a fresh one)
+  const offer = waiting ? "none" : greetingOffer({ spoke, hasReply: !!lastReply, heard: lastHeard, at: lastAt, now: clock });
+  const fresh = offer === "fresh";
+  const hearHint = waiting || (fresh && shown === "idle" && !note);
   const view = {
     shown,
     phase,
-    status: locked && speaking ? "Tippe irgendwo, um mich zu hören" : shown === "speaking" ? "" : (note ?? (shown === "idle" ? idleText : STATUS[shown])),
+    status: hearHint ? HEAR_HINT : shown === "speaking" ? "" : (note ?? (shown === "idle" ? (offer === "hear" ? "" : idleText) : STATUS[shown])),
+    hear: hearHint,
     heard,
     error,
     note,
-    replay: !error && shown === "idle" && !!lastReply && !heard,
+    replay: !error && shown === "idle" && !waiting && !fresh && !!lastReply && !heard,
+    replayLabel: lastHeard ? "Nochmal hören" : "Hören",
     toasts,
     typing,
   };
@@ -243,7 +272,8 @@ export function VoiceConversation({
   };
 
   const run = useCallback(
-    async (message?: string) => {
+    // a greeting started by itself (no message) waits for her tap; `now`: she tapped for it
+    async (message?: string, now = false) => {
       if (!navigator.onLine) {
         setError("Du bist offline. Sobald du wieder Netz hast, können wir weiterreden.");
         lastMessage.current = message;
@@ -259,6 +289,9 @@ export function VoiceConversation({
         setGreetPending(false);
       }
       speaker.current.reset();
+      if (!message && !now) speaker.current.hold();
+      voiced.current = { text: null, sounded: false };
+      const startedAt = Date.now();
       setError(null);
       setNote(null);
       setPhase("thinking");
@@ -320,7 +353,15 @@ export function VoiceConversation({
           }
         });
         if (buf.trim()) speaker.current.say(buf);
-        if (full.trim()) setLastReply(full.trim());
+        if (full.trim()) {
+          const v = voiced.current;
+          v.text = full.trim();
+          if (v.sounded) markHeard(thread, v.text);
+          setLastReply(v.text);
+          setLastHeard(v.sounded);
+          setLastAt(startedAt);
+          setClock(startedAt);
+        }
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err));
       } finally {
@@ -331,7 +372,7 @@ export function VoiceConversation({
     [mode, thread, context],
   );
 
-  // Open the thread; if it's empty, the coach begins (and speaks after the first tap).
+  // Open the thread; if it's empty, the coach begins (and speaks once she taps the circle, the hint or the mic).
   useEffect(() => {
     let alive = true;
     backend
@@ -339,7 +380,17 @@ export function VoiceConversation({
       .then((msgs) => {
         if (!alive) return;
         const lastA = [...msgs].reverse().find((m) => m.role === "assistant" && !m.hidden);
-        if (lastA) setLastReply(lastA.content);
+        if (lastA) {
+          setLastReply(lastA.content);
+          setLastHeard(wasHeard(thread, lastA.content));
+          setLastAt(Date.parse(lastA.created_at) || 0);
+          setClock(Date.now());
+        } else {
+          // a new day's thread: nothing of yesterday's is offered again
+          setLastReply("");
+          setLastHeard(true);
+          setLastAt(0);
+        }
         setSpoke(msgs.some((m) => m.role === "user" && !m.hidden));
         if (msgs.length === 0 && started.current !== thread) {
           started.current = thread;
@@ -407,7 +458,6 @@ export function VoiceConversation({
 
   const talk = async () => {
     await unlockAudio();
-    setLocked(false);
     if (phase === "listening") {
       listening.current?.finish(); // done talking: send now
       return;
@@ -442,7 +492,6 @@ export function VoiceConversation({
     const text = input.trim();
     if (!text || phase === "thinking") return;
     await unlockAudio();
-    setLocked(false);
     setInput("");
     setHeard(text);
     setTimeout(() => setHeard((h) => (h === text ? "" : h)), 8000);
@@ -451,11 +500,36 @@ export function VoiceConversation({
 
   const replay = async () => {
     await unlockAudio();
-    setLocked(false);
     speaker.current.reset();
+    voiced.current = { text: lastReply, sounded: false };
     const [sentences, rest] = splitSentences(lastReply + " ", 60);
     [...sentences, rest].forEach((s) => speaker.current.say(s));
   };
+
+  // A deliberate tap on the circle or on the hint (never any tap anywhere, never a swipe): the words
+  // that wait play; the day's greeting she never heard plays again, or, from an earlier part of the
+  // day, a fresh one is made now (the coach is asked only on her tap, not for a glance at the app).
+  const hear = () => {
+    const s = speaker.current;
+    if (s.held || s.state === "waiting") {
+      void unlockAudio().catch(() => {}); // inside the tap (iPhone); every such tap tries again
+      // the app stayed open for hours: the greeting that waits no longer fits
+      if (s.held && s.state === "waiting" && greetingStale(lastAt, Date.now())) {
+        s.reset();
+        void run(undefined, true);
+      } else s.release();
+      return;
+    }
+    if (phase !== "idle" || speaking) return;
+    const o = greetingOffer({ spoke, hasReply: !!lastReply, heard: lastHeard, at: lastAt, now: Date.now() });
+    if (o === "none") return;
+    void unlockAudio().catch(() => {});
+    if (o === "fresh") void run(undefined, true);
+    else void replay();
+  };
+  const hearRef = useRef(hear);
+  hearRef.current = hear;
+  useEffect(() => coachBus.onHear(() => hearRef.current()), []);
 
   const activity = v.shown !== "idle" || !!v.heard || !!v.error || !!v.note || v.toasts.length > 0;
   const onActivityRef = useRef(onActivity);
@@ -472,7 +546,14 @@ export function VoiceConversation({
   return (
     <div className={`voice${layer ? " layer" : ""}${compact ? " compact" : ""}`} data-phase={v.shown} data-typed={typing || undefined}>
       <div className="voice-status" aria-live="polite">
-        {v.status && <span className={`voice-status-text ${v.shown}${!v.note && v.shown === "idle" ? " idle-hint" : ""}`}>{v.status}</span>}
+        {v.status &&
+          (v.hear ? (
+            <button type="button" className="voice-status-text hear-hint" onClick={hear}>
+              {v.status}
+            </button>
+          ) : (
+            <span className={`voice-status-text ${v.shown}${!v.note && v.shown === "idle" ? " idle-hint" : ""}`}>{v.status}</span>
+          ))}
         {v.heard && (
           <p ref={heardRef} className="voice-heard" data-wraps={heardWraps || undefined}>
             „{v.heard}“
@@ -482,15 +563,21 @@ export function VoiceConversation({
           <div className="msg-error" role="alert">
             {v.error}
             <div>
-              <button className="btn ghost retry" onClick={() => run(lastMessage.current)}>
+              <button
+                className="btn ghost retry"
+                onClick={() => {
+                  void unlockAudio().catch(() => {}); // a deliberate tap: the answer may play
+                  run(lastMessage.current, true);
+                }}
+              >
                 Nochmal versuchen
               </button>
             </div>
           </div>
         )}
         {v.replay && (
-          <button className="link voice-replay" onClick={replay}>
-            Nochmal hören
+          <button className="link voice-replay" onClick={offer === "hear" ? hear : replay}>
+            {v.replayLabel}
           </button>
         )}
         {v.shown === "idle" && extra}

@@ -1456,9 +1456,12 @@ export class DemoBackend implements Backend {
         reply = dreamTurn.reply;
       } else if (goal) {
         reply = "Was wäre ein erster kleiner Schritt dahin?";
+      } else if (/\bwoche\b.*\bzurückschauen\b/i.test(req.message)) {
+        // "Lass uns auf die letzte Woche zurückschauen." (a past week on Woche): the real coach's Wochenblick
+        reply = "Gern. Was ist dir von der Woche geblieben?";
       } else if (/\b(tag|woche)\b.*\bplanen\b/i.test(req.message)) {
         // "Lass uns meinen Tag planen." / "… meine Woche planen." (Tag, Woche): no mood, no focus from it
-        const when = /\bmeine woche\b/i.test(req.message) ? "diese Woche" : /\bwoche\b/i.test(req.message) ? "in der Woche" : /\bmorgen\b/i.test(req.message) ? "morgen" : /\btag am\b/i.test(req.message) ? "an dem Tag" : "heute";
+        const when = /\bmeine woche\b/i.test(req.message) ? "diese Woche" : /\bnächste woche\b/i.test(req.message) ? "nächste Woche" : /\bwoche\b/i.test(req.message) ? "in der Woche" : /\bmorgen\b/i.test(req.message) ? "morgen" : /\btag am\b/i.test(req.message) ? "an dem Tag" : "heute";
         reply = `Gern. Was ist ${when} das Wichtigste, und wann hast du Zeit dafür?`;
         const next = (await this.listGoals()).find((g) => g.status === "active");
         if (next) reply += ` Für „${next.title}“ schlage ich einen Block ${new Date().getHours() < 17 ? "heute" : "morgen"} um 18 Uhr vor, eine Stunde.`;

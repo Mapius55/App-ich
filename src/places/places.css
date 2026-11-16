@@ -133,7 +133,6 @@
 }
 .space .gb-hours.quiet { justify-content: flex-start; margin-top: 6px; }
 .space .gb-hours.quiet > span { align-self: center; }
-.space .gb-estimate { font-size: 0.8125rem; text-decoration: underline; text-decoration-color: var(--line-strong); text-underline-offset: 3px; }
 .space .gb-feas { white-space: nowrap; font-weight: 600; }
 .space .gb-feas.tight { color: #f5d9a8; }
 .space .gb-feas.hard { color: #f3c4cc; }
@@ -225,7 +224,8 @@
 .space .hw-day[aria-pressed="true"] .check-mark path { stroke-dashoffset: 0; }
 .space .hw-day:active .hw-dot { transform: scale(0.9); }
 .space .hw-day:disabled { cursor: default; }
-.space .hw-day:disabled .hw-dot { border-style: dashed; border-color: var(--line); color: color-mix(in srgb, var(--text-soft) 70%, transparent); }
+/* only done days are filled: a day not done, past or still to come, is equally quiet (no missed-day mark) */
+.space .hw-day:not(.done):not(.today) .hw-dot { border-style: dashed; border-color: var(--line); color: color-mix(in srgb, var(--text-soft) 70%, transparent); }
 
 /* ---------- Ziele: reached and dropped, folded ---------- */
 .space .pl-finished { margin-top: 28px; }

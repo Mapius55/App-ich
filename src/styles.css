@@ -549,6 +549,8 @@ input[type="time"] { background: var(--glass); border: 1px solid var(--line); bo
   animation: fade 0.4s ease both;
 }
 .voice-status-text.listening { color: var(--text); animation: breathe 1.6s ease-in-out infinite; }
+/* «Tippe auf den Kreis zum Hören» is itself a tap target (44 px tall, same line height) */
+button.voice-status-text.hear-hint { border: 0; background: none; padding: 15px 8px; margin: -15px 0; max-width: 100%; }
 .voice-status-text.thinking, .voice-status-text.transcribing { animation: breathe 2.2s ease-in-out infinite; }
 @keyframes breathe { 50% { opacity: 0.45; } }
 .voice-heard { font-family: var(--serif); font-style: italic; color: var(--text-soft); margin: 0; max-width: 32ch; font-size: 1.02rem; line-height: 1.4; animation: rise 0.5s var(--ease-out) both; }

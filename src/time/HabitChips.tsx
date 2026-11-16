@@ -1,5 +1,5 @@
 // Habit chips on Tag: tick a habit for the day shown. At most three chips, then
-// "+N" → Ziele. Today "HEUTE ABHAKEN", a past day "GEWOHNHEITEN", hidden on future days.
+// "+N" → Ziele. Today "HEUTE", a past day "GEWOHNHEITEN", hidden on future days.
 import { useRef, useState } from "react";
 import { daysBetween } from "../lib/plan";
 import type { Habit } from "../lib/types";
@@ -52,7 +52,7 @@ export function HabitChips({ day }: { day: string }) {
   const more = list.length - shown.length;
   return (
     <div className="hc">
-      <p className="hc-label">{rel === 0 ? "Heute abhaken" : "Gewohnheiten"}</p>
+      <p className="hc-label">{rel === 0 ? "Heute" : "Gewohnheiten"}</p>
       <div className="hc-chips">
         {shown.map((h) => (
           <Chip key={h.id} habit={h} day={day} done={h.done_days.includes(day)} />

@@ -220,7 +220,7 @@ html.space-on #root { height: auto; }
 .space .now-door:active { opacity: 0.7; transition-duration: 0s; }
 /* when the voice stack rises over the door (the typed field, what she said over more than one line,
    an error, a toast, a note above «Nochmal hören») the door gives way, like «WOCHE ⌄» on the levels
-   (time.css). A single status line or a one-line echo under it («Tippe irgendwo, um mich zu hören»,
+   (time.css). A single status line or a one-line echo under it («Tippe auf den Kreis zum Hören»,
    «Ich denke nach …», the coach speaking) fits below it: the door stays in place and tappable. */
 html[data-typed] .space .now-door,
 html:has(.voice-layer :is(.voice-heard[data-wraps], .msg-error, .toasts > *, .voice-status-text:not(.idle-hint) ~ .voice-replay)) .space .now-door {
@@ -293,16 +293,21 @@ html.space-on[data-typed]:not([data-level="0"]) .voice-layer::before { opacity: 
 /* away from Jetzt the echo of what was said keeps to one line */
 html.space-on:not([data-level="0"]) .voice-layer .voice-heard,
 html.space-on:not([data-place="jetzt"]) .voice-layer .voice-heard { max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-/* away from Jetzt the status area belongs to the level ("WOCHE ⌄"): no idle hint, no replay */
+/* away from Jetzt the status area belongs to the level ("WOCHE ⌄"): no idle hint, no replay; the
+   greeting that waits for a tap on the circle waits there quietly */
 html.space-on:not([data-level="0"]) .voice-layer .idle-hint,
 html.space-on:not([data-place="jetzt"]) .voice-layer .idle-hint,
+html.space-on:not([data-level="0"]) .voice-layer .hear-hint,
+html.space-on:not([data-place="jetzt"]) .voice-layer .hear-hint,
 html.space-on:not([data-level="0"]) .voice-layer .voice-replay,
 html.space-on:not([data-place="jetzt"]) .voice-layer .voice-replay { display: none; }
 .voice-layer .voice-replay { min-height: 44px; padding: 0 16px; }
-/* Jetzt has room for one status line: until the first message the hint wins over "Nochmal hören" */
+/* Jetzt has room for one status line: until the first message the hint wins over "Nochmal hören"
+   (a greeting she never heard shows «Hören» instead of the hint) */
 .voice-layer .idle-hint ~ .voice-replay { display: none; }
-/* the typed field's placeholder says it already */
-.voice-layer .voice[data-typed] .idle-hint { display: none; }
+/* the typed field's placeholder says it already; typing stays silent */
+.voice-layer .voice[data-typed] .idle-hint,
+.voice-layer .voice[data-typed] .hear-hint { display: none; }
 /* compact dock away from Jetzt (D25): mic 56, round 48 */
 .voice-layer .voice.compact .voice-dock { gap: 18px; }
 .voice-layer .voice.compact .dock-main.big { width: var(--mic); height: var(--mic); box-shadow: 0 8px 30px color-mix(in srgb, var(--sky-1) 30%, transparent); }

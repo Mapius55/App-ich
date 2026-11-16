@@ -18,6 +18,7 @@ import { listen as browserListen, speechSupported } from "./speech";
 let ctx: AudioContext | null = null;
 let unlockResolve: (() => void) | null = null;
 const unlocked = new Promise<void>((r) => (unlockResolve = r));
+let unlockedOnce = false;
 
 export function audioContext(): AudioContext {
   if (!ctx) {
@@ -56,7 +57,8 @@ if (typeof document !== "undefined") {
   });
 }
 
-/** Call from a tap. Plays a silent sound so iOS allows audio afterwards. */
+/** Call from a deliberate tap (the circle, the hint, the mic, a coach hand-off): never from any tap
+    anywhere. Plays a silent sound so iOS allows audio afterwards; every such tap tries again. */
 export async function unlockAudio(): Promise<void> {
   setAudioSession("playback");
   const c = audioContext();
@@ -71,6 +73,7 @@ export async function unlockAudio(): Promise<void> {
     u.volume = 0;
     window.speechSynthesis.speak(u);
   }
+  unlockedOnce = true;
   unlockResolve?.();
 }
 
@@ -109,7 +112,8 @@ export function splitSentences(buffer: string, minLength = 1): [string[], string
 
 // ---------- speaker
 
-type SpeakerState = "idle" | "speaking";
+/** waiting: a reply is ready but waits for a tap (the first tap on iOS, or a held greeting) */
+export type SpeakerState = "idle" | "waiting" | "speaking";
 
 export class Speaker {
   /** per sentence: its text and, with the server voice, the decoded audio (null = phone voice) */
@@ -120,7 +124,11 @@ export class Speaker {
   private analyser: AnalyserNode | null = null;
   private raf = 0;
   private listeners = new Set<(s: SpeakerState) => void>();
+  private soundListeners = new Set<() => void>();
   private useServer: boolean | null = null;
+  private gate: Promise<void> | null = null;
+  private openGate: (() => void) | null = null;
+  private stateNow: SpeakerState = "idle";
   /** everything said in this reply, for "nochmal hören" */
   spoken: string[] = [];
 
@@ -129,7 +137,35 @@ export class Speaker {
     return () => this.listeners.delete(l);
   }
   private emit(s: SpeakerState) {
+    this.stateNow = s;
     this.listeners.forEach((l) => l(s));
+  }
+  get state(): SpeakerState {
+    return this.stateNow;
+  }
+
+  /** called each time sound really starts (not while a reply waits for a tap): she heard it */
+  onSound(l: () => void) {
+    this.soundListeners.add(l);
+    return () => this.soundListeners.delete(l);
+  }
+  private sound() {
+    this.soundListeners.forEach((l) => l());
+  }
+
+  /** The next reply (the greeting) waits for her tap: sound only when she wants it. It is fetched as usual. */
+  hold() {
+    this.gate ??= new Promise<void>((r) => (this.openGate = r));
+  }
+  /** a reply is held for her tap (the greeting, also while it is still being written) */
+  get held(): boolean {
+    return !!this.gate;
+  }
+  /** Her tap: a held reply plays. */
+  release() {
+    this.openGate?.();
+    this.gate = null;
+    this.openGate = null;
   }
 
   get busy() {
@@ -169,8 +205,13 @@ export class Speaker {
       return;
     }
     this.playing = true;
+    if (!unlockedOnce || this.gate) {
+      this.emit("waiting");
+      await unlocked; // wait for the first deliberate tap on iOS
+      while (this.gate) await this.gate; // a held reply (the greeting) waits for her tap
+      if (gen !== this.generation) return;
+    }
     this.emit("speaking");
-    await unlocked; // wait for the first tap on iOS
     const item = await next;
     if (gen !== this.generation) return;
     if (item === null) return this.playNext(gen);
@@ -203,6 +244,7 @@ export class Speaker {
     };
     this.current = src;
     this.startMeter();
+    this.sound();
     src.start();
   }
 
@@ -232,6 +274,7 @@ export class Speaker {
       // some phones never report the end of speech: don't hang
       const guard = setTimeout(finish, 2500 + text.length * 85);
       u.onend = u.onerror = finish;
+      this.sound();
       window.speechSynthesis.speak(u);
     });
   }
@@ -265,6 +308,7 @@ export class Speaker {
     }
     this.current = null;
     if ("speechSynthesis" in window) window.speechSynthesis.cancel();
+    this.release(); // a held reply is dropped with the rest (its wait ends on the old generation)
     this.playing = false;
     this.stopMeter();
     this.emit("idle");
