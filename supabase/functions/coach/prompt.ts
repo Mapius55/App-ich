@@ -765,7 +765,7 @@ export function openerLine(kind: OpenerKind, c: ContextInput): string {
     case "jahreszeit":
       return "Die Jahreszeit, das Licht oder das Wetter draussen (siehe „Jetzt“)";
     case "neustart": {
-      if (quietNow(c)) return "Neustart, leise: frag nur, wie es ihr geht, ohne Ziele";
+      if (quietNow(c)) return "Neustart, leise: begrüss sie wie an jedem Tag (kein „schön, dass du da bist“) und frag nur, wie es ihr geht, ohne Ziele";
       if (!goal) return "Neustart: warm begrüssen und eine kleine Sache für heute anbieten";
       const blocks = [...(c.events ?? []), ...(c.pastBlocks ?? [])]
         .filter((e) => e.kind === "block" && e.goal_id === goal.id && e.ends_at && !e.all_day)

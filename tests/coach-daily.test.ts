@@ -235,14 +235,14 @@ describe("after a pause: as always, a small step", () => {
     expect(openerLine("neustart", { ...base, goals: [race], events: [block] })).toBe("Neustart: ein kleiner Schritt für „Halbmarathon Zürich“, etwa 30 Minuten, heute oder morgen mit Uhrzeit");
     expect(openerLine("neustart", base)).toBe("Neustart: warm begrüssen und eine kleine Sache für heute anbieten");
     const heavy = { ...base, goals: [race], recentDays: [{ day: "2026-11-06", mood: { valence: -0.6 }, focus: null }, { day: "2026-11-05", mood: { valence: -0.7 }, focus: null }], today: { mood: { valence: -0.5 }, focus: null } };
-    expect(openerLine("neustart", heavy)).toBe("Neustart, leise: frag nur, wie es ihr geht, ohne Ziele");
+    expect(openerLine("neustart", heavy)).toBe("Neustart, leise: begrüss sie wie an jedem Tag (kein „schön, dass du da bist“) und frag nur, wie es ihr geht, ohne Ziele");
   });
 
   it("quiet at the first greeting after a pause when the days before it were heavy, from the stored moods alone", () => {
     // last conversation on Friday 6 November, back on Monday 16: nothing stored today, nothing in the pause
     const before = (vals: number[]) => vals.map((valence, i) => ({ day: addDays("2026-11-06", -i), mood: { valence }, focus: null }));
     const after = { ...base, goals: [race], lastSeen: "2026-11-06", today: null };
-    expect(openerLine("neustart", { ...after, recentDays: before([-0.6, -0.5, 0.2]) })).toBe("Neustart, leise: frag nur, wie es ihr geht, ohne Ziele");
+    expect(openerLine("neustart", { ...after, recentDays: before([-0.6, -0.5, 0.2]) })).toBe("Neustart, leise: begrüss sie wie an jedem Tag (kein „schön, dass du da bist“) und frag nur, wie es ihr geht, ohne Ziele");
     expect(section(ctx({ ...after, opener: "neustart", recentDays: before([-0.6, -0.5]) }), "Eröffnung")).toContain("Neustart, leise:");
     // light days before the pause: the small restart as always
     expect(openerLine("neustart", { ...after, recentDays: before([0.3, -0.5, 0.4]) })).toBe(
