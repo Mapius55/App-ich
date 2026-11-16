@@ -577,11 +577,14 @@ const heavy = (m: Mood) => typeof m?.valence === "number" && m.valence <= HEAVY_
 
 /**
  * Heavy lately: today's mood is heavy, or two of the moods recorded on the three days before today are.
+ * After a pause (`lastSeen`: the last day with a conversation) those are the three days up to the last one she
+ * was there: what weighed on her then is all there is to go on at the first greeting after it.
  * Read before she has said anything today, so it can only come from what was stored.
  */
-export function heavyLately(todayMood: Mood, recent: { day: string; mood: Mood }[], today: string): boolean {
+export function heavyLately(todayMood: Mood, recent: { day: string; mood: Mood }[], today: string, lastSeen?: string | null): boolean {
   if (heavy(todayMood)) return true;
-  const last3 = recent.filter((d) => isDay(d.day) && daysBetween(d.day, today) >= 1 && daysBetween(d.day, today) <= 3 && typeof d.mood?.valence === "number");
+  const anchor = lastSeen && isPause(lastSeen, today) ? addDays(lastSeen, 1) : today;
+  const last3 = recent.filter((d) => isDay(d.day) && daysBetween(d.day, anchor) >= 1 && daysBetween(d.day, anchor) <= 3 && typeof d.mood?.valence === "number");
   return last3.filter((d) => heavy(d.mood)).length >= 2;
 }
 
@@ -733,7 +736,7 @@ export function dailySituation(o: {
   const clock = localClock(o.now, o.tz);
   const minutes = clock.day === o.day ? clock.minutes : 12 * 60;
   const pause = isPause(o.lastSeenDay, o.day);
-  const heavy = heavyLately(o.todayMood, o.recentDays, o.day);
+  const heavy = heavyLately(o.todayMood, o.recentDays, o.day, o.lastSeenDay);
   const review = o.review
     ? wochenblickDue({
         day: o.day,
@@ -774,6 +777,13 @@ export function smallStepMinutes(blockMinutes: number[], weeklyHours: number | n
   return Math.min(45, Math.max(15, Math.round(usual / 2 / 5) * 5));
 }
 
+type WeekBlock = { goal_id: string | null; starts_at: string; ends_at: string | null; all_day: boolean; kind?: string; source?: string | null; answered: boolean };
+
+/** One of her own past blocks nobody answered yet (it counts provisionally): timed, ended by `now`, not the trainer's plan. */
+function openBlock(b: WeekBlock, now: Date): boolean {
+  return (!b.kind || b.kind === "block") && !b.all_day && !!b.ends_at && !b.answered && b.source !== "nolio" && Date.parse(b.ends_at) <= now.getTime();
+}
+
 export interface WeekGoalSummary {
   goal_id: string;
   /** minutes of blocks planned for it that week (the trainer's plan too) */
@@ -791,7 +801,7 @@ export interface WeekGoalSummary {
  */
 export function weekGoalSummary(
   goalIds: string[],
-  blocks: { id: string; goal_id: string | null; starts_at: string; ends_at: string | null; all_day: boolean; kind?: string; source?: string | null; answered: boolean }[],
+  blocks: (WeekBlock & { id: string })[],
   log: { goal_id: string; day: string; minutes: number }[],
   monday: string,
   now: Date,
@@ -807,13 +817,28 @@ export function weekGoalSummary(
     if (!min) continue;
     s.planned_minutes += min;
     s.blocks++;
-    if (!b.answered && b.source !== "nolio" && Date.parse(b.ends_at) <= now.getTime()) s.open_minutes += min;
+    if (openBlock(b, now)) s.open_minutes += min;
   }
   for (const t of log) {
     const s = out.get(t.goal_id);
     if (s && t.minutes > 0 && inWeek(t.day)) s.done_minutes += t.minutes;
   }
   return [...out.values()].filter((s) => s.planned_minutes > 0 || s.done_minutes > 0);
+}
+
+/**
+ * The blocks of the week from `monday` that weekGoalSummary counts as «ohne Rückmeldung», one by one and in order,
+ * for the Wochenblick: with their id she can still say how one went, or that it didn't happen (log_time, 0 minutes).
+ */
+export function openWeekBlocks<B extends WeekBlock>(blocks: B[], goalIds: string[], monday: string, now: Date, dayOfIso: (iso: string) => string): B[] {
+  const goals = new Set(goalIds);
+  const sunday = addDays(monday, 6);
+  return blocks
+    .filter((b) => {
+      const d = dayOfIso(b.starts_at);
+      return !!b.goal_id && goals.has(b.goal_id) && d >= monday && d <= sunday && openBlock(b, now) && Date.parse(b.ends_at!) > Date.parse(b.starts_at);
+    })
+    .sort((a, b) => Date.parse(a.starts_at) - Date.parse(b.starts_at));
 }
 
 export type TodayWin = { kind: "zeit"; title: string; minutes: number } | { kind: "etappe"; title: string; goal: string } | { kind: "gewohnheit"; title: string };
@@ -863,26 +888,39 @@ export function leansOnCoach(talk: Record<string, number>, moods: { day: string;
 const SENSITIVE = new RegExp(
   [
     // health
-    "arzt", "ärzt", "doktor", "\\bdr\\.", "zahn", "therap", "psych", "spital", "klinik", "notfall", "operation", "\\bop\\b", "diagnos",
+    "arzt", "ärzt", "doktor", "\\bdr\\.", "zahn", "therap", "psych", "notfall", "operation", "\\bop\\b", "diagnos",
     "krank", "physio", "\\breha", "untersuch", "blutt", "blutdruck", "impf", "gyn", "schwanger", "hebamm", "mammo", "ultraschall", "röntgen",
     "\\bmrt\\b", "\\bmri\\b", "\\bct\\b", "chemo", "onkolog", "kardiolog", "orthopäd", "chirurg",
     // relationships
     "beziehung", "trennung", "scheidung", "\\bpartner", "\\bdate\\b", "\\bex\\b",
     // money
-    "\\bbank(?!ett|drück)", "kredit", "schulden", "steuer", "betreibung", "(?<!be)lohn(?!t)", "gehalt(?!en)", "gehält", "geld", "miete\\b", "\\bmieter",
-    "mietzins", "budget", "finanz", "hypothek", "versicherung",
+    "kredit", "schulden", "steuer", "betreibung", "(?<!be)lohn(?!t)", "gehalt(?!en)", "gehält", "geld", "miete\\b", "\\bmieter",
+    "mietzins", "budget", "finanz", "hypothek", "arbeitslos", "\\brav\\b",
     // legal matters
-    "anwalt", "anwält", "gericht", "klage\\b", "\\bklagt\\b", "notar", "polizei", "\\bbusse\\b", "vormund", "kesb",
+    "klage\\b", "\\bklagt\\b", "\\bbusse\\b", "vormund", "kesb",
+  ].join("|"),
+  "i",
+);
+// Places that are sensitive as an appointment but are also employers: «beim Notar», «im Spital», «bei der Bank»
+// are a private matter, a «Vorstellungsgespräch bei der Bank» or a «Probetag im Spital» is not.
+const SENSITIVE_PLACE = /\bbank(?!ett|drück)|versicherung|spital|klinik|gericht|polizei|notar|anwalt|anwält/i;
+// A job, an application or a training: then those places are the workplace.
+const JOB = new RegExp(
+  [
+    "vorstellungsgespr", "(?<!wett)bew[ei]rb", "beworben", "probetag", "probearbeit", "schnupper", "interview", "job",
+    "\\bstelle\\b", "\\bstellen(?:antritt|angebot|wechsel|suche|inserat)", "lehrstelle", "praktik", "ausbildung",
+    "assessment", "eignungstest", "aufnahmetest", "arbeitstag", "(?<!ge)schicht",
   ].join("|"),
   "i",
 );
 
 /**
  * A dated note she might be asked about that the coach never raises on its own: health, relationships,
- * money, legal matters. A coarse word check; the prompt says the same.
+ * money, legal matters. A coarse word check; the prompt says the same. A bank, an insurance, a hospital, a court,
+ * the police, a notary or a lawyer named as the place of a job, an application or a training is no such matter.
  */
 export function sensitiveTopic(text: string): boolean {
-  return SENSITIVE.test(text);
+  return SENSITIVE.test(text) || (SENSITIVE_PLACE.test(text) && !JOB.test(text));
 }
 
 /** A dated memory to ask about once: its day lies one to three days back, not asked yet, and nothing sensitive. */

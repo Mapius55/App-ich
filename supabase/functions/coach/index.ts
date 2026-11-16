@@ -25,6 +25,8 @@ import {
 import {
   birthYearProblem,
   doneDateProblem,
+  draftStream,
+  finalVersion,
   goalHints,
   nextStepHint,
   NOLIO_EDIT_REFUSAL,
@@ -55,6 +57,7 @@ import {
   localClock,
   NUDGE_LONG_DAYS,
   NUDGE_NOT_NOW_DAYS,
+  openWeekBlocks,
   reviewWeek,
   streakLabel,
   SUPPORT_EVERY_DAYS,
@@ -1419,14 +1422,17 @@ async function loadDaily(sb: SupabaseClient, userId: string, day: string) {
   };
 }
 
-/** Planned against done per goal for the week from `monday` (the Wochenblick looks back on it). */
+/**
+ * Planned against done per goal for the week from `monday` (the Wochenblick looks back on it), and the blocks of
+ * that week nobody answered, with their id (so a «nein» can still be recorded).
+ */
 async function weekSummaryFor(sb: SupabaseClient, goalIds: string[], monday: string, tz: string, now: number) {
-  if (!goalIds.length) return [];
+  if (!goalIds.length) return { goals: [], open: [] };
   const [blocks, log] = await Promise.all([
     soft<Row[]>(
       sb
         .from("events")
-        .select("id, goal_id, starts_at, ends_at, all_day, kind, source, goal_time(id)")
+        .select("id, title, goal_id, starts_at, ends_at, all_day, location, kind, source, goal_time(id)")
         .eq("kind", "block")
         .in("goal_id", goalIds)
         .gte("starts_at", zonedToUtc(monday, tz))
@@ -1441,23 +1447,29 @@ async function weekSummaryFor(sb: SupabaseClient, goalIds: string[], monday: str
       "week time",
     ),
   ]);
-  return weekGoalSummary(
+  const rows = blocks.map((b) => ({
+    id: String(b.id),
+    title: String(b.title ?? ""),
+    goal_id: (b.goal_id as string | null) ?? null,
+    starts_at: String(b.starts_at),
+    ends_at: (b.ends_at as string | null) ?? null,
+    all_day: b.all_day === true,
+    location: (b.location as string | null) ?? null,
+    kind: String(b.kind),
+    source: (b.source as string | null) ?? null,
+    answered: !!((b.goal_time as unknown[] | null) ?? []).length,
+  }));
+  const dayOf = (iso: string) => localDay(iso, tz);
+  const goals = weekGoalSummary(
     goalIds,
-    blocks.map((b) => ({
-      id: String(b.id),
-      goal_id: (b.goal_id as string | null) ?? null,
-      starts_at: String(b.starts_at),
-      ends_at: (b.ends_at as string | null) ?? null,
-      all_day: b.all_day === true,
-      kind: String(b.kind),
-      source: (b.source as string | null) ?? null,
-      answered: !!((b.goal_time as unknown[] | null) ?? []).length,
-    })),
+    rows,
     log.map((t) => ({ goal_id: String(t.goal_id), day: String(t.day), minutes: Number(t.minutes) || 0 })),
     monday,
     new Date(now),
-    (iso) => localDay(iso, tz),
+    dayOf,
   );
+  const open = openWeekBlocks(rows, goalIds, monday, new Date(now), dayOf).map(({ answered: _a, ...b }) => b);
+  return { goals, open };
 }
 
 async function converse({ sb, userId, body, send }: { sb: SupabaseClient; userId: string; body: ReqBody; send: (e: Ev) => void }) {
@@ -1737,7 +1749,7 @@ async function converse({ sb, userId, body, send }: { sb: SupabaseClient; userId
     });
     if (due) {
       const monday = addDays(reviewWeek(context.day, minutes), -7);
-      input.review = { due, monday, goals: await weekSummaryFor(sb, goals.map((g) => g.id), monday, tz, now) };
+      input.review = { due, monday, ...(await weekSummaryFor(sb, goals.map((g) => g.id), monday, tz, now)) };
     }
     // unknown state (columns before their migration): no rare offers, since nothing could be noted
     if (p) {
@@ -1795,8 +1807,10 @@ async function converse({ sb, userId, body, send }: { sb: SupabaseClient; userId
       messages,
     });
 
-    // everything is read aloud: no emojis or emoticons, also when the model slips one in
+    // everything is read aloud: no emojis or emoticons, also when the model slips one in, and never a
+    // sentence about the reply itself (a draft's «Das sind zwei Fragen, also nur eine:»)
     const spoken = spokenStream();
+    const draft = draftStream();
     let roundText = "";
     const emit = (text: string) => {
       if (!text) return;
@@ -1808,10 +1822,11 @@ async function converse({ sb, userId, body, send }: { sb: SupabaseClient; userId
       fullText += text;
       send({ type: "text", text });
     };
-    stream.on("text", (delta) => emit(spoken.push(delta)));
+    stream.on("text", (delta) => emit(draft.push(spoken.push(delta))));
 
     const msg = await stream.finalMessage();
-    emit(spoken.flush());
+    emit(draft.push(spoken.flush()));
+    emit(draft.flush());
 
     if (msg.stop_reason === "refusal") {
       const t = "Dazu kann ich leider nichts sagen. Magst du mir erzählen, was dich sonst gerade beschäftigt?";
@@ -1850,7 +1865,8 @@ async function converse({ sb, userId, body, send }: { sb: SupabaseClient; userId
     messages.push({ role: "user", content: results });
   }
 
-  const reply = stripEmoji(fullText).trim();
+  // a draft that slipped in before the reply: only the final version is kept (and is what the coach sees later)
+  const reply = finalVersion(stripEmoji(fullText).trim());
   if (mode !== "tidy" && reply) {
     // the shape only (no content), to spot long answers and double questions
     const shape = replyShape(reply);

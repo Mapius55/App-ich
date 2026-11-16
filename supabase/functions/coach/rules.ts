@@ -75,6 +75,91 @@ export function replyShape(text: string): { words: number; questions: number } {
   return { words: t ? t.split(/\s+/).length : 0, questions: (t.match(/\?/g) ?? []).length };
 }
 
+// ---------- drafts: only what it says reaches her ----------
+
+/**
+ * A sentence about the reply itself instead of to her, at the start of a sentence: «Das sind zwei Fragen, also nur
+ * eine:», «Kürzer:», «Neuer Versuch:», «Entwurf:». After one comes the version meant for her.
+ */
+const META =
+  /^(?:Das (?:sind|waren|wären) (?:zwei|drei|vier|\d+) Fragen\b|Also nur eine(?: Frage)?\s*:|(?:Zu viele|Zu lang)\s*[:.]|Kürzer\s*:|(?:Kürzere|Neue|Zweite|Bessere|Endgültige|Korrigierte|Überarbeitete|Finale) (?:Version|Fassung)\s*:|(?:Neuer|Zweiter) Versuch\s*:|(?:Korrektur|Entwurf|Endfassung|Draft|Revised|Final)\s*:)/i;
+/** A greeting that opens a reply; «Gute Nacht» closes one and doesn't count. */
+const GREETING = /^(?:Guten (?:Morgen|Mittag|Tag|Nachmittag|Abend)|Grüezi|Grüss dich|Hallo|Hoi|Salü)(?![a-zäöü])/i;
+/** Where a sentence or a line begins: after a sentence end and a space, or after a line break. */
+const SEGMENT = /(?:[.!?:…][ \t]+|\n\s*)(?=\S)/g;
+
+function segmentStarts(t: string): number[] {
+  const out = [0];
+  for (const m of t.matchAll(SEGMENT)) out.push(m.index! + m[0].length);
+  return out;
+}
+
+/**
+ * The reply as it is meant for her, when a draft slipped in before it (once in a live check: a greeting with two
+ * questions, «Das sind zwei Fragen, also nur eine:», then the greeting again with one). After a sentence about the
+ * reply itself only what follows it is kept (without anything after it, only that sentence goes); a greeting that
+ * starts the reply again later keeps only the last start. Anything else stays as it is.
+ */
+export function finalVersion(text: string): string {
+  let t = text.trim();
+  let starts = segmentStarts(t);
+  const metas = starts.map((s, i) => [s, starts[i + 1] ?? t.length] as const).filter(([s]) => META.test(t.slice(s)));
+  if (metas.length) {
+    const after = t.slice(metas[metas.length - 1][1]).trim();
+    if (after) t = after;
+    else {
+      let kept = t;
+      for (const [s, e] of [...metas].reverse()) kept = kept.slice(0, s) + kept.slice(e);
+      t = kept.trim();
+    }
+    starts = segmentStarts(t);
+  }
+  const first = GREETING.exec(t)?.[0].toLowerCase();
+  if (first) {
+    const again = starts.filter((s) => s > 0 && GREETING.exec(t.slice(s))?.[0].toLowerCase() === first);
+    if (again.length) t = t.slice(again[again.length - 1]).trim();
+  }
+  return t || text.trim();
+}
+
+/**
+ * The same guard on the stream she hears: every sentence waits until it is complete (the app speaks whole
+ * sentences anyway), and one about the reply itself is never sent. push() returns what can be sent now,
+ * flush() the rest at the end. A sentence that runs past 200 characters goes out unchecked.
+ */
+export function draftStream(): { push(delta: string): string; flush(): string } {
+  let held = "";
+  let open = false; // the current sentence went out unchecked (too long): the rest of it follows as it comes
+  const pass = (seg: string) => (META.test(seg.trimStart()) ? "" : seg);
+  return {
+    push(delta: string) {
+      held += delta;
+      let out = "";
+      for (;;) {
+        SEGMENT.lastIndex = 0;
+        const m = SEGMENT.exec(held);
+        if (!m) break;
+        const end = m.index + m[0].length;
+        out += open ? held.slice(0, end) : pass(held.slice(0, end));
+        open = false;
+        held = held.slice(end);
+      }
+      if (held.length > 200) {
+        out += open ? held : pass(held);
+        open = true;
+        held = "";
+      }
+      return out;
+    },
+    flush() {
+      const rest = open ? held : pass(held);
+      held = "";
+      open = false;
+      return rest;
+    },
+  };
+}
+
 /**
  * A memory that carries WHOOP values (or what the coach read from them), e.g. „Erholung meist um 60 %“
  * or „HRV sinkt nach langen Arbeitstagen“. Checked only on turns where WHOOP values were in the

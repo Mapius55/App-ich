@@ -16,6 +16,7 @@ import {
   isPause,
   leansOnCoach,
   localClock,
+  openWeekBlocks,
   PAUSE_DAYS,
   restingUntil,
   reviewWeek,
@@ -85,6 +86,24 @@ describe("heavy lately (only from what was stored)", () => {
     expect(heavyLately(null, days([[1, -0.6], [2, 0.3], [3, 0.1]]), today)).toBe(false);
     // older days don't count
     expect(heavyLately(null, days([[4, -0.6], [5, -0.9]]), today)).toBe(false);
+  });
+
+  it("after a pause: the three days up to her last conversation, which are all there is to go on", () => {
+    const days = (vals: [string, number][]) => vals.map(([day, valence]) => ({ day, mood: { valence } }));
+    // last talked on Friday 6 November, ten days before today
+    const heavyBefore = days([["2026-11-06", -0.6], ["2026-11-05", -0.5], ["2026-11-04", 0.2]]);
+    expect(heavyLately(null, heavyBefore, today, "2026-11-06")).toBe(true);
+    // without knowing the pause (or with today's anchor), those days are too far back
+    expect(heavyLately(null, heavyBefore, today)).toBe(false);
+    // light days before the pause: not quiet
+    expect(heavyLately(null, days([["2026-11-06", 0.4], ["2026-11-05", -0.5], ["2026-11-04", 0.3]]), today, "2026-11-06")).toBe(false);
+    // only the three days up to the last one count
+    expect(heavyLately(null, days([["2026-11-03", -0.6], ["2026-11-02", -0.8], ["2026-11-06", 0.3]]), today, "2026-11-06")).toBe(false);
+    // no pause (four days): the window stays before today
+    expect(heavyLately(null, days([["2026-11-12", -0.6], ["2026-11-11", -0.7]]), today, "2026-11-12")).toBe(false);
+    expect(heavyLately(null, days([["2026-11-15", -0.6], ["2026-11-14", -0.7]]), today, "2026-11-15")).toBe(true);
+    // today's own mood still counts on its own
+    expect(heavyLately({ valence: -0.5 }, [], today, "2026-11-06")).toBe(true);
   });
 });
 
@@ -253,6 +272,32 @@ describe("the Wochenblick", () => {
   });
 });
 
+describe("the Wochenblick: last week's blocks nobody answered, one by one", () => {
+  it("lists the open ones of that week with their id, in order: her own, timed, ended, for a goal in view", () => {
+    const now = new Date("2026-11-23T11:10:00Z");
+    const block = (id: string, goal_id: string | null, start: string, end: string | null, o: Record<string, unknown> = {}) => ({ id, goal_id, starts_at: start, ends_at: end, all_day: false, kind: "block", source: "coach", answered: false, ...o });
+    const blocks = [
+      block("thu", "g1", "2026-11-19T17:00:00Z", "2026-11-19T18:00:00Z"),
+      block("tue", "g1", "2026-11-17T17:00:00Z", "2026-11-17T18:00:00Z"),
+      block("answered", "g1", "2026-11-18T17:00:00Z", "2026-11-18T18:00:00Z", { answered: true }),
+      block("nolio", "g1", "2026-11-20T17:00:00Z", "2026-11-20T18:00:00Z", { source: "nolio" }),
+      block("allday", "g1", "2026-11-21T00:00:00Z", "2026-11-22T00:00:00Z", { all_day: true }),
+      block("noend", "g1", "2026-11-21T08:00:00Z", null),
+      block("other", "g9", "2026-11-21T08:00:00Z", "2026-11-21T09:00:00Z"),
+      block("free", null, "2026-11-21T08:00:00Z", "2026-11-21T09:00:00Z"),
+      block("termin", "g1", "2026-11-21T08:00:00Z", "2026-11-21T09:00:00Z", { kind: "termin" }),
+      block("before", "g1", "2026-11-15T17:00:00Z", "2026-11-15T18:00:00Z"), // the Sunday before
+      block("today", "g1", "2026-11-23T06:00:00Z", "2026-11-23T07:00:00Z"), // the new week
+      block("sun-late", "g1", "2026-11-22T22:30:00Z", "2026-11-22T22:50:00Z"), // Sunday 23:30 in Zurich: still the week
+    ];
+    expect(openWeekBlocks(blocks, ["g1"], "2026-11-16", now, zurich).map((b) => b.id)).toEqual(["tue", "thu", "sun-late"]);
+    // what weekGoalSummary counts as open is exactly these
+    expect(weekGoalSummary(["g1"], blocks, [], "2026-11-16", now, zurich)[0].open_minutes).toBe(60 + 60 + 20);
+    // not ended yet: not open
+    expect(openWeekBlocks(blocks, ["g1"], "2026-11-16", new Date("2026-11-19T17:30:00Z"), zurich).map((b) => b.id)).toEqual(["tue"]);
+  });
+});
+
 describe("the Wochenblick over the day the clocks go back (25 October 2026)", () => {
   it("counts the week Monday to Sunday by her days, and a block across the change by its real length", () => {
     const now = new Date("2026-10-26T08:00:00Z");
@@ -317,6 +362,11 @@ describe("the daily situation, from what was stored", () => {
   it("after a pause a restart, not a Wochenblick; in a heavy time neither; an unknown state never offers it", () => {
     expect(dailySituation({ ...base, lastSeenDay: "2026-11-09", lastSpoke: { thread: "2026-11-09", created_at: "2026-11-09T07:00:00Z" } })).toMatchObject({ pause: true, review: null });
     expect(dailySituation({ ...base, todayMood: { valence: -0.6 } })).toMatchObject({ heavy: true, review: null });
+    // heavy days before a pause: heavy at the first greeting after it; light ones: not
+    const paused = { ...base, lastSeenDay: "2026-11-09", lastSpoke: { thread: "2026-11-09", created_at: "2026-11-09T07:00:00Z" } };
+    const moods = (a: number, b: number) => [{ day: "2026-11-09", mood: { valence: a } }, { day: "2026-11-08", mood: { valence: b } }];
+    expect(dailySituation({ ...paused, recentDays: moods(-0.6, -0.4) })).toMatchObject({ pause: true, heavy: true, review: null });
+    expect(dailySituation({ ...paused, recentDays: moods(0.4, -0.4) })).toMatchObject({ pause: true, heavy: false });
     expect(dailySituation({ ...base, review: null }).review).toBeNull();
     expect(dailySituation({ ...base, hasPlanGoal: false }).review).toBeNull();
   });
@@ -401,6 +451,21 @@ describe("follow-ups: once, and never on sensitive topics", () => {
       "Geld von Papa zurückzahlen",
       "Budget für den Monat",
       "Klage einreichen",
+      // a bank, a hospital, a court … as the place of an appointment, without a job
+      "Termin bei der Bank wegen der Hypothek",
+      "Termin beim Notar",
+      "Muss ins Spital",
+      "Kontrolle in der Klinik",
+      "Verhandlung am Gericht",
+      "Anzeige bei der Polizei",
+      "Versicherung anrufen wegen dem Unfall",
+      "Beim Arzt wegen dem Knie",
+      // a job word doesn't make money or health harmless
+      "Vorstellungsgespräch, danach zum Arzt",
+      "Gehaltsgespräch bei der Bank",
+      "Termin beim Arbeitsgericht",
+      "Termin bei der Arbeitslosenversicherung wegen der Jobsuche",
+      "Beratung beim RAV für die Stellensuche",
     ])
       expect(sensitiveTopic(t), t).toBe(true);
     for (const t of [
@@ -415,6 +480,19 @@ describe("follow-ups: once, and never on sensitive topics", () => {
       "Das lohnt sich",
       "Velo mieten in Amsterdam",
       "Beim langen Lauf durchgehalten",
+      // workplaces: a job, an application or a training there is no private matter
+      "Vorstellungsgespräch bei der Bank",
+      "Hat am Dienstag ein Vorstellungsgespräch bei der Versicherung.",
+      "Bewerbung bei der Polizei abschicken",
+      "Bewirbt sich bei der Klinik Hirslanden.",
+      "Probetag im Spital",
+      "Interview am Bezirksgericht",
+      "Schnuppertag beim Notar",
+      "Praktikum in einer Anwaltskanzlei",
+      "Neue Stelle bei der Bank ab Januar",
+      "Erster Arbeitstag bei der Versicherung",
+      "Nachtschicht im Spital",
+      "Job-Interview bei der Bank",
     ])
       expect(sensitiveTopic(t), t).toBe(false);
   });
@@ -428,6 +506,9 @@ describe("follow-ups: once, and never on sensitive topics", () => {
     expect(followUpDue(m(null), "2026-11-16")).toBe(false);
     expect(followUpDue(m("2026-11-15", { followed_up_at: "2026-11-16T07:00:00Z" }), "2026-11-16")).toBe(false);
     expect(followUpDue(m("2026-11-15", { content: "Zahnarzt" }), "2026-11-16")).toBe(false);
+    // the job interview at a bank is asked about; the appointment at the bank is not
+    expect(followUpDue(m("2026-11-15", { content: "Vorstellungsgespräch bei der Bank" }), "2026-11-16")).toBe(true);
+    expect(followUpDue(m("2026-11-15", { content: "Termin bei der Bank wegen der Hypothek" }), "2026-11-16")).toBe(false);
   });
 });
 

@@ -2,8 +2,10 @@
 // Wochenblick, and the coach defaults («want, not must»). Rules as text, and what the context says.
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { addDays } from "../src/lib/plan";
 import {
   contextBlock,
+  eveningWin,
   followUps,
   MODE_CHECKIN,
   MODE_ONBOARDING,
@@ -105,8 +107,29 @@ describe("the morning in one minute", () => {
     expect(prompts).not.toContain("Wie geht es der Schulter heute?");
   });
 
-  it("blocks always with a day and a clock time, never «diese Woche irgendwann»", () => {
-    expect(PERSONA).toContain("Was du vorschlägst, hat immer einen Tag („heute“, „morgen“, „am Dienstag“) und eine Uhrzeit, wo es zählt auch einen Ort, nie „diese Woche irgendwann“.");
+  it("blocks always with a day and a clock time, «heute» too, never «diese Woche irgendwann»", () => {
+    expect(PERSONA).toContain(
+      "Was du vorschlägst, nennt den Tag immer mit der Uhrzeit, auch für heute („heute um 18 Uhr“, „morgen um 7“, „am Dienstag um 12“), wo es zählt auch einen Ort, nie „diese Woche irgendwann“.",
+    );
+    // the morning's example says «heute» with the time too
+    expect(MODE_CHECKIN).toContain("(„Wenn du heute um 17:30 heimkommst, ziehst du gleich die Laufschuhe an?“)");
+    expect(prompts).not.toContain("„Wenn du um 17:30 heimkommst");
+    expect(PERSONA).not.toContain("hat immer einen Tag („heute“, „morgen“, „am Dienstag“) und eine Uhrzeit");
+  });
+
+  it("a block only after a clear yes: «okay, danke» as a closing is none", () => {
+    expect(PERSONA).toContain(
+      "Anders als Termine trägst du Blöcke erst nach einem klaren Ja ein („ja“, „passt“, „gern“, „trag es ein“); ein „okay, danke“ zum Abschluss ist kein Ja: Dann fragst du kurz nach oder lässt es.",
+    );
+    expect(MODE_CHECKIN).toContain("Erst nach ihrem klaren Ja trägst du ihn ein: create_event mit kind block");
+    expect(PERSONA).not.toContain("trägst du Blöcke erst nach ihrem Ja ein");
+  });
+
+  it("writes only what it says: no drafts, no remarks about the reply", () => {
+    expect(PERSONA).toContain("- Alles, was du schreibst, wird vorgelesen. Schreib nur, was du sagst: keine Entwürfe, keine Bemerkungen über deine Antwort. Deshalb höchstens drei kurze Sätze");
+    // and the server keeps only the final version (rules: finalVersion, draftStream)
+    expect(source).toContain("emit(draft.push(spoken.push(delta)))");
+    expect(source).toContain("const reply = finalVersion(stripEmoji(fullText).trim());");
   });
 
   it("at most one setup question per conversation, never in the greeting; the connections ask counts too", () => {
@@ -153,6 +176,10 @@ describe("the morning in one minute", () => {
     expect(openerLine("gestern", c)).toBe("Aus dem letzten Gespräch: „Läuft den Greifenseelauf.“ (siehe „Zum Nachfragen“)");
     expect(openerLine("ziel", c)).toBe("Ein Ziel: „Halbmarathon Zürich“, als Nächstes „15 km am Stück“");
     expect(openerLine("jahreszeit", c)).toBe("Die Jahreszeit, das Licht oder das Wetter draussen (siehe „Jetzt“)");
+    // from the excerpt: only what she said or agreed to, never a proposal she didn't take
+    expect(openerLine("gestern", { ...base, lastTalk: { day: "2026-11-15", messages: [{ role: "user", content: "Morgen ist der Lauf." }] } })).toBe(
+      "Aus dem letzten Gespräch: etwas, das sie selbst gesagt oder zugesagt hat (siehe „Letztes Gespräch“), nie ein Vorschlag von dir, zu dem sie nicht Ja gesagt hat",
+    );
   });
 });
 
@@ -208,17 +235,48 @@ describe("after a pause: as always, a small step", () => {
     const heavy = { ...base, goals: [race], recentDays: [{ day: "2026-11-06", mood: { valence: -0.6 }, focus: null }, { day: "2026-11-05", mood: { valence: -0.7 }, focus: null }], today: { mood: { valence: -0.5 }, focus: null } };
     expect(openerLine("neustart", heavy)).toBe("Neustart, leise: frag nur, wie es ihr geht, ohne Ziele");
   });
+
+  it("quiet at the first greeting after a pause when the days before it were heavy, from the stored moods alone", () => {
+    // last conversation on Friday 6 November, back on Monday 16: nothing stored today, nothing in the pause
+    const before = (vals: number[]) => vals.map((valence, i) => ({ day: addDays("2026-11-06", -i), mood: { valence }, focus: null }));
+    const after = { ...base, goals: [race], lastSeen: "2026-11-06", today: null };
+    expect(openerLine("neustart", { ...after, recentDays: before([-0.6, -0.5, 0.2]) })).toBe("Neustart, leise: frag nur, wie es ihr geht, ohne Ziele");
+    expect(section(ctx({ ...after, opener: "neustart", recentDays: before([-0.6, -0.5]) }), "Eröffnung")).toContain("Neustart, leise:");
+    // light days before the pause: the small restart as always
+    expect(openerLine("neustart", { ...after, recentDays: before([0.3, -0.5, 0.4]) })).toBe(
+      "Neustart: ein kleiner Schritt für „Halbmarathon Zürich“, etwa 40 Minuten, heute oder morgen mit Uhrzeit",
+    );
+    // without a pause, days a week back don't make today quiet
+    expect(openerLine("abend", { ...after, lastSeen: "2026-11-15", recentDays: before([-0.6, -0.5]) })).not.toContain("leise");
+  });
 });
 
 describe("the evening: a small win, then good night", () => {
   const evening = { ...base, localTime: "Montag, 16. November 2026, 19:10", now: "2026-11-16T18:10:00Z" };
   it("names one thing that really happened, a question only some evenings, care on a heavy day", () => {
-    expect(MODE_CHECKIN).toContain("nennst du in einem Halbsatz eine Sache, die heute wirklich passiert ist, so wie sie unter „Heute geschafft“ steht, nie ein allgemeines Lob");
+    expect(MODE_CHECKIN).toContain("nennst du in einem Halbsatz genau die eine Sache von heute, die dort steht, nicht mehr und nie ein allgemeines Lob; steht dort keine, sagst du etwas Ruhiges zum Abend");
     expect(MODE_CHECKIN).toContain("Eine Frage stellst du nur, wenn dort „mit Frage“ steht");
     expect(MODE_CHECKIN).toContain("Steht dort „leise“, nennst du nichts Geschafftes und fragst nur, wie der Tag für sie war.");
-    expect(openerLine("abend_frage", evening)).toBe("Abend: zurückschauen (siehe „Heute geschafft“), mit Frage");
-    expect(openerLine("abend", evening)).toBe("Abend: zurückschauen (siehe „Heute geschafft“), ohne Frage");
+    // nothing confirmed today: nothing to name, something calm
+    expect(openerLine("abend_frage", evening)).toBe("Abend: zurückschauen, heute nichts zum Nennen: etwas Ruhiges zum Abend, mit Frage");
+    expect(openerLine("abend", evening)).toBe("Abend: zurückschauen, heute nichts zum Nennen: etwas Ruhiges zum Abend, ohne Frage");
     expect(openerLine("abend", { ...evening, today: { mood: { valence: -0.6 }, focus: null } })).toBe("Abend, leise: nichts Geschafftes nennen, nur fragen, wie der Tag für sie war");
+  });
+
+  it("the greeting names one win, chosen in code, even when there are several", () => {
+    const goals = [{ ...race, milestones: [{ ...race.milestones[0], done_at: "2026-11-16T16:00:00Z" }, race.milestones[1]] }];
+    const habits = [{ id: "h1", title: "Dehnen", per_week: 7, goal_id: null, done_days: ["2026-11-16"] }];
+    const all = { ...evening, goals, habits, todayLog: [{ goal_id: "g1", minutes: 75 }] };
+    // a step done comes first
+    expect(openerLine("abend_frage", all)).toBe("Abend: zurückschauen auf eine einzige Sache von heute, nur diese nennen: Etappe „15 km am Stück“ erledigt („Halbmarathon Zürich“), mit Frage");
+    // else the most time for a goal, else a habit
+    const two: ContextGoal = { ...race, id: "g2", title: "Italienisch B1", milestones: [] };
+    const time = { ...evening, goals: [race, two], habits, todayLog: [{ goal_id: "g1", minutes: 30 }, { goal_id: "g2", minutes: 45 }] };
+    expect(eveningWin(time)).toEqual({ kind: "zeit", title: "Italienisch B1", minutes: 45 });
+    expect(openerLine("abend", time)).toBe("Abend: zurückschauen auf eine einzige Sache von heute, nur diese nennen: 45 Min für „Italienisch B1“, ohne Frage");
+    expect(openerLine("abend", { ...evening, habits })).toBe("Abend: zurückschauen auf eine einzige Sache von heute, nur diese nennen: Gewohnheit „Dehnen“ abgehakt, ohne Frage");
+    // the section still has all of them, for later in the conversation
+    expect(section(ctx({ ...all, opener: "abend_frage" }), "Heute geschafft").split("\n- ")).toHaveLength(4);
   });
 
   it("«Heute geschafft» lists only confirmed acts of today, and is absent without any", () => {
@@ -317,6 +375,43 @@ describe("the Wochenblick", () => {
         "Die neue Woche planen für: [g1] „Halbmarathon Zürich“ (4 Std/Woche)",
     );
     expect(openerLine("wochenblick", base)).toBe("Wochenblick (siehe „Wochenblick“)");
+  });
+
+  it("lists last week's blocks nobody answered with their id, so a «nein» can be recorded (log_time, 0 minutes)", () => {
+    // Monday 23 November; last talked on Friday 20: the blocks on Tuesday and Thursday lie before that day
+    const block = (id: string, start: string, end: string, o: Record<string, unknown> = {}) => ({ id, title: "Lauf", starts_at: start, ends_at: end, all_day: false, location: null, kind: "block", goal_id: "g1", ...o });
+    const tue = block("b-tue", "2026-11-17T17:00:00Z", "2026-11-17T18:00:00Z");
+    const thu = block("b-thu", "2026-11-19T17:00:00Z", "2026-11-19T18:00:00Z");
+    const mon = block("b-mon", "2026-11-23T06:00:00Z", "2026-11-23T06:45:00Z");
+    const monday = {
+      ...base,
+      day: "2026-11-23",
+      localTime: "Montag, 23. November 2026, 12:10",
+      now: "2026-11-23T11:10:00Z",
+      lastSeen: "2026-11-20",
+      goals: [race],
+      pastBlocks: [thu, mon],
+      review: { due: "anbieten" as const, monday: "2026-11-16", goals: [{ goal_id: "g1", planned_minutes: 120, blocks: 2, done_minutes: 0, open_minutes: 120 }], open: [tue, thu] },
+    };
+    const out = ctx(monday);
+    expect(section(out, "Wochenblick")).toContain(
+      "Blöcke ohne Rückmeldung ([id] Zeit: Titel (Ziel) · für log_time mit event_id):\n" +
+        "- [b-tue] Di., 17. Nov., 18:00–19:00: Lauf (Ziel „Halbmarathon Zürich“)\n" +
+        "- [b-thu] Do., 19. Nov., 18:00–19:00: Lauf (Ziel „Halbmarathon Zürich“)\n",
+    );
+    // asked about there, not a second time among the past blocks; today's block stays there
+    expect(section(out, "Vergangene Blöcke ohne Rückmeldung")).toBe(
+      "## Vergangene Blöcke ohne Rückmeldung ([id] Zeit: Titel (Ziel) · zählen von selbst als geschafft)\n- [b-mon] Mo., 23. Nov. (heute), 07:00–07:45: Lauf (Ziel „Halbmarathon Zürich“)\n",
+    );
+    // the trainer's plan is never asked about; nothing open, no list
+    expect(section(ctx({ ...monday, review: { ...monday.review, open: [{ ...tue, source: "nolio" }] } }), "Wochenblick")).not.toContain("Blöcke ohne Rückmeldung");
+    expect(section(ctx({ ...monday, review: { ...monday.review, open: [] } }), "Wochenblick")).not.toContain("Blöcke ohne Rückmeldung");
+    // the rule: her answer with log_time and the block's id, a «nein» with 0
+    expect(MODE_CHECKIN).toContain(
+      "Ihre Antwort hältst du mit log_time und event_id fest, auch zu den Blöcken ohne Rückmeldung beim Wochenblick: die tatsächlichen Minuten, die geplante Länge, wenn es wie geplant lief, oder 0, wenn es nicht stattgefunden hat („am Donnerstag nicht gelaufen“).",
+    );
+    expect(source).toContain("openWeekBlocks(rows, goalIds, monday, new Date(now), dayOf)");
+    expect(source).toContain("input.review = { due, monday, ...(await weekSummaryFor(");
   });
 
   it("is decided from her own last words before today (dailySituation), not from a greeting she never answered", () => {
