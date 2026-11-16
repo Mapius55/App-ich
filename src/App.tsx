@@ -13,6 +13,11 @@ import { Home } from "./screens/Home";
 import { Memories } from "./screens/Memories";
 import { Plan } from "./screens/Plan";
 import { Settings } from "./screens/Settings";
+import { Space } from "./space/Space";
+import { spaceEnabled, tourSeen } from "./space/flags";
+import { planData, resetPlanData } from "./space/data";
+import { markFresh } from "./space/fresh";
+import { resubscribePushIfNeeded, signOutDevice } from "./lib/push";
 
 // Screen changes zoom through the portal (View Transitions API, where the
 // browser has it; elsewhere screens simply fade in via CSS).
@@ -34,6 +39,10 @@ function withTransition(fn: () => void) {
 }
 
 export default function App() {
+  // the new navigation ("space"), behind ?space=1 until verified on an iPhone
+  const space = spaceEnabled();
+  // the short tour: once per device, the first time the space opens (incl. right after onboarding)
+  const [startTour] = useState(() => space && !tourSeen());
   const [userId, setUserId] = useState<string | null | undefined>(undefined);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [coords, setCoords] = useState<Coords | null>(() => storedCoords());
@@ -58,6 +67,7 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    resetPlanData();
     if (!userId) {
       setProfile(null);
       return;
@@ -70,6 +80,8 @@ export default function App() {
         // keep the time zone current, so notifications arrive at your local time
         const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
         if (p.timezone !== tz) backend.updateProfile({ timezone: tz }).catch(() => {});
+        // after the move to a new address the new service worker has no push subscription: renew it silently
+        void resubscribePushIfNeeded(p);
         if (!storedCoords() && p.lat != null && p.lon != null) {
           const c = { lat: p.lat, lon: p.lon };
           storeCoords(c);
@@ -107,10 +119,15 @@ export default function App() {
     r.setProperty("--text", palette.text);
     r.setProperty("--text-soft", palette.textSoft);
     r.setProperty("--accent", palette.orb[1]);
+    r.setProperty("--orb-0", palette.orb[0]);
+    r.setProperty("--orb-1", palette.orb[1]);
+    r.setProperty("--orb-2", palette.orb[2]);
+    r.setProperty("--orb-4", palette.orb[4] ?? palette.orb[2]);
     document.documentElement.dataset.sky = palette.isDark ? "dark" : "light";
   }, [palette]);
 
   const onEvent = useCallback((e: CoachEvent) => {
+    if (space) spaceOnEvent(e);
     switch (e.type) {
       case "mood":
         setMood(e.mood);
@@ -137,7 +154,7 @@ export default function App() {
         setPlanVersion((v) => v + 1);
         break;
     }
-  }, []);
+  }, [space]);
 
   const onCoords = useCallback((c: Coords) => {
     setCoords(c);
@@ -166,7 +183,7 @@ export default function App() {
     return (
       <main className="screen center">
         <p className="form-error">{loadError}</p>
-        <button className="btn ghost" onClick={() => backend.signOut()}>
+        <button className="btn ghost" onClick={() => void signOutDevice()}>
           Abmelden
         </button>
       </main>
@@ -185,6 +202,23 @@ export default function App() {
       />
     );
   }
+
+  if (space)
+    return (
+      <Space
+        profile={profile}
+        palette={palette}
+        weather={weather}
+        context={context}
+        day={day}
+        focus={focus}
+        hasCoords={!!coords}
+        onEvent={onEvent}
+        onProfile={(patch) => setProfile((p) => (p ? { ...p, ...patch } : p))}
+        onCoords={(c) => (c ? onCoords(c) : setCoords(null))}
+        startTour={startTour}
+      />
+    );
 
   if (view === "memories") return <Memories onBack={() => withTransition(() => setView("home"))} />;
   if (view === "plan")
@@ -224,8 +258,41 @@ export default function App() {
       kickoff={kickoff}
       onKickoffSent={() => setKickoff(null)}
       eventsVersion={eventsVersion}
-      onSignOut={() => backend.signOut()}
+      onSignOut={() => void signOutDevice()}
     />
   );
+  }
+}
+
+// Coach changes in the space: the shared plan data reloads, and the touched item glows "neu".
+function spaceOnEvent(e: CoachEvent) {
+  switch (e.type) {
+    case "event_created":
+    case "event_updated":
+      markFresh(e.event.id);
+      planData.bumpEvents();
+      break;
+    case "event_deleted":
+      planData.bumpEvents();
+      break;
+    case "goal_saved":
+      markFresh(e.goal.id);
+      planData.bumpPlan();
+      break;
+    case "time_logged":
+      markFresh(e.goal_id);
+      planData.bumpPlan();
+      break;
+    case "habit_saved":
+      markFresh(e.habit.id);
+      planData.bumpPlan();
+      break;
+    case "habit_logged":
+      markFresh(e.habit_id);
+      planData.bumpPlan();
+      break;
+    case "goal_deleted":
+      planData.bumpPlan();
+      break;
   }
 }

@@ -14,6 +14,10 @@ export interface Profile {
   timezone?: string | null;
   notify_morning?: string | null; // "07:30:00"
   notify_evening?: string | null;
+  /** when the coach last asked which apps and devices it may read (request_connections), null = never */
+  connections_asked_at?: string | null;
+  /** for «Leben» (life in weeks): only the year, null = not given (the coach never asks for it) */
+  birth_year?: number | null;
 }
 
 export interface PushSubscriptionRow {
@@ -23,7 +27,7 @@ export interface PushSubscriptionRow {
   app_url: string;
 }
 
-/** An entry in the calendar "I am". */
+/** An entry in the calendar "Bucket List". */
 export interface CalendarEvent {
   id: string;
   title: string;
@@ -33,7 +37,10 @@ export interface CalendarEvent {
   location: string | null;
   notes: string | null;
   reminder_minutes: number | null;
-  source: "coach" | "person";
+  /** "nolio": planned by the trainer in Nolio (read-only here, only the reminder can change) */
+  source: "coach" | "person" | "nolio";
+  /** the entry's id at its source (Nolio: ptrn_… / pcmp_…), null for own entries */
+  external_id?: string | null;
   /** "termin": an appointment; "block": time planned with the coach (focus, a training for a goal) */
   kind: "termin" | "block";
   /** the goal this entry serves, if any */
@@ -58,10 +65,17 @@ export interface Milestone {
 
 export type GoalStatus = "active" | "done" | "paused" | "dropped";
 
-/** Something to work toward, often with a date (a race, an exam, a project). */
+/**
+ * "dream": a life dream on the Bucket List, ticked off once it came true and kept as a fond memory;
+ * "goal": something concrete to work toward (a race, an exam, a project).
+ */
+export type GoalKind = "dream" | "goal";
+
+/** Something to work toward, often with a date (a race, an exam, a project), or a life dream. */
 export interface Goal {
   id: string;
   title: string;
+  kind: GoalKind;
   why: string | null;
   target_date: string | null; // YYYY-MM-DD
   status: GoalStatus;
@@ -78,9 +92,22 @@ export interface Goal {
   milestones: Milestone[];
   /** time that went into the goal: logged minutes, and past planned blocks not yet confirmed (they count too) */
   time: { logged_minutes: number; block_minutes: number };
+  /** which Nolio trainings count toward it (sport ids, names or slugs), null = not chosen */
+  sports?: string[] | null;
+  /**
+   * when it was reached, for a dream: when it came true (ISO). Follows the status like the database
+   * trigger: set when it becomes done (unless given), kept while done, null otherwise.
+   */
+  done_at: string | null;
+  /** how it was, in her words (a fulfilled dream), at most 1000 characters */
+  memory: string | null;
+  /** when the coach last brought the dream up (its reminders; the server's clock), null = never */
+  reminded_at?: string | null;
 }
 
-export type GoalInput = Pick<Goal, "title"> & Partial<Pick<Goal, "why" | "target_date" | "status" | "effort_hours" | "weekly_hours" | "prior_hours">>;
+/** done_at only together with status done: when it was reached, if not now (null = now). */
+export type GoalInput = Pick<Goal, "title"> &
+  Partial<Pick<Goal, "why" | "target_date" | "status" | "effort_hours" | "weekly_hours" | "prior_hours" | "sports" | "kind" | "memory" | "done_at">>;
 
 /** A piece of time that went into a goal. */
 export interface GoalTime {
@@ -143,6 +170,7 @@ export interface CoachContext {
   phase: string; // light phase, e.g. "Sonnenuntergang"
   weather?: string; // e.g. "bedeckt, 7 °C"
   hasLocation: boolean;
+  view?: string; // what the app shows, e.g. "Woche: 16.–22. November 2026 (KW 47)"
 }
 
 export interface CoachRequest {
@@ -164,15 +192,88 @@ export type CoachEvent =
   | { type: "event_created"; event: CalendarEvent }
   | { type: "event_updated"; event: CalendarEvent }
   | { type: "event_deleted"; id: string; title: string }
-  | { type: "goal_saved"; goal: Goal; created?: boolean } // created (created: true) or changed; milestones and time included
+  | { type: "goal_saved"; goal: Goal; created?: boolean; fulfilled?: boolean } // created (created: true) or changed; milestones and time included; fulfilled: this call made a dream come true
   | { type: "time_logged"; goal_id: string; title: string; minutes: number }
   | { type: "goal_deleted"; id: string; title: string }
   | { type: "habit_saved"; habit: Habit }
   | { type: "habit_logged"; habit_id: string; title: string; day: string; done: boolean }
   | { type: "request_location" }
+  /** the coach asks which apps and devices it may read (WHOOP, Nolio, iPhone calendar …) */
+  | { type: "request_connections" }
   | { type: "onboarding_done" }
   | { type: "error"; message: string }
   | { type: "done" };
+
+// ---------- connections (WHOOP, Nolio) ----------
+
+/** One day of WHOOP summaries (public.whoop_days), the person's local day. */
+export interface WhoopDay {
+  day: string; // YYYY-MM-DD
+  recovery_score: number | null; // %
+  hrv_ms: number | null;
+  resting_hr: number | null;
+  sleep_minutes: number | null;
+  sleep_performance: number | null; // %
+  day_strain: number | null; // 0–21
+  workout_count: number;
+  workout_minutes: number;
+}
+
+/** GET whoop?action=status (and the answer of a successful confirm). */
+export interface WhoopStatus {
+  /** the server has WHOOP set up (secrets); false = "Bald verfügbar" */
+  available: boolean;
+  connected: boolean;
+  /** null = never connected; "pending" = back from WHOOP, not yet confirmed in the app */
+  status: "connected" | "pending" | "needs_reconnect" | null;
+  /** the coach may use the values (off by default) */
+  consent_ai: boolean;
+  connected_at: string | null;
+  last_sync_at: string | null;
+  last_error: string | null;
+  /** WHOOP's required attribution, e.g. "Daten von WHOOP" */
+  attribution: string;
+  /** newest first, at most 14 */
+  days: WhoopDay[];
+}
+
+export type WhoopConfirmResult = (WhoopStatus & { ok?: true }) | { ok: false; reason: "mismatch" | "expired" | "taken" | "not_configured" | string };
+
+/** POST whoop {action:"sync"} ("Jetzt holen"). */
+export interface WhoopSyncResult {
+  ok: boolean;
+  connected: boolean;
+  status?: string | null;
+  /** "recent": fetched less than a minute ago, nothing done */
+  skipped?: "recent";
+  days?: number;
+  last_sync_at?: string;
+  error?: string;
+  reason?: string;
+}
+
+/** GET nolio?action=status. Nolio is only available for the owner of the app. */
+export interface NolioStatus {
+  available: boolean;
+  connected: boolean;
+  last_sync_at: string | null;
+  last_error: string | null;
+  running: boolean;
+  counts: { trainings: number; assigned: number; planned: number } | null;
+  /** "Garmin Forerunner 965" when the latest trainings came from a Garmin device (required attribution), else null */
+  garmin?: string | null;
+}
+
+/** POST nolio ("Jetzt holen"). */
+export interface NolioSyncResult {
+  connected: boolean;
+  ok?: boolean;
+  reason?: string;
+  last_sync_at?: string;
+  counts?: { trainings: number; assigned: number; planned: number };
+  error?: string | null;
+  skipped?: "running" | "throttled";
+}
 
 export interface Backend {
   readonly kind: "supabase" | "demo";
@@ -225,10 +326,28 @@ export interface Backend {
   calendarLink(): Promise<string | null>;
   renewCalendarLink(): Promise<void>;
 
+  /**
+   * Connections. A status call resolves to null when the function is not deployed or unreachable
+   * (the app then shows the service as "Bald verfügbar").
+   */
+  whoopStatus(): Promise<WhoopStatus | null>;
+  /** WHOOP's consent page; the app goes there with location.assign(url). */
+  whoopStart(): Promise<{ url: string }>;
+  /** Back from WHOOP: confirms the pending link with the single-use code from the return URL. */
+  whoopConfirm(code: string): Promise<WhoopConfirmResult>;
+  whoopSync(): Promise<WhoopSyncResult>;
+  whoopDisconnect(): Promise<void>;
+  /** "Coach darf die Werte nutzen" (RPC set_whoop_consent); false when not connected. */
+  setWhoopConsent(on: boolean): Promise<boolean>;
+  nolioStatus(): Promise<NolioStatus | null>;
+  nolioSync(): Promise<NolioSyncResult>;
+
   /** Web push: null when there's no server (demo). */
   pushPublicKey(): Promise<string | null>;
   savePushSubscription(s: PushSubscriptionRow): Promise<void>;
   deletePushSubscription(endpoint: string): Promise<void>;
+  /** whether this device's subscription (endpoint) is stored for the account logged in now */
+  ownsPushSubscription(endpoint: string): Promise<boolean>;
   sendTestPush(): Promise<number>;
 
   /** Voice (ElevenLabs on the server): is it set up, speak a text, transcribe a recording. */

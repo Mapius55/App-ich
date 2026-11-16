@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { mixLch } from "../lib/color";
 import { createProgram, hexToVec, NOISE } from "../lib/gl";
-import { onPulse, voice } from "../lib/orbSignals";
+import { onPress, onPulse, voice } from "../lib/orbSignals";
 import type { Clouds } from "../lib/palette";
 
 const DEFAULT_CLOUDS: Clouds = { cover: 0.5, cirrus: 0.5, stratus: 0.1 };
@@ -17,6 +17,10 @@ interface Props {
   seed?: number;
   state?: OrbState;
   interactive?: boolean;
+  /** stop drawing (the canvas keeps showing its last frame) */
+  paused?: boolean;
+  /** draw at most this many frames per second (e.g. a docked circle while the coach talks) */
+  fps?: number;
 }
 
 // A circle cut out of a sheet of paper, laid over a larger flat sky.
@@ -141,152 +145,304 @@ void main() {
   gl_FragColor = vec4(sky * inside, inside);
 }`;
 
-/**
- * The portal. Press it and the sky comes closer; drag and the sky slides
- * along under the paper; it brightens with your voice and stirs at every
- * word the coach says.
- */
-export function Portal({ colors, size, daylight = 1, clouds = DEFAULT_CLOUDS, speed = 1, seed = 1, state = "idle", interactive = true }: Props) {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const target = useRef(colors);
-  const stateRef = useRef(state);
-  const speedRef = useRef(speed);
-  const dayRef = useRef(daylight);
-  dayRef.current = daylight;
-  const cloudsRef = useRef(clouds);
-  cloudsRef.current = clouds;
-  const input = useRef({ down: false, lastX: 0, lastY: 0, velX: 0, velY: 0, kick: 0 });
-  const [fallback, setFallback] = useState(false);
+/** the flat colour-flow look (no highlight, no shading) for places without WebGL */
+export function orbFallbackBackground(colors: string[]): string {
+  const [c0, c1, c2, c4] = [colors[0], colors[1] ?? colors[0], colors[2] ?? colors[0], colors[4] ?? colors[2] ?? colors[0]];
+  return `radial-gradient(120% 70% at 0% 100%, ${c1} 0%, transparent 60%), radial-gradient(80% 120% at 100% 0%, ${c4} 0%, transparent 60%), radial-gradient(70% 70% at 70% 80%, ${c2} 0%, transparent 70%), ${c0}`;
+}
 
-  target.current = colors;
-  stateRef.current = state;
-  speedRef.current = speed;
+interface Live {
+  target: { current: string[] };
+  state: { current: OrbState };
+  speed: { current: number };
+  day: { current: number };
+  clouds: { current: Clouds };
+  seed: { current: number };
+  fps: { current: number | undefined };
+  input: { current: { down: boolean; kick: number } };
+}
 
-  useEffect(() => onPulse((s) => (input.current.kick = Math.min(1, input.current.kick + s))), []);
+interface Engine {
+  canvas: HTMLCanvasElement;
+  gl: WebGLRenderingContext;
+  start(): void;
+  stop(): void;
+  resize(size: number): void;
+  drawOnce(): void;
+  /** a new seed (a new day): the flow takes the new pattern; false when it was the same */
+  setSeed(seed: number): boolean;
+  restore(): boolean;
+  lose(): void;
+}
 
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const gl = canvas.getContext("webgl", { premultipliedAlpha: true, antialias: false, alpha: true });
-    if (!gl) return setFallback(true);
+// The GL side of the portal, created once per canvas. Resizing changes the canvas
+// backing store, viewport and u_res in place (no new canvas, no context loss).
+function createEngine(canvas: HTMLCanvasElement, live: Live): Engine | null {
+  const gl = canvas.getContext("webgl", { premultipliedAlpha: true, antialias: false, alpha: true });
+  if (!gl) return null;
+  type Uniforms = Record<"res" | "time" | "flow" | "energy" | "seed" | "press" | "pan" | "kick" | "level" | "day" | "cover" | "cirrus" | "stratus", WebGLUniformLocation | null> & {
+    cols: (WebGLUniformLocation | null)[];
+  };
+  let U: Uniforms;
+  let seedNow = live.seed.current;
+  const init = (): boolean => {
     let prog: WebGLProgram;
     try {
       prog = createProgram(gl, FRAG);
     } catch (e) {
       console.warn("Portal: WebGL nicht verfügbar", e);
-      return setFallback(true);
+      return false;
     }
     const u = (n: string) => gl.getUniformLocation(prog, n);
-    const U = {
+    U = {
       res: u("u_res"), time: u("u_time"), flow: u("u_flow"), energy: u("u_energy"), seed: u("u_seed"),
       press: u("u_press"), pan: u("u_pan"), kick: u("u_kick"), level: u("u_level"), day: u("u_day"),
       cover: u("u_cover"), cirrus: u("u_cirrus"), stratus: u("u_stratus"),
       cols: [u("u_c0"), u("u_c1"), u("u_c2"), u("u_c3"), u("u_c4")],
     };
-    // the flow is cheap to draw; 2x keeps the grain fine and the paper edge crisp
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    canvas.width = Math.round(size * dpr);
-    canvas.height = Math.round(size * dpr);
-    gl.viewport(0, 0, canvas.width, canvas.height);
-    gl.uniform2f(U.res, canvas.width, canvas.height);
-    gl.uniform1f(U.seed, (seed % 1000) / 37);
+    seedNow = live.seed.current;
+    gl.uniform1f(U.seed, (seedNow % 1000) / 37);
+    gl.uniform2f(U.pan, 0, 0);
     gl.enable(gl.BLEND);
+    if (canvas.width) gl.uniform2f(U.res, canvas.width, canvas.height);
+    gl.viewport(0, 0, canvas.width, canvas.height);
+    return true;
+  };
+  if (!init()) return null;
 
-    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    let cur = [...target.current];
-    let t = 0, flow = 0, panX = 0, panY = 0, energy = 0, press = 0, level = 0, day = dayRef.current;
-    const cl = { ...cloudsRef.current };
-    let last = performance.now();
-    let raf = 0;
+  const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  let cur = [...live.target.current];
+  let t = 0, flow = 0, energy = 0, press = 0, level = 0, day = live.day.current;
+  const cl = { ...live.clouds.current };
+  let last = performance.now();
+  let lastDraw = 0;
+  let raf = 0;
+  let size = 0;
 
-    const draw = (now: number) => {
-      raf = requestAnimationFrame(draw);
-      const dt = Math.min(0.05, (now - last) / 1000);
-      last = now;
-      const st = stateRef.current;
-      const inp = input.current;
-      const want = st === "speaking" ? 1 : st === "thinking" ? 0.65 : st === "listening" ? 0.45 : 0;
-      energy += (want - energy) * Math.min(1, dt * 3);
-      press += ((inp.down ? 1 : 0) - press) * Math.min(1, dt * 8);
-      const wantLevel =
-        st === "listening" ? Math.max(voice.level, 0.12 + 0.08 * Math.sin(t * 4)) : st === "speaking" ? voice.out * 0.9 : 0;
-      level += (wantLevel - level) * Math.min(1, dt * 10);
-      inp.kick *= Math.exp(-dt * 3.2);
-      inp.velX *= Math.exp(-dt * 2.2);
-      inp.velY *= Math.exp(-dt * 2.2);
+  const step = (dt: number) => {
+    const st = live.state.current;
+    const inp = live.input.current;
+    const want = st === "speaking" ? 1 : st === "thinking" ? 0.65 : st === "listening" ? 0.45 : 0;
+    energy += (want - energy) * Math.min(1, dt * 3);
+    press += ((inp.down ? 1 : 0) - press) * Math.min(1, dt * 8);
+    const wantLevel = st === "listening" ? Math.max(voice.level, 0.12 + 0.08 * Math.sin(t * 4)) : st === "speaking" ? voice.out * 0.9 : 0;
+    level += (wantLevel - level) * Math.min(1, dt * 10);
+    inp.kick *= Math.exp(-dt * 3.2);
+    const m = reduce ? 0.2 : 1;
+    t += dt * m;
+    // clouds drift; faster while speaking, pressed, listening or nudged by a word
+    flow += dt * m * live.speed.current * (0.9 + 1.4 * energy + 2.2 * press + 1.2 * level + 1.5 * inp.kick);
+    const k = Math.min(1, dt * 3); // colour and weather changes ease in over ~1 s
+    cur = cur.map((c, i) => (c === live.target.current[i] ? c : mixLch(c, live.target.current[i], Math.max(0.05, k))));
+    day += (live.day.current - day) * Math.max(0.03, k * 0.5);
+    const want2 = live.clouds.current;
+    cl.cover += (want2.cover - cl.cover) * Math.max(0.01, k * 0.2);
+    cl.cirrus += (want2.cirrus - cl.cirrus) * Math.max(0.01, k * 0.2);
+    cl.stratus += (want2.stratus - cl.stratus) * Math.max(0.01, k * 0.2);
+  };
 
-      const m = reduce ? 0.2 : 1;
-      t += dt * m;
-      // clouds drift; faster while speaking, pressed, listening or nudged by a word
-      flow += dt * m * speedRef.current * (0.9 + 1.4 * energy + 2.2 * press + 1.2 * level + 1.5 * inp.kick);
-      panX += dt * inp.velX;
-      panY += dt * inp.velY;
+  const draw = () => {
+    if (gl.isContextLost()) return;
+    const inp = live.input.current;
+    cur.forEach((c, i) => gl.uniform3fv(U.cols[i], hexToVec(c)));
+    gl.uniform1f(U.time, t);
+    gl.uniform1f(U.flow, flow);
+    gl.uniform1f(U.energy, energy);
+    gl.uniform1f(U.press, press);
+    gl.uniform1f(U.day, day);
+    gl.uniform1f(U.cover, cl.cover);
+    gl.uniform1f(U.cirrus, cl.cirrus);
+    gl.uniform1f(U.stratus, cl.stratus);
+    gl.uniform1f(U.kick, inp.kick);
+    gl.uniform1f(U.level, level);
+    gl.clearColor(0, 0, 0, 0);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+  };
 
-      cur = cur.map((c, i) => (c === target.current[i] ? c : mixLch(c, target.current[i], 0.05)));
-      cur.forEach((c, i) => gl.uniform3fv(U.cols[i], hexToVec(c)));
-      gl.uniform1f(U.time, t);
-      gl.uniform1f(U.flow, flow);
-      gl.uniform1f(U.energy, energy);
-      gl.uniform1f(U.press, press);
-      gl.uniform2f(U.pan, panX, panY);
-      day += (dayRef.current - day) * 0.03;
-      gl.uniform1f(U.day, day);
-      // weather changes: the flow changes its character slowly
-      cl.cover += (cloudsRef.current.cover - cl.cover) * 0.01;
-      cl.cirrus += (cloudsRef.current.cirrus - cl.cirrus) * 0.01;
-      cl.stratus += (cloudsRef.current.stratus - cl.stratus) * 0.01;
-      gl.uniform1f(U.cover, cl.cover);
-      gl.uniform1f(U.cirrus, cl.cirrus);
-      gl.uniform1f(U.stratus, cl.stratus);
-      gl.uniform1f(U.kick, inp.kick);
-      gl.uniform1f(U.level, level);
-      gl.clearColor(0, 0, 0, 0);
-      gl.clear(gl.COLOR_BUFFER_BIT);
-      gl.drawArrays(gl.TRIANGLES, 0, 3);
-    };
-    raf = requestAnimationFrame(draw);
-    return () => {
+  const frame = (now: number) => {
+    raf = requestAnimationFrame(frame);
+    const fps = live.fps.current;
+    if (fps && now - lastDraw < 1000 / fps - 4) return;
+    const dt = Math.min(fps ? 0.12 : 0.05, (now - last) / 1000);
+    last = now;
+    lastDraw = now;
+    step(dt);
+    draw();
+  };
+
+  return {
+    canvas,
+    gl,
+    start() {
+      if (raf) return;
+      last = performance.now();
+      lastDraw = 0;
+      raf = requestAnimationFrame(frame);
+    },
+    stop() {
       cancelAnimationFrame(raf);
+      raf = 0;
+    },
+    resize(next: number) {
+      // the flow is cheap to draw; 2x keeps the grain fine and the paper edge crisp
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      const px = Math.max(1, Math.round(next * dpr));
+      if (next === size && canvas.width === px) return;
+      size = next;
+      canvas.width = px;
+      canvas.height = px;
+      gl.viewport(0, 0, px, px);
+      gl.uniform2f(U.res, px, px);
+    },
+    drawOnce() {
+      step(0);
+      draw();
+    },
+    setSeed(next: number) {
+      if (next === seedNow || gl.isContextLost()) return false;
+      seedNow = next;
+      gl.uniform1f(U.seed, (next % 1000) / 37); // (the one program is always in use)
+      return true;
+    },
+    restore() {
+      return init();
+    },
+    lose() {
+      cancelAnimationFrame(raf);
+      raf = 0;
       gl.getExtension("WEBGL_lose_context")?.loseContext();
-    };
-  }, [size, seed]);
+    },
+  };
+}
 
-  // ---- touch: press and the sky comes closer; drag to slide the sky underneath
+/**
+ * The portal. Press it and the sky comes closer; it brightens with your voice
+ * and stirs at every word the coach says. One canvas for its whole life: a new
+ * size resizes it in place, and `paused` stops drawing (the last frame stays).
+ */
+export function Portal({ colors, size, daylight = 1, clouds = DEFAULT_CLOUDS, speed = 1, seed = 1, state = "idle", interactive = true, paused = false, fps }: Props) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const live = useRef<Live>(null as unknown as Live);
+  live.current ??= {
+    target: { current: colors },
+    state: { current: state },
+    speed: { current: speed },
+    day: { current: daylight },
+    clouds: { current: clouds },
+    seed: { current: seed },
+    fps: { current: fps },
+    input: { current: { down: false, kick: 0 } },
+  };
+  const L = live.current;
+  L.target.current = colors;
+  L.state.current = state;
+  L.speed.current = speed;
+  L.day.current = daylight;
+  L.clouds.current = clouds;
+  L.seed.current = seed;
+  L.fps.current = fps;
+  const engine = useRef<Engine | null>(null);
+  const loseTimer = useRef(0);
+  const sizeRef = useRef(size);
+  sizeRef.current = size;
+  const pausedRef = useRef(paused);
+  pausedRef.current = paused;
+  const [fallback, setFallback] = useState(false);
+
+  useEffect(() => onPulse((s) => (L.input.current.kick = Math.min(1, L.input.current.kick + s))), [L]);
+  useEffect(
+    () =>
+      onPress((down) => {
+        L.input.current.down = down;
+        if (!down) L.input.current.kick = 1;
+      }),
+    [L],
+  );
+
+  // GL lives as long as the canvas; the context is released only on unmount (deferred
+  // a tick, so StrictMode's mount → unmount → mount keeps the same context)
+  useEffect(() => {
+    if (fallback) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    clearTimeout(loseTimer.current);
+    let eng = engine.current;
+    if (!eng || eng.canvas !== canvas || eng.gl.isContextLost()) {
+      eng = createEngine(canvas, L);
+      if (!eng) {
+        setFallback(true);
+        return;
+      }
+      engine.current = eng;
+    }
+    const e = eng;
+    e.resize(sizeRef.current);
+    if (pausedRef.current) e.drawOnce();
+    else e.start();
+    const onLost = (ev: Event) => {
+      ev.preventDefault(); // allows a restore
+      e.stop();
+    };
+    const onRestored = () => {
+      if (!e.restore()) return setFallback(true);
+      e.resize(sizeRef.current);
+      if (pausedRef.current) e.drawOnce();
+      else e.start();
+    };
+    canvas.addEventListener("webglcontextlost", onLost);
+    canvas.addEventListener("webglcontextrestored", onRestored);
+    return () => {
+      e.stop();
+      canvas.removeEventListener("webglcontextlost", onLost);
+      canvas.removeEventListener("webglcontextrestored", onRestored);
+      loseTimer.current = window.setTimeout(() => {
+        e.lose();
+        if (engine.current === e) engine.current = null;
+      }, 0);
+    };
+  }, [fallback, L]);
+
+  // a new size: resize in place (and draw once when paused, the resize cleared the canvas)
+  useEffect(() => {
+    const e = engine.current;
+    if (!e) return;
+    e.resize(size);
+    if (pausedRef.current) e.drawOnce();
+  }, [size]);
+
+  useEffect(() => {
+    const e = engine.current;
+    if (!e) return;
+    if (paused) e.stop();
+    else e.start();
+  }, [paused]);
+
+  // a new seed (the palette's day changed, e.g. left open over midnight): no remount
+  useEffect(() => {
+    const e = engine.current;
+    if (!e) return;
+    if (e.setSeed(seed) && pausedRef.current) e.drawOnce();
+  }, [seed]);
+
+  // press only (no drag): down brings the sky closer, up lets go with a kick
   const handlers = interactive
     ? {
-        onPointerDown: (e: React.PointerEvent) => {
-          e.currentTarget.setPointerCapture(e.pointerId);
-          Object.assign(input.current, { down: true, lastX: e.clientX, lastY: e.clientY });
-        },
-        onPointerMove: (e: React.PointerEvent) => {
-          const inp = input.current;
-          if (!inp.down) return;
-          const k = 2 / size; // pixels → shader units
-          inp.velX -= (e.clientX - inp.lastX) * k * 9;
-          inp.velY += (e.clientY - inp.lastY) * k * 9;
-          inp.lastX = e.clientX;
-          inp.lastY = e.clientY;
-        },
+        onPointerDown: () => (L.input.current.down = true),
         onPointerUp: () => {
-          input.current.down = false;
-          input.current.kick = 1;
+          L.input.current.down = false;
+          L.input.current.kick = 1;
         },
-        onPointerCancel: () => (input.current.down = false),
+        onPointerCancel: () => (L.input.current.down = false),
       }
     : {};
 
   return (
-    <div className={`portal ${interactive ? "interactive" : ""}`} style={{ width: size, height: size }} aria-hidden="true" {...handlers}>
+    <div className={`portal ${interactive ? "interactive" : ""}`} style={{ width: size, height: size }} aria-hidden="true" data-paused={paused ? "true" : "false"} {...handlers}>
       {fallback ? (
-        <div
-          className="portal-fallback"
-          style={{
-            background: `radial-gradient(circle at 40% 35%, ${colors[1]}, ${colors[0]} 45%, ${colors[2]} 72%, transparent 74%)`,
-          }}
-        />
+        <div className="portal-fallback" style={{ background: orbFallbackBackground(colors) }} />
       ) : (
-        // a fresh canvas per size: a canvas whose WebGL context was released can't be reused
-        <canvas key={size} ref={canvasRef} style={{ width: size, height: size }} />
+        <canvas ref={canvasRef} style={{ width: size, height: size }} />
       )}
     </div>
   );

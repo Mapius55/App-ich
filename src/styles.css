@@ -1,4 +1,4 @@
-/* I am · visual language
+/* Bucket List · visual language
    Almost-black ground, light that flows through today's colours (SkyBackground),
    a portal into depth, bold sans titles with small capsule labels, the coach
    speaking in Bodoni Moda, and round buttons at the bottom.
@@ -78,11 +78,27 @@ button { cursor: pointer; }
 .screen.center { align-items: center; justify-content: center; gap: 24px; }
 
 /* ---------- Portal ---------- */
-.portal { position: relative; flex: none; touch-action: none; user-select: none; -webkit-user-select: none; }
-.portal.interactive { cursor: grab; }
-.portal.interactive:active { cursor: grabbing; }
+/* press only (no drag), so vertical scrolls that start on the circle still scroll */
+.portal { position: relative; flex: none; touch-action: pan-y; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+.portal.interactive { cursor: pointer; }
 .portal canvas, .portal-fallback { display: block; border-radius: 50%; }
-.portal-fallback { width: 100%; height: 100%; }
+/* without WebGL: the same flat colour flow (soft blobs, still grain, a soft edge), never a ball */
+.portal-fallback {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  -webkit-mask-image: radial-gradient(closest-side, #000 95%, transparent 100%);
+  mask-image: radial-gradient(closest-side, #000 95%, transparent 100%);
+}
+.portal-fallback::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  opacity: 0.22;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='1.2' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
 
 /* ---------- Type ---------- */
 .pill {
@@ -460,6 +476,7 @@ input[type="time"] { background: var(--glass); border: 1px solid var(--line); bo
 .settings { padding-bottom: calc(env(safe-area-inset-bottom) + 36px); }
 .settings .title { margin-top: 26px; animation: rise 0.8s var(--ease-out) both; }
 .settings-section { margin-top: 18px; }
+.settings-value { flex: 1; align-self: center; font-size: 1.0625rem; font-weight: 600; font-variant-numeric: tabular-nums; }
 .settings-section:nth-of-type(2) { animation-delay: 0.06s; }
 .settings-section:nth-of-type(3) { animation-delay: 0.12s; }
 .settings-section:nth-of-type(4) { animation-delay: 0.18s; }

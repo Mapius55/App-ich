@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { backend } from "../lib/backend";
-import { currentSubscription, disablePush, enablePush, isIos, isStandalone, pushSupported } from "../lib/push";
+import { currentSubscription, disablePush, enablePush, isIos, isStandalone, pushSupported, signOutDevice } from "../lib/push";
 import { requestCoords, type Coords } from "../lib/location";
 import type { Profile } from "../lib/types";
 
@@ -66,7 +66,7 @@ export function Settings({ profile, hasCoords, onBack, onProfile, onCoords, onOp
       const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }));
       const a = document.createElement("a");
       a.href = url;
-      a.download = `i-am-daten-${new Date().toISOString().slice(0, 10)}.json`;
+      a.download = `bucket-list-daten-${new Date().toISOString().slice(0, 10)}.json`;
       a.click();
       setTimeout(() => URL.revokeObjectURL(url), 2000);
     });
@@ -108,6 +108,29 @@ export function Settings({ profile, hasCoords, onBack, onProfile, onCoords, onOp
         <p className="hint">So spricht dich der Coach an. Angemeldet bist du als „{profile.username}“.</p>
       </Section>
 
+      {typeof profile.birth_year === "number" && (
+        // the birth year (for «Leben», life in weeks): visible and removable here too
+        <Section label="Geburtsjahr">
+          <div className="row">
+            <span className="settings-value">{profile.birth_year}</span>
+            <button
+              className="btn quiet"
+              disabled={busy}
+              onClick={() =>
+                run(async () => {
+                  await backend.updateProfile({ birth_year: null });
+                  onProfile({ birth_year: null });
+                  return "Geburtsjahr entfernt.";
+                })
+              }
+            >
+              Entfernen
+            </button>
+          </div>
+          <p className="hint">Nur das Jahr. Die App braucht es für «Leben», dein Leben in Wochen (in der neuen Ansicht).</p>
+        </Section>
+      )}
+
       <Section label="Benachrichtigungen">
         {!server ? (
           <p className="hint">Nachrichten vom Coach gibt es, sobald die App mit dem Server (Supabase) verbunden ist.</p>
@@ -117,7 +140,7 @@ export function Settings({ profile, hasCoords, onBack, onProfile, onCoords, onOp
           <>
             {isIos() && !isStandalone() && (
               <p className="hint">
-                Auf dem iPhone geht das nur, wenn „I am“ auf dem Home-Bildschirm liegt: in Safari auf <strong>Teilen</strong> →{" "}
+                Auf dem iPhone geht das nur, wenn „Bucket List“ auf dem Home-Bildschirm liegt: in Safari auf <strong>Teilen</strong> →{" "}
                 <strong>Zum Home-Bildschirm</strong>, dann die App von dort öffnen.
               </p>
             )}
@@ -226,10 +249,18 @@ export function Settings({ profile, hasCoords, onBack, onProfile, onCoords, onOp
         </div>
       </Section>
 
-      <Section label="Kalender „I am“">
+      <Section label="Kalender „Bucket List“">
         <p className="hint">Termine, die der Coach einträgt, und die Verbindung zum iPhone-Kalender.</p>
         <button className="btn ghost" onClick={onOpenCalendar}>
           Zum Kalender im Plan
+        </button>
+      </Section>
+
+      <Section label="Neue Ansicht">
+        {/* the space (?space=1) is still behind its flag: in a home-screen app there is no address bar to add it */}
+        <p className="hint">Mit der Bucket List und «Leben», deinem Leben in Wochen.</p>
+        <button className="btn ghost" onClick={() => location.assign(`${import.meta.env.BASE_URL}?space=1`)}>
+          Neue Ansicht öffnen
         </button>
       </Section>
 
@@ -256,7 +287,7 @@ export function Settings({ profile, hasCoords, onBack, onProfile, onCoords, onOp
         </div>
       </Section>
 
-      <button className="btn ghost wide add-btn" onClick={() => backend.signOut()}>
+      <button className="btn ghost wide add-btn" onClick={() => void signOutDevice()}>
         Abmelden
       </button>
     </main>

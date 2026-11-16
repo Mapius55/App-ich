@@ -1,0 +1,426 @@
+/* The space shell (owned by Builder A). Every rule is scoped to html.space-on or
+   to space-only classes, so the old screens (flag off) are unaffected. */
+
+/* ---------- the document is the time column's scroller (D2) ---------- */
+html.space-on {
+  overscroll-behavior-y: none;
+  overflow-anchor: none;
+}
+html.space-on.space-snap { scroll-snap-type: y mandatory; }
+html.space-on.space-nosnap,
+html.space-on[data-typing] { scroll-snap-type: none; }
+html.space-on body,
+html.space-on #root { height: auto; }
+
+/* only horizontal intent reaches the pager; vertical pans and pinch stay native */
+.space { position: relative; overflow-x: clip; touch-action: pan-y pinch-zoom; }
+
+.space .time { position: relative; }
+.space .lvl {
+  position: relative;
+  height: 100vh;
+  height: 100svh;
+  scroll-snap-align: start;
+  scroll-snap-stop: always;
+  overflow: hidden;
+}
+.space .lvl-inner {
+  position: relative;
+  max-width: 560px;
+  height: 100%;
+  margin: 0 auto;
+  padding: var(--lvl-title-top) var(--gutter) var(--lvl-content-bottom);
+  transform-origin: 50% 45%;
+}
+.space .lvl[data-level="0"] .lvl-inner { padding: 0; }
+
+/* ---------- Du and Ziele: fixed full-screen layers beside Jetzt ---------- */
+.space .side {
+  position: fixed;
+  inset: 0;
+  z-index: 2;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  touch-action: pan-y pinch-zoom;
+}
+/* settled positions; while dragging or settling the pager writes inline transforms */
+.space #du { transform: translate3d(-100%, 0, 0); }
+.space #ziele { transform: translate3d(100%, 0, 0); }
+.space[data-place="du"] #du,
+.space[data-place="ziele"] #ziele { transform: none; }
+.space[data-place="ziele"] .time { transform: translate3d(-100%, 0, 0); }
+.space[data-place="du"] .time { transform: translate3d(100%, 0, 0); }
+/* the bottom padding lets the last row rest clear above the dock and its fade */
+.space .side-inner {
+  max-width: 560px;
+  min-height: calc(100% + 1px);
+  margin: 0 auto;
+  padding: var(--lvl-title-top) var(--gutter) calc(var(--lvl-content-bottom) + 40px);
+}
+/* at the top the docked circle sits over the scrolling side: a soft fade under it */
+.space .side::before {
+  content: "";
+  position: sticky;
+  z-index: 1;
+  top: 0;
+  display: block;
+  height: calc(var(--safe-t) + 48px);
+  margin-bottom: calc(-1 * (var(--safe-t) + 48px));
+  background: linear-gradient(to bottom, color-mix(in srgb, var(--bg-top) 90%, transparent), color-mix(in srgb, var(--bg-top) 0%, transparent));
+  pointer-events: none;
+}
+/* will-change only while scrolling or dragging (removed 300 ms after settle) */
+.space.is-moving .time,
+.space.is-moving .side,
+.space.is-moving .lvl-inner,
+.space.is-moving .orb-move { will-change: transform; }
+
+/* ---------- the circle's layer: one Portal, docked at the top when away ---------- */
+.space .orb-layer { position: fixed; inset: 0; z-index: 3; pointer-events: none; }
+.space .orb-dock-anchor { position: absolute; left: 0; top: var(--orb-dock-cy); width: 0; height: 0; }
+.space .orb-move { position: absolute; left: 0; top: 0; transform-origin: 50% 50%; }
+.space .orb-move .portal { pointer-events: none; touch-action: pan-y; animation: orb-in 1.1s var(--ease-out) both; }
+@keyframes orb-in { from { opacity: 0; } }
+.space .orb-dock {
+  position: absolute;
+  left: 50%;
+  top: calc(var(--orb-dock-cy) - 22px);
+  width: 44px;
+  height: 44px;
+  margin-left: -22px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  pointer-events: auto;
+  cursor: pointer;
+}
+.space .orb-dock:focus-visible { outline: 1px solid var(--line-strong); outline-offset: 2px; }
+/* docked, the circle reflects the coach: listening ripples, speaking breathes, thinking dims slowly */
+.space .orb-layer[data-docked="true"][data-orb-state="listening"] .orb-dock::before,
+.space .orb-layer[data-docked="true"][data-orb-state="listening"] .orb-dock::after {
+  content: "";
+  position: absolute;
+  inset: 4px;
+  border-radius: 50%;
+  border: 1px solid var(--text);
+  animation: ripple 1.8s ease-out infinite;
+}
+.space .orb-layer[data-docked="true"][data-orb-state="listening"] .orb-dock::after { animation-delay: 0.9s; }
+.space .orb-layer[data-docked="true"][data-orb-state="speaking"] .orb-breathe { animation: orb-speak 1.2s ease-in-out infinite alternate; }
+.space .orb-layer[data-docked="true"][data-orb-state="thinking"] .orb-breathe { animation: orb-think 1.8s ease-in-out infinite alternate; }
+@keyframes orb-speak { to { transform: scale(1.06); } }
+@keyframes orb-think { to { opacity: 0.85; } }
+
+/* ---------- Jetzt (§3.1) ---------- */
+.space .now {
+  height: 100vh;
+  height: 100svh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: calc(var(--safe-t) + 4px) var(--gutter) calc(var(--dock-bottom) + var(--mic-big) + 44px);
+  text-align: center;
+}
+.space .now-top { width: 100%; flex: none; display: flex; flex-direction: column; align-items: center; }
+.space .now-pills { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; }
+/* 44 px hit boxes around 36 px pills */
+.space .now-pill {
+  flex: none;
+  min-width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.space .now-pill .pill { height: 36px; padding: 0 15px; font-size: 15px; font-weight: 500; letter-spacing: 0; transition: background 0.3s, border-color 0.3s; }
+.space .now-pill:active .pill { background: var(--glass-strong); }
+.space .now-phase { flex: 0 1 auto; min-width: 0; }
+.space .now-phase .pill { max-width: 100%; color: var(--text-soft); }
+.space .now-phase[aria-expanded="true"] .pill { color: var(--text); border-color: var(--line-strong); }
+.space .now-phase .pill { gap: 0.28em; }
+.space .now-phase-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.space .now-phase-fix { flex: none; white-space: nowrap; }
+/* iPhone 13 and SE: the three pills sit a little closer, so «Sonnenuntergang · 12°» fits next to «Bucket List ›» */
+@media (max-width: 400px) {
+  .space .now-pills { gap: 6px; }
+  .space .now-pill .pill { padding: 0 11px; }
+}
+@media (max-width: 380px) {
+  .space .now-pill .pill { font-size: 14px; }
+}
+
+/* Farben heute, in place under the pills (grid-rows 0fr → 1fr) */
+.space .now-colors { display: grid; grid-template-rows: 0fr; width: 100%; transition: grid-template-rows 320ms var(--ease-out), opacity 240ms ease; opacity: 0; }
+.space .now-colors[data-open] { grid-template-rows: 1fr; opacity: 1; }
+.space .now-colors-inner { min-height: 0; overflow: hidden; display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.space .now-colors[data-open] .now-colors-inner { padding-top: 12px; }
+.space .now-colors-label { font-size: 11px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: var(--text-soft); }
+.space .now-swatches { display: flex; gap: 6px; }
+.space .now-swatches .swatch { width: 22px; height: 22px; }
+.space .now-names { font-family: var(--serif); font-style: italic; color: var(--text-soft); font-size: 15px; line-height: 1.35; max-width: 32ch; }
+
+.space .now-greeting {
+  margin: 22px 0 0;
+  max-width: 100%;
+  font-family: var(--sans);
+  font-weight: 800;
+  font-size: 28px;
+  line-height: 1.08;
+  letter-spacing: -0.015em;
+  text-transform: uppercase;
+  text-wrap: balance;
+  outline: none;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.space .now-greeting.sr-only { display: block; }
+.space .now-focus {
+  font-family: var(--serif);
+  font-style: italic;
+  color: var(--text-soft);
+  font-size: 18px;
+  line-height: 1.3;
+  margin: 8px 0 0;
+  max-width: 30ch;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+/* the orb slot: an empty measuring box; the OrbLayer draws the circle over it */
+.space .now-orb { flex: 1; min-height: 0; width: 100%; margin: 18px 0 10px; touch-action: pan-y pinch-zoom; -webkit-touch-callout: none; user-select: none; -webkit-user-select: none; }
+.space .now-door {
+  flex: none;
+  min-height: 44px;
+  max-width: 100%;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 12px;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font-size: 15px;
+  line-height: 1.2;
+}
+.space .now-door-label { flex: none; font-size: 11px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: var(--text-soft); }
+.space .now-door-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.space .now-door-chev { flex: none; color: var(--text-soft); margin-top: 1px; }
+.space .now-door:active { opacity: 0.7; }
+
+/* ---------- the voice layer: status, toasts, typed field, dock ---------- */
+.voice-layer {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 6;
+  max-width: 560px;
+  margin: 0 auto;
+  padding: 0 var(--gutter) var(--dock-bottom);
+  pointer-events: none;
+  transform: translate3d(0, calc(-1 * var(--kb)), 0);
+  transition: opacity 0.2s ease, visibility 0.2s;
+}
+/* typing in a detail's form with the on-screen keyboard up: the voice layer makes room
+   (with a hardware keyboard, or none up yet, the dock and its ✓ stay reachable) */
+html[data-typing="detail"][data-kb] .voice-layer { opacity: 0; visibility: hidden; }
+.voice-layer .voice { gap: 8px; }
+.voice-layer .voice-status { min-height: 0; gap: 6px; }
+.voice-layer .voice-status > *,
+.voice-layer .toasts > *,
+.voice-layer form,
+.voice-layer .dock { pointer-events: auto; }
+.voice-layer .dock { touch-action: none; }
+/* on a side a drag on the status or a toast must not scroll the hidden time column */
+html.space-on:not([data-place="jetzt"]) .voice-layer .voice-status > *,
+html.space-on:not([data-place="jetzt"]) .voice-layer .toasts > * { touch-action: none; }
+
+/* A soft ground behind the voice stack, away from Jetzt: on the sides content scrolls
+   under the dock, and on the levels the status, the echo, toasts and the typed field rise
+   over the content. It grows with the stack (it is the layer's own box), so text never
+   sits on text and nothing readable sits under the buttons. The fade lies above the
+   stack and is at full strength where its first line starts. */
+.voice-layer::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  top: -36px;
+  bottom: 0;
+  left: calc(50% - 50vw);
+  right: calc(50% - 50vw);
+  background: linear-gradient(to bottom, color-mix(in srgb, var(--bg-bottom) 0%, transparent), color-mix(in srgb, var(--bg-bottom) 94%, transparent) 36px);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity var(--t-fast) ease;
+}
+html.space-on:not([data-place="jetzt"]) .voice-layer::before,
+html.space-on[data-voice-active]:not([data-level="0"]) .voice-layer::before,
+html.space-on[data-typed]:not([data-level="0"]) .voice-layer::before { opacity: 1; }
+/* away from Jetzt the echo of what was said keeps to one line */
+html.space-on:not([data-level="0"]) .voice-layer .voice-heard,
+html.space-on:not([data-place="jetzt"]) .voice-layer .voice-heard { max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* away from Jetzt the status area belongs to the level ("WOCHE ⌄"): no idle hint, no replay */
+html.space-on:not([data-level="0"]) .voice-layer .idle-hint,
+html.space-on:not([data-place="jetzt"]) .voice-layer .idle-hint,
+html.space-on:not([data-level="0"]) .voice-layer .voice-replay,
+html.space-on:not([data-place="jetzt"]) .voice-layer .voice-replay { display: none; }
+.voice-layer .voice-replay { min-height: 44px; padding: 0 16px; }
+/* Jetzt has room for one status line: until the first message the hint wins over "Nochmal hören" */
+.voice-layer .idle-hint ~ .voice-replay { display: none; }
+/* the typed field's placeholder says it already */
+.voice-layer .voice[data-typed] .idle-hint { display: none; }
+/* compact dock away from Jetzt (D25): mic 56, round 48 */
+.voice-layer .voice.compact .voice-dock { gap: 18px; }
+.voice-layer .voice.compact .dock-main.big { width: var(--mic); height: var(--mic); box-shadow: 0 8px 30px color-mix(in srgb, var(--sky-1) 30%, transparent); }
+.voice-layer .voice.compact .dock-main.big svg { width: 24px; height: 24px; }
+.voice-layer .voice.compact .dock-round,
+.voice-layer .voice.compact .dock-spacer { width: var(--round); height: var(--round); }
+.voice-layer .voice.compact .dock-round svg { width: 20px; height: 20px; }
+/* arriving at or leaving Jetzt the dock eases between its two sizes instead of snapping */
+@media (prefers-reduced-motion: no-preference) {
+  .voice-layer .voice-dock { transition: gap var(--t-fast) var(--ease-out); }
+  .voice-layer .voice-dock .dock-main.big,
+  .voice-layer .voice-dock .dock-round,
+  .voice-layer .voice-dock .dock-spacer {
+    transition: transform 0.25s var(--ease-out), background 0.3s, opacity 0.2s, width var(--t-fast) var(--ease-out), height var(--t-fast) var(--ease-out), box-shadow var(--t-fast) ease;
+  }
+  .voice-layer .voice-dock svg { transition: width var(--t-fast) var(--ease-out), height var(--t-fast) var(--ease-out); }
+}
+/* a toast's "Ansehen" (never opens a form) */
+.voice-layer .event-card { width: 100%; max-width: 360px; }
+.voice-layer .event-card-body { flex: 1; }
+.voice-layer .event-card-open {
+  flex: none;
+  min-width: 44px;
+  min-height: 44px;
+  margin: -6px -6px -6px 0;
+  padding: 0 8px 0 10px;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+/* ---------- skip nav "Orte": hidden until focused ---------- */
+.skip {
+  position: fixed;
+  top: calc(var(--safe-t) + 6px);
+  left: 0;
+  right: 0;
+  z-index: 8;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 6px;
+  padding: 0 var(--gutter);
+  transform: translateY(-200%);
+}
+.skip:focus-within { transform: none; }
+.skip .pill { min-height: 44px; padding: 0 14px; cursor: pointer; }
+.skip-label { font-size: 0.8rem; color: var(--text-soft); }
+
+/* ---------- tour nudges (§9, rendered by A; never under reduced motion) ---------- */
+@media (prefers-reduced-motion: no-preference) {
+  /* step 1: Jetzt lifts 56 px and settles, twice; a ghost dot glides up over the circle */
+  html[data-tour="1"][data-place="jetzt"][data-level="0"] .space .now-top > :not(.now-pills):not(.tour-block),
+  html[data-tour="1"][data-place="jetzt"][data-level="0"] .space .now-door,
+  html[data-tour="1"][data-place="jetzt"][data-level="0"] .space .orb-nudge { animation: tour-lift 1.1s 0.9s 2 both; }
+  .space .tour-finger {
+    position: absolute;
+    width: 46px;
+    height: 46px;
+    border-radius: 50%;
+    background: radial-gradient(circle, color-mix(in srgb, var(--text) 70%, transparent) 0%, color-mix(in srgb, var(--text) 18%, transparent) 55%, transparent 72%);
+    opacity: 0;
+    animation: tour-finger 2.8s ease-in-out 1.2s infinite;
+  }
+  /* step 2: the docked circle pulses a ring */
+  html[data-tour="2"] .space .orb-dock::before {
+    content: "";
+    position: absolute;
+    inset: 3px;
+    border-radius: 50%;
+    border: 1.5px solid var(--accent);
+    animation: tour-ring 1.6s ease-out 0.4s infinite;
+  }
+  /* step 3: a sliver of Ziele peeks in and goes back; both pills get a soft halo */
+  html[data-tour="3"][data-place="jetzt"][data-level="0"] .space:not(.is-moving) .time { animation: tour-peek 2.4s var(--ease-io) 0.8s 2 both; }
+  html[data-tour="3"][data-place="jetzt"][data-level="0"] .space:not(.is-moving) #ziele { animation: tour-peek-side 2.4s var(--ease-io) 0.8s 2 both; }
+  /* the circle is part of Jetzt: it peeks along */
+  html[data-tour="3"][data-place="jetzt"][data-level="0"] .space:not(.is-moving) .orb-nudge { animation: tour-peek 2.4s var(--ease-io) 0.8s 2 both; }
+  html[data-tour="3"][data-place="jetzt"][data-level="0"] .space .now-side .pill { animation: tour-halo 1.8s ease-in-out 0.6s infinite; }
+}
+@keyframes tour-lift {
+  0% { transform: none; animation-timing-function: var(--ease-out); }
+  54.5% { transform: translate3d(0, -56px, 0); animation-timing-function: var(--ease-io); }
+  100% { transform: none; }
+}
+@keyframes tour-finger {
+  0% { opacity: 0; transform: translate3d(0, 0, 0) scale(0.9); }
+  12% { opacity: 0.9; transform: translate3d(0, 0, 0) scale(1); }
+  50% { opacity: 0.75; transform: translate3d(0, var(--travel), 0) scale(1); }
+  60%, 100% { opacity: 0; transform: translate3d(0, var(--travel), 0) scale(0.9); }
+}
+@keyframes tour-ring {
+  0% { transform: scale(1); opacity: 0.9; }
+  100% { transform: scale(1.7); opacity: 0; }
+}
+@keyframes tour-peek {
+  0%, 100% { transform: none; }
+  15%, 35% { transform: translate3d(-40px, 0, 0); }
+  55% { transform: none; }
+}
+@keyframes tour-peek-side {
+  0%, 100% { transform: translate3d(100%, 0, 0); }
+  15%, 35% { transform: translate3d(calc(100% - 40px), 0, 0); }
+  55% { transform: translate3d(100%, 0, 0); }
+}
+@keyframes tour-halo {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 0%, transparent); border-color: var(--line); }
+  50% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--accent) 22%, transparent); border-color: color-mix(in srgb, var(--accent) 60%, transparent); }
+}
+
+/* ---------- phase-0 stub look (B and C replace their stubs) ---------- */
+.space .stub { display: flex; flex-direction: column; align-items: center; text-align: center; }
+.space .stub-title {
+  font-family: var(--sans);
+  font-weight: 800;
+  font-size: 34px;
+  letter-spacing: -0.015em;
+  line-height: 1.05;
+  text-transform: uppercase;
+  margin: 0;
+  outline: none;
+}
+.space .stub-sub,
+.detail-root .stub-sub { color: var(--text-soft); font-size: 15px; margin: 8px 0 0; }
+.detail-root .stub-title { font-weight: 800; font-size: 26px; text-transform: uppercase; margin: 0; }
+
+@media (prefers-reduced-motion: reduce) {
+  .space .orb-move .portal { animation: none; }
+  .space .now-colors { transition-duration: 120ms; transition-property: opacity; }
+  .space .orb-layer .orb-breathe,
+  .space .orb-layer .orb-dock::before,
+  .space .orb-layer .orb-dock::after { animation: none !important; }
+  .voice-layer { transition: none; }
+}
+
+/* ---------- small phones (iPhone SE: 375×667) ---------- */
+@media (max-height: 700px) {
+  .space .now-greeting { font-size: 24px; margin-top: 14px; }
+  .space .now-focus { font-size: 16px; }
+  .space .now-orb { margin: 12px 0 6px; }
+}

@@ -72,13 +72,16 @@ export function SkyBackground({ colors, ground, glow }: { colors: string[]; grou
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const target = useRef({ colors, ground, glow });
   const [fallback, setFallback] = useState(false);
+  const loseTimer = useRef(0);
   target.current = { colors, ground, glow };
 
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
+    // a StrictMode remount reuses the context (its release below is deferred a tick)
+    clearTimeout(loseTimer.current);
     const gl = canvas.getContext("webgl", { antialias: false, alpha: false, preserveDrawingBuffer: false });
-    if (!gl) return setFallback(true);
+    if (!gl || gl.isContextLost()) return setFallback(true);
     let prog: WebGLProgram;
     try {
       prog = createProgram(gl, FRAG);
@@ -138,7 +141,8 @@ export function SkyBackground({ colors, ground, glow }: { colors: string[]; grou
     return () => {
       cancelAnimationFrame(raf);
       window.removeEventListener("resize", resize);
-      gl.getExtension("WEBGL_lose_context")?.loseContext();
+      gl.deleteProgram(prog);
+      loseTimer.current = window.setTimeout(() => gl.getExtension("WEBGL_lose_context")?.loseContext(), 0);
     };
   }, []);
 

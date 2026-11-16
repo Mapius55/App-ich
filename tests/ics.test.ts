@@ -27,8 +27,14 @@ describe("buildIcs", () => {
     { timezone: "Europe/Zurich" },
   );
   it("names the calendar and uses CRLF", () => {
-    expect(ics).toContain("X-WR-CALNAME:I am\r\n");
+    expect(ics).toContain("X-WR-CALNAME:Bucket List\r\n");
+    expect(ics).toContain("PRODID:-//Bucket List//Coach//DE\r\n");
+    expect(ics).not.toContain("I am");
     expect(ics.startsWith("BEGIN:VCALENDAR\r\n")).toBe(true);
+  });
+  it("keeps the event UIDs and their domain (renaming them would duplicate subscribed events)", () => {
+    expect(ics).toContain("UID:a@i-am\r\n");
+    expect(ics).toContain("UID:b@i-am\r\n");
   });
   it("escapes text values", () => {
     expect(ics).toContain("SUMMARY:Rennen\\, Zürich");

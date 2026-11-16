@@ -7,12 +7,16 @@ import {
   goalProgress,
   habitStreak,
   habitWeek,
+  isoWeek,
   monthGrid,
   perWeekLabel,
   streakLabel,
   weekDays,
   weekStart,
+  weekdayIndex,
+  yearMonths,
 } from "../src/lib/plan";
+import { dayTitle, daySubline, hoursMinutes, spokenMinutes, weekRange, weekTitle } from "../src/lib/dates";
 import type { Goal } from "../src/lib/types";
 
 describe("days and weeks", () => {
@@ -110,14 +114,40 @@ describe("goal effort", () => {
     const e = goalEffort(base, "2026-11-14");
     expect(e.done).toBe(16);
     expect(e.remaining).toBe(104);
-    expect(e.weeksLeft).toBeCloseTo(23 / 7, 1);
-    expect(e.neededPerWeek).toBeCloseTo(104 / (23 / 7), 0);
-    expect(e.feasibility).toBe("kaum machbar"); // ~32 h/week needed, 6 available
+    // 22 days from today up to the day before the target date
+    expect(e.weeksLeft).toBe(3.1);
+    expect(e.neededPerWeek).toBe(33.1);
+    expect(e.neededPerDay).toBeNull(); // more than three weeks left
+    expect(e.feasibility).toBe("kaum machbar"); // ~33 h/week needed, 6 available
   });
   it("machbar, knapp, erreicht", () => {
-    expect(goalEffort({ ...base, effort_hours: 30 }, "2026-11-14").feasibility).toBe("machbar"); // 14 left over 3.3 weeks ≈ 4.3/week
-    expect(goalEffort({ ...base, effort_hours: 40 }, "2026-11-14").feasibility).toBe("knapp"); // ≈ 7.3/week vs 6
+    expect(goalEffort({ ...base, effort_hours: 30 }, "2026-11-14").feasibility).toBe("machbar"); // 14 left over 3.1 weeks ≈ 4.5/week (74 %)
+    expect(goalEffort({ ...base, effort_hours: 34 }, "2026-11-14").feasibility).toBe("knapp"); // ≈ 5.7/week vs 6 (95 %)
+    expect(goalEffort({ ...base, effort_hours: 40 }, "2026-11-14").feasibility).toBe("kaum machbar"); // ≈ 7.6/week vs 6 (127 %)
     expect(goalEffort({ ...base, effort_hours: 10 }, "2026-11-14")).toMatchObject({ remaining: 0, feasibility: "erreicht" });
+  });
+  it("keeps a buffer: up to 85 % machbar, up to 110 % knapp", () => {
+    // two weeks left (14 days before the target), 10 h per week
+    const two = { effort_hours: 0, weekly_hours: 10, prior_hours: 0, target_date: "2026-11-28", time: { logged_minutes: 0, block_minutes: 0 } };
+    expect(goalEffort({ ...two, effort_hours: 17 }, "2026-11-14").feasibility).toBe("machbar"); // 8.5 of 10 = 85 %
+    expect(goalEffort({ ...two, effort_hours: 17.2 }, "2026-11-14").feasibility).toBe("knapp");
+    expect(goalEffort({ ...two, effort_hours: 22 }, "2026-11-14").feasibility).toBe("knapp"); // 110 %
+    expect(goalEffort({ ...two, effort_hours: 22.2 }, "2026-11-14").feasibility).toBe("kaum machbar");
+    // the same need, 100 %, was "machbar" before the buffer
+    expect(goalEffort({ ...two, effort_hours: 20 }, "2026-11-14").feasibility).toBe("knapp");
+  });
+  it("counts the days up to the day before the target date, with hours per day under three weeks", () => {
+    // p07: 55 h for an exam in 11 days: 11 study days, so 35 h per week and 5 h per day (not 12 days)
+    const exam = goalEffort({ effort_hours: 55, weekly_hours: 30, prior_hours: 0, target_date: "2026-11-25", time: { logged_minutes: 0, block_minutes: 0 } }, "2026-11-14");
+    expect(exam.weeksLeft).toBe(1.6);
+    expect(exam.neededPerWeek).toBe(35);
+    expect(exam.neededPerDay).toBe(5);
+    expect(exam.feasibility).toBe("kaum machbar"); // 35 needed, 30 available: 117 %
+    // on the target day itself, today is the one day left; a passed date has no weeks
+    const today = goalEffort({ effort_hours: 3, weekly_hours: 7, prior_hours: 0, target_date: "2026-11-14", time: { logged_minutes: 0, block_minutes: 0 } }, "2026-11-14");
+    expect(today).toMatchObject({ neededPerWeek: 21, neededPerDay: 3, feasibility: "kaum machbar" });
+    const past = goalEffort({ effort_hours: 3, weekly_hours: 7, prior_hours: 0, target_date: "2026-11-10", time: { logged_minutes: 0, block_minutes: 0 } }, "2026-11-14");
+    expect(past).toMatchObject({ weeksLeft: null, neededPerWeek: null, neededPerDay: null, feasibility: null });
   });
   it("long goals without a date: how long it takes with her weekly time", () => {
     const olympia = goalEffort({ effort_hours: 10000, weekly_hours: 20, prior_hours: 2500, target_date: null, time: { logged_minutes: 0, block_minutes: 0 } }, "2026-11-14");
@@ -154,6 +184,14 @@ describe("year view", () => {
     const m = dayMinutes(log, blocks, new Set(["b2"]), new Date("2026-11-14T12:00:00Z"), day);
     expect(m).toEqual({ "2026-11-10": 90, "2026-11-12": 90 });
   });
+  it("leaves out planned Nolio trainings: the completed one comes as logged time", () => {
+    const log = [{ day: "2026-11-12", minutes: 75 }]; // the completed training, synced from Nolio
+    const blocks = [
+      { id: "n1", starts_at: "2026-11-12T16:00:00Z", ends_at: "2026-11-12T17:30:00Z", all_day: false, kind: "block", goal_id: "g", source: "nolio" },
+      { id: "c1", starts_at: "2026-11-13T16:00:00Z", ends_at: "2026-11-13T17:00:00Z", all_day: false, kind: "block", goal_id: "g", source: "coach" },
+    ];
+    expect(dayMinutes(log, blocks, new Set(), new Date("2026-11-14T12:00:00Z"), day)).toEqual({ "2026-11-12": 75, "2026-11-13": 60 });
+  });
   it("four steps fitted to her own days", () => {
     const t = heatThresholds([10, 20, 30, 60, 90, 120, 180, 240]);
     expect(t).toEqual([30, 90, 180]);
@@ -170,5 +208,78 @@ describe("year view", () => {
     expect(w.at(-1)![0]).toBe("2026-11-09");
     expect(w[0][0]).toBe("2025-11-10"); // 52 weeks before this Monday
     expect(w.every((x) => x.length === 7)).toBe(true);
+  });
+});
+
+describe("calendar year", () => {
+  it("ISO weeks around New Year 2026/27 and 2027/28", () => {
+    expect(isoWeek("2026-11-14")).toBe(46);
+    expect(isoWeek("2026-11-16")).toBe(47);
+    expect(isoWeek("2025-12-29")).toBe(1); // Monday of the week with 1 January 2026 (a Thursday)
+    expect(isoWeek("2026-01-01")).toBe(1);
+    expect(isoWeek("2026-12-28")).toBe(53); // 2026 has 53 weeks
+    expect(isoWeek("2026-12-31")).toBe(53);
+    expect(isoWeek("2027-01-01")).toBe(53);
+    expect(isoWeek("2027-01-03")).toBe(53);
+    expect(isoWeek("2027-01-04")).toBe(1);
+    expect(isoWeek("2027-12-31")).toBe(52); // 2027 has 52
+    expect(isoWeek("2028-01-02")).toBe(52);
+    expect(isoWeek("2028-01-03")).toBe(1);
+  });
+
+  it("yearMonths: 12 months of 6 Monday-first weeks", () => {
+    const ms = yearMonths(2026);
+    expect(ms.map((m) => m.month)).toEqual(["2026-01", "2026-02", "2026-03", "2026-04", "2026-05", "2026-06", "2026-07", "2026-08", "2026-09", "2026-10", "2026-11", "2026-12"]);
+    for (const m of ms) {
+      expect(m.cells).toHaveLength(42);
+      expect(weekdayIndex(m.cells[0].day)).toBe(0);
+      // consecutive days, the month's own days marked
+      m.cells.forEach((c, i) => i && expect(daysBetween(m.cells[i - 1].day, c.day)).toBe(1));
+      const own = m.cells.filter((c) => c.inMonth);
+      expect(own[0].day).toBe(`${m.month}-01`);
+      expect(own.every((c) => c.day.startsWith(m.month))).toBe(true);
+    }
+    expect(ms[1].cells.filter((c) => c.inMonth)).toHaveLength(28);
+    expect(ms[0].cells.filter((c) => c.inMonth)).toHaveLength(31);
+    expect(ms[1].cells[0].day).toBe("2026-01-26"); // 1 Feb 2026 is a Sunday
+    for (const [i, m] of ms.entries()) expect(m.cells.slice(0, monthGrid(`${m.month}-01`).length), String(i)).toEqual(monthGrid(`${m.month}-01`)); // starts like monthGrid
+    expect(yearMonths(2028)[1].cells.filter((c) => c.inMonth)).toHaveLength(29);
+  });
+});
+
+describe("titles and sublines for the space", () => {
+  it("day titles and sublines", () => {
+    expect(dayTitle("2026-11-14", "2026-11-14")).toBe("HEUTE");
+    expect(dayTitle("2026-11-15", "2026-11-14")).toBe("MORGEN");
+    expect(dayTitle("2026-11-13", "2026-11-14")).toBe("GESTERN");
+    expect(dayTitle("2026-11-18", "2026-11-14")).toBe("MITTWOCH");
+    expect(dayTitle("2026-11-17", "2026-11-14")).toBe("DIENSTAG");
+    expect(daySubline("2026-11-14", "2026-11-14")).toBe("Samstag, 14. November");
+    expect(daySubline("2027-03-01", "2026-11-14")).toBe("Montag, 1. März 2027");
+  });
+
+  it("week ranges and titles", () => {
+    expect(weekRange("2026-11-18")).toBe("16.–22. November");
+    expect(weekRange("2026-12-01")).toBe("30. November – 6. Dezember");
+    expect(weekRange("2026-12-30")).toBe("28. Dezember 2026 – 3. Januar 2027");
+    expect(weekTitle("2026-11-12", "2026-11-14")).toBe("DIESE WOCHE");
+    expect(weekTitle("2026-11-16", "2026-11-14")).toBe("NÄCHSTE WOCHE");
+    expect(weekTitle("2026-11-08", "2026-11-14")).toBe("LETZTE WOCHE");
+    expect(weekTitle("2026-11-30", "2026-11-14")).toBe("KW 49");
+    expect(weekTitle("2027-01-01", "2026-11-14")).toBe("KW 53");
+  });
+
+  it("hours and minutes, written and spoken", () => {
+    expect(hoursMinutes(465)).toBe("7 Std 45");
+    expect(hoursMinutes(120)).toBe("2 Std");
+    expect(hoursMinutes(45)).toBe("45 Min");
+    expect(hoursMinutes(0)).toBe("0 Min");
+    expect(hoursMinutes(12720)).toBe("212 Std");
+    expect(hoursMinutes(60 * 1234)).toBe("1'234 Std");
+    expect(spokenMinutes(105)).toBe("1 Stunde 45");
+    expect(spokenMinutes(465)).toBe("7 Stunden 45");
+    expect(spokenMinutes(60)).toBe("1 Stunde");
+    expect(spokenMinutes(45)).toBe("45 Minuten");
+    expect(spokenMinutes(1)).toBe("1 Minute");
   });
 });

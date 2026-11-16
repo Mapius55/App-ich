@@ -15,12 +15,18 @@ import type {
   HabitInput,
   Memory,
   Milestone,
+  NolioStatus,
+  NolioSyncResult,
   Profile,
   PushSubscriptionRow,
+  WhoopConfirmResult,
+  WhoopStatus,
+  WhoopSyncResult,
 } from "./types";
 import { normaliseUsername, USERNAME_RE } from "./types";
 import { addDays, dayOf, weekStart } from "./plan";
 import { blockTimeEntry } from "./demoBackend";
+import { deviceAttribution } from "../../supabase/functions/_shared/nolio.ts";
 
 // Supabase Auth works with e-mail addresses. People here log in with a plain
 // username, so each username maps to an internal address on a reserved,
@@ -30,27 +36,44 @@ const USERNAME_DOMAIN = import.meta.env.VITE_USERNAME_EMAIL_DOMAIN || "nutzer.ap
 const toEmail = (username: string) => `${normaliseUsername(username)}@${USERNAME_DOMAIN}`;
 
 // A goal row as PostgREST returns it, with its embedded milestones. Postgres numeric
-// can come back as a string, so the hours are converted.
+// can come back as a string, so the hours are converted. kind, done_at, memory and reminded_at
+// come with the Bucket List migration (missing before it: then it is a goal).
 type Numeric = number | string | null;
-type GoalRow = Omit<Goal, "milestones" | "time" | "effort_hours" | "weekly_hours" | "prior_hours"> & {
+type GoalRow = Omit<Goal, "milestones" | "time" | "effort_hours" | "weekly_hours" | "prior_hours" | "kind" | "done_at" | "memory"> & {
   milestones?: Milestone[] | null;
   effort_hours: Numeric;
   weekly_hours: Numeric;
   prior_hours: Numeric;
+  kind?: Goal["kind"] | null;
+  done_at?: string | null;
+  memory?: string | null;
 };
 type GoalMinutes = Goal["time"];
 const NO_TIME: GoalMinutes = { logged_minutes: 0, block_minutes: 0 };
 const toNumber = (v: Numeric | undefined): number | null => (v === null || v === undefined || v === "" ? null : Number(v));
 const toGoal = (row: GoalRow, time: GoalMinutes = NO_TIME): Goal => ({
   ...row,
+  kind: row.kind === "dream" ? "dream" : "goal",
+  done_at: row.done_at ?? null,
+  memory: row.memory ?? null,
+  reminded_at: row.reminded_at ?? null,
   effort_hours: toNumber(row.effort_hours),
   weekly_hours: toNumber(row.weekly_hours),
   prior_hours: toNumber(row.prior_hours) ?? 0,
   milestones: [...(row.milestones ?? [])].sort((a, b) => a.position - b.position),
   time: { ...time },
 });
-/** prior_hours is "not null default 0": an emptied field means 0. */
-const goalRow = <T extends Partial<GoalInput>>(g: T): T => ((g.prior_hours as number | null | undefined) === null ? { ...g, prior_hours: 0 } : g);
+/**
+ * prior_hours is "not null default 0": an emptied field means 0. An emptied memory means none.
+ * done_at needs no care here: the trigger goals_done_at sets it when the status becomes done and
+ * clears it otherwise.
+ */
+const goalRow = <T extends Partial<GoalInput>>(g: T): T => {
+  let out = g;
+  if ((g.prior_hours as number | null | undefined) === null) out = { ...out, prior_hours: 0 };
+  if (typeof g.memory === "string" && !g.memory.trim()) out = { ...out, memory: null };
+  return out;
+};
 
 /** Splits ids for .in() filters, so the request URL stays short. */
 function chunks<T>(items: T[], size = 100): T[][] {
@@ -74,6 +97,13 @@ const EXPORT_TABLES: [string, string[]][] = [
   ["messages", ["id"]],
   ["push_subscriptions", ["id"]],
 ];
+// readable by the person (RLS), present once the WHOOP / Nolio migrations ran
+const EXPORT_CONNECTION_TABLES: [string, string[]][] = [
+  ["connections", ["provider"]],
+  ["whoop_days", ["day"]],
+  ["nolio_trainings", ["id"]],
+  ["nolio_sync", ["user_id"]],
+];
 
 // A habit row with its embedded logs (only the days).
 type HabitRow = Omit<Habit, "done_days"> & { habit_logs: { day: string }[] | null };
@@ -81,6 +111,24 @@ const toHabit = ({ habit_logs, ...row }: HabitRow): Habit => ({ ...row, done_day
 
 /** First day of the habit history the app shows: the current week and the 15 before it. */
 const habitsSince = () => addDays(weekStart(dayOf()), -15 * 7);
+
+/** The status JSON of the whoop function, checked field by field; null when it isn't one. */
+function whoopStatusFrom(j: unknown): WhoopStatus | null {
+  const o = j as Partial<WhoopStatus> | null;
+  if (!o || typeof o !== "object" || typeof o.available !== "boolean") return null;
+  const st = o.status;
+  return {
+    available: o.available,
+    connected: o.connected === true,
+    status: st === "connected" || st === "pending" || st === "needs_reconnect" ? st : null,
+    consent_ai: o.consent_ai === true,
+    connected_at: typeof o.connected_at === "string" ? o.connected_at : null,
+    last_sync_at: typeof o.last_sync_at === "string" ? o.last_sync_at : null,
+    last_error: typeof o.last_error === "string" ? o.last_error : null,
+    attribution: typeof o.attribution === "string" && o.attribution.trim() ? o.attribution : "Daten von WHOOP",
+    days: Array.isArray(o.days) ? o.days.filter((d) => d && typeof d === "object" && typeof d.day === "string") : [],
+  };
+}
 
 function friendlyAuthError(message: string): string {
   const m = message.toLowerCase();
@@ -414,6 +462,118 @@ export class SupabaseBackend implements Backend {
     return fetch(`${this.url}/functions/v1/${name}`, { ...init, headers });
   }
 
+  /**
+   * A call to a connection function. Null when the function isn't deployed or can't be reached
+   * (network error, CORS-less gateway answer, 404, 502–504): the app then shows "Bald verfügbar".
+   */
+  private async connFn(name: string, init: RequestInit = {}): Promise<Response | null> {
+    let res: Response;
+    try {
+      res = await this.fn(name, init);
+    } catch {
+      return null;
+    }
+    if (res.status === 404 || res.status === 502 || res.status === 503 || res.status === 504) {
+      await res.body?.cancel().catch(() => {});
+      return null;
+    }
+    return res;
+  }
+
+  private async connJson<T>(name: string, init: RequestInit, what: string): Promise<T> {
+    const res = await this.connFn(name, init);
+    if (!res) throw new Error(`${what} ist gerade nicht erreichbar.`);
+    if (!res.ok) {
+      await res.body?.cancel().catch(() => {});
+      throw new Error(`${what} ist gerade nicht erreichbar. Versuch es später nochmal.`);
+    }
+    return (await res.json()) as T;
+  }
+
+  async whoopStatus(): Promise<WhoopStatus | null> {
+    const res = await this.connFn("whoop?action=status");
+    if (!res) return null;
+    if (!res.ok) {
+      await res.body?.cancel().catch(() => {});
+      throw new Error("WHOOP ist gerade nicht erreichbar.");
+    }
+    try {
+      return whoopStatusFrom(await res.json());
+    } catch {
+      return null;
+    }
+  }
+
+  async whoopStart(): Promise<{ url: string }> {
+    // the app's own address (…/App-ich/ or …/bucket-list/): the server sends the browser back there if it is
+    // exactly on its allowlist (supabase/functions/_shared/app_url.ts)
+    const return_to = typeof location === "undefined" ? undefined : new URL(import.meta.env.BASE_URL, location.origin).href;
+    const j = await this.connJson<{ url?: unknown; reason?: unknown }>("whoop", { method: "POST", body: JSON.stringify({ action: "start", return_to }) }, "WHOOP");
+    if (typeof j.url !== "string" || !/^https:\/\//.test(j.url)) throw new Error("WHOOP ist noch nicht eingerichtet.");
+    return { url: j.url };
+  }
+
+  async whoopConfirm(code: string): Promise<WhoopConfirmResult> {
+    const res = await this.connFn("whoop", { method: "POST", body: JSON.stringify({ action: "confirm", code }) });
+    if (!res) return { ok: false, reason: "error" };
+    // {ok:false, reason:"mismatch" | "expired"} may come with a 4xx status too
+    const j = (await res.json().catch(() => null)) as Record<string, unknown> | null;
+    if (!j || j.ok === false || !res.ok) return { ok: false, reason: typeof j?.reason === "string" ? j.reason : "error" };
+    const status = whoopStatusFrom(j);
+    return status ? { ...status, ok: true } : { ok: false, reason: "error" };
+  }
+
+  async whoopSync(): Promise<WhoopSyncResult> {
+    return this.connJson<WhoopSyncResult>("whoop", { method: "POST", body: JSON.stringify({ action: "sync" }) }, "WHOOP");
+  }
+
+  async whoopDisconnect(): Promise<void> {
+    const j = await this.connJson<{ ok?: boolean }>("whoop", { method: "POST", body: JSON.stringify({ action: "disconnect" }) }, "WHOOP");
+    if (j.ok === false) throw new Error("Die Verbindung zu WHOOP liess sich nicht trennen. Versuch es später nochmal.");
+  }
+
+  async setWhoopConsent(on: boolean): Promise<boolean> {
+    const { data, error } = await this.sb.rpc("set_whoop_consent", { p_consent: on });
+    if (error) throw error;
+    return data === true;
+  }
+
+  async nolioStatus(): Promise<NolioStatus | null> {
+    const res = await this.connFn("nolio?action=status");
+    if (!res) return null;
+    if (!res.ok) {
+      await res.body?.cancel().catch(() => {});
+      throw new Error("Nolio ist gerade nicht erreichbar.");
+    }
+    const j = (await res.json().catch(() => null)) as NolioStatus | null;
+    if (!j || typeof j !== "object") return null;
+    const status: NolioStatus = {
+      available: j.available === true,
+      connected: j.connected === true,
+      last_sync_at: typeof j.last_sync_at === "string" ? j.last_sync_at : null,
+      last_error: typeof j.last_error === "string" ? j.last_error : null,
+      running: j.running === true,
+      counts: j.counts && typeof j.counts === "object" ? j.counts : null,
+      garmin: typeof j.garmin === "string" ? j.garmin : null,
+    };
+    // Garmin's attribution: where the latest trainings came from a Garmin device (own rows, RLS)
+    if (status.available && !status.garmin) {
+      const { data } = await this.sb.from("nolio_trainings").select("source, device_name").eq("restricted", false).order("day", { ascending: false }).limit(10);
+      for (const r of (data ?? []) as { source: string | null; device_name: string | null }[]) {
+        const a = deviceAttribution(r.source, r.device_name);
+        if (a) {
+          status.garmin = a;
+          break;
+        }
+      }
+    }
+    return status;
+  }
+
+  async nolioSync(): Promise<NolioSyncResult> {
+    return this.connJson<NolioSyncResult>("nolio", { method: "POST", body: JSON.stringify({ action: "sync" }) }, "Nolio");
+  }
+
   async pushPublicKey(): Promise<string | null> {
     const res = await this.fn("push?action=key");
     if (!res.ok) throw new Error("Der Benachrichtigungs-Dienst ist noch nicht eingerichtet.");
@@ -428,6 +588,13 @@ export class SupabaseBackend implements Backend {
   async deletePushSubscription(endpoint: string) {
     const { error } = await this.sb.from("push_subscriptions").delete().eq("endpoint", endpoint);
     if (error) throw error;
+  }
+
+  async ownsPushSubscription(endpoint: string) {
+    // RLS shows only her own rows: a row means this subscription is hers
+    const { data, error } = await this.sb.from("push_subscriptions").select("endpoint").eq("endpoint", endpoint).maybeSingle();
+    if (error) throw error;
+    return !!data;
   }
 
   async sendTestPush(): Promise<number> {
@@ -481,6 +648,14 @@ export class SupabaseBackend implements Backend {
   async exportData() {
     const out: Record<string, unknown> = { exported_at: new Date().toISOString(), profile: await this.getProfile() };
     for (const [table, order] of EXPORT_TABLES) out[table] = await this.readAll(table, order);
+    // the connections' own rows (WHOOP, Nolio), where the server has them; never the tokens
+    for (const [table, order] of EXPORT_CONNECTION_TABLES) {
+      try {
+        out[table] = await this.readAll(table, order);
+      } catch {
+        // not set up on this server (the table doesn't exist): nothing to export
+      }
+    }
     return out;
   }
 

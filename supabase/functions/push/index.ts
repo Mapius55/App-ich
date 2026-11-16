@@ -152,7 +152,7 @@ Deno.serve(async (req) => {
     const { data, error } = await sb.auth.getUser(token);
     if (error || !data.user) return json({ error: "unauthorized" }, 401);
     const { data: subs } = await sb.from("push_subscriptions").select("id, endpoint, p256dh, auth, app_url").eq("user_id", data.user.id);
-    const sent = await deliver(sb, subs ?? [], { title: "I am", body: "So sehen meine Nachrichten aus. Bis bald!" }, await vapidKeys(sb));
+    const sent = await deliver(sb, subs ?? [], { title: "Bucket List", body: "So sehen meine Nachrichten aus. Bis bald!" }, await vapidKeys(sb));
     return json({ sent });
   }
 

@@ -1,0 +1,126 @@
+/* The short tour (owned by Builder C). Scoped under .space / .tour-caption.
+   No modal, no dimming, no box: a pill, one Bodoni line, one sans line, two buttons. */
+
+.space .tour-block,
+.tour-caption .tour-caption-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  text-align: center;
+}
+/* the block's fade waits a moment: the circle glides out of its way first (NowLevel reports the new slot at once) */
+.space .tour-block { margin-top: 18px; width: 100%; max-width: 30rem; animation: tour-in 300ms var(--ease-out) 120ms both; }
+.tour-caption .tour-caption-inner { animation: tour-in 300ms var(--ease-out) both; }
+@keyframes tour-in { from { opacity: 0; } }
+
+.space .tour-pill,
+.tour-caption .tour-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--glass);
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+.space .tour-text,
+.tour-caption .tour-text { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.space .tour-serif,
+.tour-caption .tour-serif {
+  margin: 0;
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 23px;
+  line-height: 1.25;
+  color: var(--text);
+  text-wrap: balance;
+}
+.space .tour-sans,
+.tour-caption .tour-sans { margin: 0; max-width: 34ch; font-size: 0.9375rem; line-height: 1.42; color: var(--text-soft); text-wrap: pretty; }
+.space .tour-glyph,
+.tour-caption .tour-glyph,
+.tour-caption .tour-glyph-ghost { display: inline-block; margin-right: 6px; color: var(--text); font-weight: 600; }
+
+.space .tour-row,
+.tour-caption .tour-row { display: flex; align-items: center; justify-content: center; gap: 10px; margin-top: 4px; }
+.space .tour-skip,
+.tour-caption .tour-skip {
+  min-height: 44px;
+  padding: 0 10px;
+  border: 0;
+  background: none;
+  color: var(--text-soft);
+  font-size: 0.9375rem;
+  font-weight: 500;
+}
+.space .tour-go,
+.tour-caption .tour-go {
+  min-height: 44px;
+  padding: 0 22px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--text);
+  color: #0a0a0f;
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  transition: transform 0.2s var(--ease-out);
+}
+.space .tour-go:active,
+.tour-caption .tour-go:active { transform: scale(0.96); }
+
+/* the caption floats above the dock (step 2 on Tag, on a side during step 3). Its soft fade
+   reaches down behind the dock, so nothing reads through between caption and dock; it sits
+   just under the voice layer (z 6) so the dock stays on top, and leaves one status line free */
+.tour-caption {
+  position: fixed;
+  z-index: 5;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 56px var(--gutter) calc(var(--dock-bottom) + var(--mic) + 34px);
+  background: linear-gradient(to bottom, color-mix(in srgb, var(--bg-bottom) 0%, transparent), var(--bg-bottom) 64px);
+  pointer-events: none;
+}
+/* only its two buttons take touches: a swipe across the caption still pages the day or
+   moves between places, and a drag that starts on a button cannot scroll the document */
+.tour-caption .tour-caption-inner { max-width: 30rem; margin: 0 auto; pointer-events: none; }
+.tour-caption .tour-row button { pointer-events: auto; touch-action: none; }
+/* on Tag and Woche the level ends above the caption (time.css), so nothing passes under it:
+   a short fade is enough, and the habit chips just above stay clear */
+html[data-tour="2"][data-level="1"] .tour-caption:not([data-ghost]),
+html[data-tour="2"][data-level="2"] .tour-caption:not([data-ghost]) {
+  padding-top: 16px;
+  background: linear-gradient(to bottom, color-mix(in srgb, var(--bg-bottom) 0%, transparent), var(--bg-bottom) 28px);
+}
+/* the hidden copy that measures step 2's caption ahead (Tour.tsx): takes no paint, no touch */
+.tour-caption[data-ghost] { visibility: hidden; }
+.tour-caption[data-ghost] .tour-caption-inner { animation: none; }
+.tour-caption[data-ghost] .tour-row button { pointer-events: none; }
+/* on a side during step 3 the last rows can scroll clear above the caption */
+html[data-tour="3"] .space .side-inner { padding-bottom: max(calc(var(--lvl-content-bottom) + 40px), calc(var(--tour-cap, 0px) + 16px)); }
+
+/* small phones: the block takes less room from the circle */
+@media (max-height: 700px) {
+  .space .tour-block { margin-top: 10px; gap: 6px; }
+  .space .tour-serif,
+  .tour-caption .tour-serif { font-size: 20px; }
+  .space .tour-sans,
+  .tour-caption .tour-sans { font-size: 0.875rem; }
+  /* the caption leaves Tag room for its entries and the habit chips: no progress pill
+     (the steps at the circle show it), a tighter rhythm, closer to the dock */
+  .tour-caption { padding-bottom: calc(var(--dock-bottom) + var(--mic) + 20px); }
+  .tour-caption .tour-caption-inner { gap: 6px; }
+  .tour-caption .tour-pill { display: none; }
+  .tour-caption .tour-row { margin-top: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .space .tour-block,
+  .tour-caption .tour-caption-inner { animation: none; }
+}

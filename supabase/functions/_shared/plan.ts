@@ -198,17 +198,23 @@ export interface GoalEffort {
   done: number;
   /** hours left, null without an estimate */
   remaining: number | null;
-  /** weeks until the target date (at least a fraction of a week), null without a date or when it has passed */
+  /** weeks to work on it: today up to the day before the target date (at least one day), null without a date or when it has passed */
   weeksLeft: number | null;
   /** hours per week needed to make it by the target date */
   neededPerWeek: number | null;
+  /** hours per day needed, only when less than three weeks are left (else null) */
+  neededPerDay: number | null;
   /** hours per week she can invest */
   available: number | null;
   /** with her weekly time and no target date (or a passed one): weeks until done */
   weeksToFinish: number | null;
-  /** needed vs available: up to 100 % "machbar", up to 130 % "knapp", beyond "kaum machbar" */
+  /** needed vs available: up to 85 % "machbar" (a buffer for bad weeks), up to 110 % "knapp", beyond "kaum machbar" */
   feasibility: Feasibility | null;
 }
+
+/** needed / available up to this share is "machbar"; up to TIGHT_MAX "knapp"; beyond "kaum machbar" */
+export const FEASIBLE_MAX = 0.85;
+export const TIGHT_MAX = 1.1;
 
 const round1 = (n: number) => Math.round(n * 10) / 10;
 
@@ -217,17 +223,31 @@ export function goalEffort(g: GoalEffortInput, today: string = dayOf()): GoalEff
   const effort = g.effort_hours && g.effort_hours > 0 ? g.effort_hours : null;
   const remaining = effort === null ? null : round1(Math.max(0, effort - done));
   const days = g.target_date ? daysBetween(today, g.target_date) : null;
-  const weeksLeft = days !== null && days >= 0 ? Math.max(1 / 7, (days + 1) / 7) : null;
+  // the work happens from today up to the day before the target date (race or exam day itself doesn't count);
+  // on the target day itself, today is the last day left
+  const weeksLeft = days !== null && days >= 0 ? Math.max(1 / 7, days / 7) : null;
   const neededPerWeek = remaining !== null && weeksLeft !== null ? round1(remaining / weeksLeft) : null;
+  const neededPerDay = remaining !== null && weeksLeft !== null && weeksLeft < 3 ? round1(remaining / (weeksLeft * 7)) : null;
   const available = g.weekly_hours && g.weekly_hours > 0 ? g.weekly_hours : null;
   const weeksToFinish = remaining !== null && available !== null && weeksLeft === null ? Math.ceil(remaining / available) : null;
   let feasibility: Feasibility | null = null;
   if (remaining === 0) feasibility = "erreicht";
-  else if (neededPerWeek !== null && available !== null) {
-    const ratio = neededPerWeek / available;
-    feasibility = ratio <= 1 ? "machbar" : ratio <= 1.3 ? "knapp" : "kaum machbar";
+  else if (remaining !== null && weeksLeft !== null && available !== null) {
+    // unrounded, so the buffers don't move with the display rounding
+    const ratio = remaining / weeksLeft / available;
+    feasibility = ratio <= FEASIBLE_MAX ? "machbar" : ratio <= TIGHT_MAX ? "knapp" : "kaum machbar";
   }
-  return { effort, done, remaining, weeksLeft: weeksLeft === null ? null : round1(weeksLeft), neededPerWeek, available, weeksToFinish, feasibility };
+  return {
+    effort,
+    done,
+    remaining,
+    weeksLeft: weeksLeft === null ? null : round1(weeksLeft),
+    neededPerWeek,
+    neededPerDay,
+    available,
+    weeksToFinish,
+    feasibility,
+  };
 }
 
 /** 1234.5 → "1'235", 12.3 → "12.3", 4 → "4" (Swiss thousands separator) */
@@ -249,11 +269,13 @@ export function durationLabel(weeks: number): string {
 /**
  * Minutes that went into goals per local day: logged time, plus past planned blocks
  * for a goal that nobody answered yet (an answered block is already in the log).
+ * A planned Nolio training (source "nolio") never counts by itself: the completed training
+ * arrives as logged time from Nolio, so counting the plan too would count it twice.
  * `dayOfIso` turns an ISO start time into the person's local day.
  */
 export function dayMinutes(
   log: { day: string; minutes: number }[],
-  blocks: { id: string; starts_at: string; ends_at: string | null; all_day: boolean; kind: string; goal_id: string | null }[],
+  blocks: { id: string; starts_at: string; ends_at: string | null; all_day: boolean; kind: string; goal_id: string | null; source?: string | null }[],
   answered: Set<string>,
   now: Date,
   dayOfIso: (iso: string) => string,
@@ -261,7 +283,7 @@ export function dayMinutes(
   const out: Record<string, number> = {};
   for (const t of log) if (t.minutes > 0) out[t.day] = (out[t.day] ?? 0) + t.minutes;
   for (const b of blocks) {
-    if (b.kind !== "block" || !b.goal_id || b.all_day || !b.ends_at || answered.has(b.id)) continue;
+    if (b.kind !== "block" || !b.goal_id || b.all_day || !b.ends_at || answered.has(b.id) || b.source === "nolio") continue;
     const end = new Date(b.ends_at).getTime();
     if (end > now.getTime()) continue;
     const min = Math.min(1440, Math.max(0, Math.round((end - new Date(b.starts_at).getTime()) / 60000)));
@@ -300,4 +322,181 @@ export function yearWeeks(today: string, weeks = 53): string[][] {
   const lastMonday = weekStart(today);
   const first = addDays(lastMonday, -7 * (weeks - 1));
   return Array.from({ length: weeks }, (_, w) => Array.from({ length: 7 }, (_, d) => addDays(first, w * 7 + d)));
+}
+
+// ---------- calendar year (the space's Jahr level) ----------
+
+/** ISO 8601 week number (weeks start on Monday; week 1 holds the year's first Thursday). */
+export function isoWeek(day: string): number {
+  const thursday = toUtc(day) + (3 - weekdayIndex(day)) * 86400000;
+  const yearStart = Date.UTC(new Date(thursday).getUTCFullYear(), 0, 1);
+  return 1 + Math.floor((thursday - yearStart) / (7 * 86400000));
+}
+
+/**
+ * The twelve months of a calendar year, each as a Monday-first grid of
+ * always 6 weeks (42 cells), so all month blocks have the same height.
+ * The first rows equal monthGrid(); trailing out-of-month days pad to 42.
+ */
+export function yearMonths(year: number): { month: string; cells: { day: string; inMonth: boolean }[] }[] {
+  return Array.from({ length: 12 }, (_, i) => {
+    const month = `${String(year).padStart(4, "0")}-${String(i + 1).padStart(2, "0")}`;
+    const cells = monthGrid(`${month}-01`);
+    while (cells.length < 42) cells.push({ day: addDays(cells[cells.length - 1].day, 1), inMonth: false });
+    return { month, cells };
+  });
+}
+
+// ---------- Bucket List: the year so far, life in weeks, the coach's reminders ----------
+
+/** a real calendar day "YYYY-MM-DD" (so "2026-02-30" is not one) */
+function isDay(day: string): boolean {
+  return DAY_RE.test(day) && fromUtc(toUtc(day)) === day;
+}
+
+export function isLeapYear(year: number): boolean {
+  return (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
+}
+
+export function daysInYear(year: number): number {
+  return isLeapYear(year) ? 366 : 365;
+}
+
+/** 0 = 1 January … 364 = 31 December (365 in a leap year) */
+export function dayOfYear(day: string): number {
+  return daysBetween(`${day.slice(0, 4)}-01-01`, day);
+}
+
+export interface YearProgress {
+  /** days of the year that have passed, today included */
+  passedDays: number;
+  totalDays: number;
+  /** days after today («Noch 46 Tage in 2026» on 15 November) */
+  leftDays: number;
+  /** passedDays / totalDays: 1 for a past year, 0 for a future one */
+  fraction: number;
+}
+
+/** How much of a calendar year has passed. Today counts as passed; on 31 December nothing is left. */
+export function yearProgress(year: number, today: string = dayOf()): YearProgress {
+  const totalDays = daysInYear(year);
+  const now = Number(today.slice(0, 4));
+  const passedDays = year < now ? totalDays : year > now || !isDay(today) ? 0 : dayOfYear(today) + 1;
+  return { passedDays, totalDays, leftDays: totalDays - passedDays, fraction: passedDays / totalDays };
+}
+
+/** «Leben»: 90 years (rows) of 52 weeks (columns). */
+export const LIFE_YEARS = 90;
+export const LIFE_WEEKS_PER_YEAR = 52;
+
+/**
+ * The column of a day in its year's row: week 0 starts on 1 January, every seven days the next one;
+ * the last day or two of the year (week «52», in a leap year also a 366th day) fold into column 51.
+ */
+export function lifeColumn(day: string): number {
+  return Math.min(LIFE_WEEKS_PER_YEAR - 1, Math.floor(dayOfYear(day) / 7));
+}
+
+/**
+ * The cell of a date in the life grid, or null when it lies outside the 90 years (or is no date).
+ * Rows are the calendar years from the birth year on (row k = birthYear + k). `date` may be a day
+ * "YYYY-MM-DD" or an ISO timestamp (its first ten characters are taken, e.g. a goal's done_at).
+ */
+export function weekCell(date: string | null | undefined, birthYear: number): { row: number; col: number } | null {
+  if (typeof date !== "string" || !Number.isInteger(birthYear)) return null;
+  const day = date.slice(0, 10);
+  if (!isDay(day)) return null;
+  const row = Number(day.slice(0, 4)) - birthYear;
+  if (row < 0 || row >= LIFE_YEARS) return null;
+  return { row, col: lifeColumn(day) };
+}
+
+export interface LifeWeeks {
+  /** 90 × 52 = 4680 */
+  total: number;
+  /** the weeks before the current one */
+  lived: number;
+  /** today's cell; -1 / -1 when today lies outside the grid (birth year in the future, or more than 89 years ago) */
+  currentRow: number;
+  currentCol: number;
+}
+
+/**
+ * Life in weeks. Before the birth year nothing is lived; after birthYear + 89 everything is
+ * (and there is no current cell). The current week itself is not counted as lived: it is «Woche lived + 1».
+ */
+export function lifeWeeks(birthYear: number, today: string = dayOf()): LifeWeeks {
+  const total = LIFE_YEARS * LIFE_WEEKS_PER_YEAR;
+  const cell = weekCell(today, birthYear);
+  if (cell) return { total, lived: cell.row * LIFE_WEEKS_PER_YEAR + cell.col, currentRow: cell.row, currentCol: cell.col };
+  const after = Number.isInteger(birthYear) && isDay(today) && Number(today.slice(0, 4)) >= birthYear + LIFE_YEARS;
+  return { total, lived: after ? total : 0, currentRow: -1, currentCol: -1 };
+}
+
+/** "4’680": the Swiss thousands separator for numbers people read (the right single quotation mark). */
+export function thousands(n: number): string {
+  return String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, "’");
+}
+
+export type DreamNudge = "lange" | "zeitpunkt";
+
+/** «guter Zeitpunkt»: the target date lies at most this many days ahead (8 weeks) … */
+export const NUDGE_SOON_DAYS = 56;
+/** … and the coach has not brought it up in the last 14 days */
+export const NUDGE_SOON_QUIET_DAYS = 14;
+/** «liegt lange»: no update, no logged time and no block for at least 60 days … */
+export const NUDGE_LONG_DAYS = 60;
+/** … and not brought up in the last 30 days */
+export const NUDGE_LONG_QUIET_DAYS = 30;
+
+export interface NudgeGoal {
+  kind?: string | null;
+  status: string;
+  target_date: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+  reminded_at?: string | null;
+}
+
+export interface NudgeActivity {
+  /** the newest day time was logged for the dream, null = never */
+  lastTimeDay?: string | null;
+  /** the newest day of a calendar block for it, a planned one in the future too, null = none */
+  lastBlockDay?: string | null;
+  /** the newest day one of its milestones was added, changed or done, null = none */
+  lastStepDay?: string | null;
+  /** an ISO timestamp → the person's local day; default its date as written (UTC from the database) */
+  dayOfIso?: (iso: string) => string;
+}
+
+/**
+ * The coach's reminder candidates (they go into its context, it mentions at most one per conversation):
+ * "zeitpunkt" for an active dream with a target date in the next 8 weeks, not brought up in the last
+ * 14 days; "lange" for an active dream with no update, logged time or block for 60 days or more, not
+ * brought up in the last 30 days; otherwise null (goals, paused, fulfilled or dropped dreams too).
+ * "In the last n days" means fewer than n days ago: reminded exactly 14 days ago may be mentioned again.
+ */
+export function dreamNudge(goal: NudgeGoal, today: string = dayOf(), ctx: NudgeActivity = {}): DreamNudge | null {
+  if (goal.kind !== "dream" || goal.status !== "active" || !isDay(today)) return null;
+  const local = (iso: string | null | undefined): string | null => {
+    if (typeof iso !== "string" || !iso) return null;
+    let d: string;
+    try {
+      d = iso.length > 10 && ctx.dayOfIso ? ctx.dayOfIso(iso) : iso.slice(0, 10);
+    } catch {
+      d = iso.slice(0, 10);
+    }
+    return isDay(d) ? d : null;
+  };
+  const reminded = local(goal.reminded_at);
+  const quiet = (days: number) => reminded === null || daysBetween(reminded, today) >= days;
+  if (goal.target_date && isDay(goal.target_date)) {
+    const ahead = daysBetween(today, goal.target_date);
+    if (ahead >= 0 && ahead <= NUDGE_SOON_DAYS && quiet(NUDGE_SOON_QUIET_DAYS)) return "zeitpunkt";
+  }
+  const seen = [goal.updated_at, goal.created_at, ctx.lastTimeDay, ctx.lastBlockDay, ctx.lastStepDay].map(local).filter((d): d is string => d !== null);
+  if (!seen.length) return null;
+  const last = seen.reduce((a, b) => (b > a ? b : a));
+  if (daysBetween(last, today) >= NUDGE_LONG_DAYS && quiet(NUDGE_LONG_QUIET_DAYS)) return "lange";
+  return null;
 }

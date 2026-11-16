@@ -19,3 +19,19 @@ verify_jwt = false
 
 [functions.voice]
 verify_jwt = false
+
+# Nolio sync for the owner only: called by pg_cron (shared secret) and by the app (checks the login itself).
+[functions.nolio]
+verify_jwt = false
+
+# WHOOP for every member (OAuth). The app calls "whoop" with the login and pg_cron with the shared secret;
+# WHOOP sends the browser to "whoop-callback" (state check) and posts signed events to "whoop-webhook"
+# (HMAC with the client secret). None of these carry a Supabase JWT check at the gateway: each verifies itself.
+[functions.whoop]
+verify_jwt = false
+
+[functions.whoop-callback]
+verify_jwt = false
+
+[functions.whoop-webhook]
+verify_jwt = false

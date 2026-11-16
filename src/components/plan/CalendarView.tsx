@@ -290,7 +290,8 @@ export function CalendarView({ goals, today, refresh, onTimeChanged }: Props) {
               const goal = e.goal_id ? goalTitle.get(e.goal_id) : null;
               const time = e.all_day ? null : timeHM(e.starts_at);
               const endTime = !e.all_day && e.ends_at ? timeHM(e.ends_at) : null;
-              const planned = goal ? pastBlockMinutes(e, now) : null;
+              // a planned Nolio training is the trainer's: it counts by itself once done in Nolio
+              const planned = goal && e.source !== "nolio" ? pastBlockMinutes(e, now) : null;
               const item = (
                 <button
                   type="button"
