@@ -888,11 +888,11 @@ export function leansOnCoach(talk: Record<string, number>, moods: { day: string;
 const SENSITIVE = new RegExp(
   [
     // health
-    "arzt", "ärzt", "doktor", "\\bdr\\.", "zahn", "therap", "psych", "notfall", "operation", "\\bop\\b", "diagnos",
+    "arzt", "ärzt", "doktor", "\\bdr\\.", "zahn", "therap", "psych", "notfall", "notaufnahme", "unfall", "operation", "\\bop\\b", "diagnos",
     "krank", "physio", "\\breha", "untersuch", "blutt", "blutdruck", "impf", "gyn", "schwanger", "hebamm", "mammo", "ultraschall", "röntgen",
     "\\bmrt\\b", "\\bmri\\b", "\\bct\\b", "chemo", "onkolog", "kardiolog", "orthopäd", "chirurg",
     // relationships
-    "beziehung", "trennung", "scheidung", "\\bpartner", "\\bdate\\b", "\\bex\\b",
+    "beziehung", "trennung", "scheidung", "\\bpartner", "\\bdate\\b", "\\bex\\b", "liebeskummer", "schluss gemacht",
     // money
     "kredit", "schulden", "steuer", "betreibung", "(?<!be)lohn(?!t)", "gehalt(?!en)", "gehält", "geld", "miete\\b", "\\bmieter",
     "mietzins", "budget", "finanz", "hypothek", "arbeitslos", "\\brav\\b",
@@ -904,23 +904,36 @@ const SENSITIVE = new RegExp(
 // Places that are sensitive as an appointment but are also employers: «beim Notar», «im Spital», «bei der Bank»
 // are a private matter, a «Vorstellungsgespräch bei der Bank» or a «Probetag im Spital» is not.
 const SENSITIVE_PLACE = /\bbank(?!ett|drück)|versicherung|spital|klinik|gericht|polizei|notar|anwalt|anwält/i;
-// A job, an application or a training: then those places are the workplace.
-const JOB = new RegExp(
+const PLACE = "bank(?!ett|drück)|versicherung|spital|klinik|gericht|polizei|notar|anwalt|anwält"; // also in a compound: «Kantonsspital»
+// A job, an application or a training.
+const JOB = [
+  "vorstellungsgespr", "(?<!wett)bew[ei]rb", "beworben", "probetag", "probearbeit", "schnupper", "interview", "job",
+  "\\bstelle\\b", "\\bstellen(?:antritt|angebot|wechsel|suche|inserat)", "lehrstelle", "praktik", "ausbildung",
+  "assessment", "eignungstest", "aufnahmetest", "arbeitstag", "(?<!ge)schicht",
+].join("|");
+const W = "[a-zäöüéèàç]";
+// Only where the place is the job's own: «Vorstellungsgespräch (am Dienstag) bei der Bank», «Probetag im Spital»,
+// «Praktikum in einer Anwaltskanzlei», «Bankjob», «Spital: Probetag». A job word elsewhere in the note changes
+// nothing: «nach der Schicht ins Spital zur Kontrolle», «Termin beim Anwalt wegen dem Job», «nach dem Job beim
+// Notar», «Bewerbung, danach ins Spital» stay private (going there, «ins», «zum», «zur», «vor», is a visit).
+const JOB_PLACE = new RegExp(
   [
-    "vorstellungsgespr", "(?<!wett)bew[ei]rb", "beworben", "probetag", "probearbeit", "schnupper", "interview", "job",
-    "\\bstelle\\b", "\\bstellen(?:antritt|angebot|wechsel|suche|inserat)", "lehrstelle", "praktik", "ausbildung",
-    "assessment", "eignungstest", "aufnahmetest", "arbeitstag", "(?<!ge)schicht",
+    `(?<!\\b(?:nach|vor|seit)\\s+(?:${W}+\\s+)?${W}*)(?:${JOB})${W}*` +
+      `(?:\\s+(?!(?:und|dann|danach|nachher|anschliessend|noch|oder|aber)\\b)[\\wäöü]+){0,3}?` +
+      `\\s+(?:bei|beim|im|in|am|an|ans|auf|für)\\s+(?:(?:der|die|das|dem|den|des|ein|eine|einer|einem|einen)\\s+)?(?:${W}+\\s+)?${W}*?(?:${PLACE})${W}*`,
+    `(?:${PLACE})${W}*(?:[ \\t]*[:–-][ \\t]*|[ \\t]+)?${W}*?(?:${JOB})${W}*`,
   ].join("|"),
-  "i",
+  "gi",
 );
 
 /**
  * A dated note she might be asked about that the coach never raises on its own: health, relationships,
  * money, legal matters. A coarse word check; the prompt says the same. A bank, an insurance, a hospital, a court,
- * the police, a notary or a lawyer named as the place of a job, an application or a training is no such matter.
+ * the police, a notary or a lawyer named as the place of a job, an application or a training is no such matter
+ * (JOB_PLACE), anywhere else in the same note it still is.
  */
 export function sensitiveTopic(text: string): boolean {
-  return SENSITIVE.test(text) || (SENSITIVE_PLACE.test(text) && !JOB.test(text));
+  return SENSITIVE.test(text) || SENSITIVE_PLACE.test(text.replace(JOB_PLACE, " "));
 }
 
 /** A dated memory to ask about once: its day lies one to three days back, not asked yet, and nothing sensitive. */

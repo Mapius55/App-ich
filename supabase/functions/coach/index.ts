@@ -1808,9 +1808,10 @@ async function converse({ sb, userId, body, send }: { sb: SupabaseClient; userId
     });
 
     // everything is read aloud: no emojis or emoticons, also when the model slips one in, and never a
-    // sentence about the reply itself (a draft's «Das sind zwei Fragen, also nur eine:»)
+    // sentence about the reply itself (a draft's «Das sind zwei Fragen, also nur eine:»); a greeting (no
+    // message) goes out whole, as finalVersion, so not even the draft before such a sentence is heard
     const spoken = spokenStream();
-    const draft = draftStream();
+    const draft = draftStream({ whole: !message });
     let roundText = "";
     const emit = (text: string) => {
       if (!text) return;

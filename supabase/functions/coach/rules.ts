@@ -87,10 +87,12 @@ const META =
 const GREETING = /^(?:Guten (?:Morgen|Mittag|Tag|Nachmittag|Abend)|Grüezi|Grüss dich|Hallo|Hoi|Salü)(?![a-zäöü])/i;
 /** Where a sentence or a line begins: after a sentence end and a space, or after a line break. */
 const SEGMENT = /(?:[.!?:…][ \t]+|\n\s*)(?=\S)/g;
+/** The same without the colon: what follows «Schreib ihr: Guten Morgen, …» is a quote, not a new start. */
+const SENTENCE = /(?:[.!?…][ \t]+|\n\s*)(?=\S)/g;
 
-function segmentStarts(t: string): number[] {
+function segmentStarts(t: string, at: RegExp = SEGMENT): number[] {
   const out = [0];
-  for (const m of t.matchAll(SEGMENT)) out.push(m.index! + m[0].length);
+  for (const m of t.matchAll(at)) out.push(m.index! + m[0].length);
   return out;
 }
 
@@ -102,7 +104,7 @@ function segmentStarts(t: string): number[] {
  */
 export function finalVersion(text: string): string {
   let t = text.trim();
-  let starts = segmentStarts(t);
+  const starts = segmentStarts(t);
   const metas = starts.map((s, i) => [s, starts[i + 1] ?? t.length] as const).filter(([s]) => META.test(t.slice(s)));
   if (metas.length) {
     const after = t.slice(metas[metas.length - 1][1]).trim();
@@ -112,11 +114,10 @@ export function finalVersion(text: string): string {
       for (const [s, e] of [...metas].reverse()) kept = kept.slice(0, s) + kept.slice(e);
       t = kept.trim();
     }
-    starts = segmentStarts(t);
   }
   const first = GREETING.exec(t)?.[0].toLowerCase();
   if (first) {
-    const again = starts.filter((s) => s > 0 && GREETING.exec(t.slice(s))?.[0].toLowerCase() === first);
+    const again = segmentStarts(t, SENTENCE).filter((s) => s > 0 && GREETING.exec(t.slice(s))?.[0].toLowerCase() === first);
     if (again.length) t = t.slice(again[again.length - 1]).trim();
   }
   return t || text.trim();
@@ -126,9 +127,23 @@ export function finalVersion(text: string): string {
  * The same guard on the stream she hears: every sentence waits until it is complete (the app speaks whole
  * sentences anyway), and one about the reply itself is never sent. push() returns what can be sent now,
  * flush() the rest at the end. A sentence that runs past 200 characters goes out unchecked.
+ * `whole`: everything waits for flush(), which sends only finalVersion(): the draft before it is never heard
+ * either (for a greeting, which the app mostly holds for her tap anyway).
  */
-export function draftStream(): { push(delta: string): string; flush(): string } {
+export function draftStream(o: { whole?: boolean } = {}): { push(delta: string): string; flush(): string } {
   let held = "";
+  if (o.whole)
+    return {
+      push(delta: string) {
+        held += delta;
+        return "";
+      },
+      flush() {
+        const all = held;
+        held = "";
+        return all.trim() ? finalVersion(all) : "";
+      },
+    };
   let open = false; // the current sentence went out unchecked (too long): the rest of it follows as it comes
   const pass = (seg: string) => (META.test(seg.trimStart()) ? "" : seg);
   return {

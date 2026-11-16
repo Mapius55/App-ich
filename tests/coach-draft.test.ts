@@ -46,6 +46,11 @@ describe("finalVersion: only the version meant for her is saved", () => {
       "Nur eine Frage: Wie hast du geschlafen?",
       "Der Block steht im Kalender.\n\nWenn es später wird, reichen auch 20 Minuten.",
       "Sag ihr einfach: „Guten Morgen“, und dann schauen wir weiter.",
+      // a greeting she could write, after a colon: a quote, not a new start
+      "Guten Morgen, Mira. Schreib Anna doch: Guten Morgen, ich komme heute etwas später.",
+      "Hallo Mira. Du könntest ihm schreiben: Hallo Marco, am Samstag kann ich leider nicht.",
+      // two paragraphs that both start with her name
+      "Mira, das klingt nach einem vollen Tag.\n\nMira, magst du heute um 18 Uhr kurz laufen?",
       "",
     ])
       expect(finalVersion(t), t).toBe(t.trim());
@@ -81,6 +86,22 @@ describe("draftStream: she never hears a remark about the reply", () => {
       out += draft.push(spoken.flush()) + draft.flush();
       expect(out, String(size)).toBe(LEAKED.replace("Das sind zwei Fragen, also nur eine:\n\n", ""));
     }
+  });
+
+  it("a greeting goes out whole: the draft before the remark is not heard either", () => {
+    for (const size of [1, 7, 400]) {
+      const g = draftStream({ whole: true });
+      let out = "";
+      for (let i = 0; i < LEAKED.length; i += size) out += g.push(LEAKED.slice(i, i + size));
+      expect(out, String(size)).toBe("");
+      expect(g.flush(), String(size)).toBe(FINAL);
+    }
+    // an ordinary greeting comes out as it was written
+    const g = draftStream({ whole: true });
+    g.push("Guten Morgen, Mira. Du sitzt wohl schon im Zug nach Basel. ");
+    g.push("Wie hast du geschlafen?");
+    expect(g.flush()).toBe("Guten Morgen, Mira. Du sitzt wohl schon im Zug nach Basel. Wie hast du geschlafen?");
+    expect(draftStream({ whole: true }).flush()).toBe("");
   });
 
   it("a sentence waits until it is complete, then goes out", () => {

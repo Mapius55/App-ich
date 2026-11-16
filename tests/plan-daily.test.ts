@@ -466,6 +466,21 @@ describe("follow-ups: once, and never on sensitive topics", () => {
       "Termin beim Arbeitsgericht",
       "Termin bei der Arbeitslosenversicherung wegen der Jobsuche",
       "Beratung beim RAV für die Stellensuche",
+      // a job word elsewhere in the note: the place is still a visit
+      "Nach der Schicht ins Spital zur Kontrolle",
+      "Nach der Nachtschicht noch beim Notar vorbei",
+      "Bewerbungsgespräch, danach ins Spital zu Oma",
+      "Nach dem Job noch zur Polizei, Anzeige machen",
+      "Termin beim Anwalt wegen dem Job",
+      "Vor Gericht wegen dem Job",
+      "Termin beim Notar, danach Vorstellungsgespräch",
+      "Probetag im Spital, danach zum Anwalt",
+      "Muss ins Spital, die Stelle am Knie anschauen lassen",
+      // and a few more of the same kind
+      "Notaufnahme mit dem Kleinen",
+      "Velounfall gehabt",
+      "Liebeskummer wegen Tom",
+      "Freund hat Schluss gemacht",
     ])
       expect(sensitiveTopic(t), t).toBe(true);
     for (const t of [
@@ -493,6 +508,12 @@ describe("follow-ups: once, and never on sensitive topics", () => {
       "Erster Arbeitstag bei der Versicherung",
       "Nachtschicht im Spital",
       "Job-Interview bei der Bank",
+      "Vorstellungsgespräch morgen um 10 bei der Bank",
+      "Vorstellungsgespräch bei der Mobiliar Versicherung",
+      "Bewerbung ans Kantonsspital schicken",
+      "Pflegepraktikum im Universitätsspital",
+      "Spitaljob",
+      "Spital: Probetag",
     ])
       expect(sensitiveTopic(t), t).toBe(false);
   });

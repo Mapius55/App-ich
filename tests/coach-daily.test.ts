@@ -129,6 +129,8 @@ describe("the morning in one minute", () => {
     expect(PERSONA).toContain("- Alles, was du schreibst, wird vorgelesen. Schreib nur, was du sagst: keine Entwürfe, keine Bemerkungen über deine Antwort. Deshalb höchstens drei kurze Sätze");
     // and the server keeps only the final version (rules: finalVersion, draftStream)
     expect(source).toContain("emit(draft.push(spoken.push(delta)))");
+    // a greeting (no message) is held whole, so the draft before a remark never goes out
+    expect(source).toContain("const draft = draftStream({ whole: !message });");
     expect(source).toContain("const reply = finalVersion(stripEmoji(fullText).trim());");
   });
 
