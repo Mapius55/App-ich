@@ -166,13 +166,16 @@ export function liveRhythms<T extends Pick<SeriesRule, "goal_id" | "active" | "s
 /**
  * Offer a rhythm for this goal now (once per goal)? An active goal with hours per week, without a target date or more
  * than RHYTHM_AHEAD_DAYS before it, without a rhythm, never offered (`rhythm_asked_at` null; undefined = unknown:
- * never), not for irregular weeks, and not while she already has RHYTHM_MAX rhythms that run (liveRhythms).
+ * never), not for irregular weeks, not while she already has RHYTHM_MAX rhythms that run (liveRhythms), and not for a
+ * goal her trainer plans in Nolio (`trainer`: his plan is her week; fixed blocks next to it would plan the same time
+ * twice, and while the completed trainings count by themselves, the rhythm's days would stay unanswered and read as
+ * «klappt selten»).
  */
 export function rhythmOfferDue(
   g: { kind?: string | null; status: string; target_date: string | null; weekly_hours?: number | null; rhythm_asked_at?: string | null },
-  o: { hasRhythm: boolean; activeRhythms: number; irregular: boolean; today: string },
+  o: { hasRhythm: boolean; activeRhythms: number; irregular: boolean; today: string; trainer?: boolean },
 ): boolean {
-  if (g.rhythm_asked_at !== null || o.hasRhythm || o.irregular || o.activeRhythms >= RHYTHM_MAX) return false;
+  if (g.rhythm_asked_at !== null || o.hasRhythm || o.irregular || o.trainer || o.activeRhythms >= RHYTHM_MAX) return false;
   if (g.kind === "dream" || g.status !== "active" || !((g.weekly_hours ?? 0) > 0)) return false;
   return !g.target_date || daysBetween(o.today, g.target_date) > RHYTHM_AHEAD_DAYS;
 }

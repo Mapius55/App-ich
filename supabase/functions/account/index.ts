@@ -5,7 +5,8 @@
 //                                    calendar (with the weekly rhythms), goals and the dreams of the Bucket List (kind, done_at, memory,
 //                                    reminded_at: every column, "*"), habits, push subscriptions, and from the
 //                                    connections: the connection rows (never tokens), WHOOP daily summaries
-//                                    and the Nolio data.
+//                                    and the Nolio data, and the log of the coach's notifications (never a text).
+//                                    The same tables as the app's own export (src/lib/supabaseBackend.ts).
 //   POST {action:"delete"} (login) → first ends the WHOOP access at WHOOP (as far as possible), then deletes
 //                                    the account. All tables reference auth.users with ON DELETE CASCADE, so
 //                                    removing the auth user removes every row of the person.
@@ -41,13 +42,16 @@ const TABLES: [string, string, string[]][] = [
   ["messages", "*", ["id"]],
   ["push_subscriptions", "*", ["id"]],
 ];
-/** From the connections and the weekly rhythms (present once their migrations ran). Tokens live in a table nobody but
- *  the server can read. */
+/** From the connections, the notification log and the weekly rhythms (present once their migrations ran). Tokens live
+ *  in a table nobody but the server can read. */
 const CONNECTION_TABLES: [string, string, string[]][] = [
   ["connections", "provider, status, external_user_id, consent_ai, consent_ai_changed_at, connected_at, last_sync_at, last_error", ["provider"]],
   ["whoop_days", "*", ["day"]],
   ["nolio_trainings", "*", ["id"]],
   ["nolio_sync", "last_sync_at, last_error, status", ["user_id"]],
+  // which notifications went out or stayed out (template ids and reasons, never a text)
+  ["push_log", "*", ["id"]],
+  // the weekly rhythms (their days are in events)
   ["series", "*", ["id"]],
 ];
 

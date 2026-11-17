@@ -561,7 +561,7 @@ const TOOLS: Anthropic.Beta.BetaTool[] = [
     input_schema: {
       type: "object",
       properties: {
-        what: { type: "string", enum: ["experiment", "begleitung", "blockmuster", "plan_b", "rhythmus", "flaute"] },
+        what: { type: "string", enum: [...OFFERS] },
         goal_id: { type: "string", description: "Bei blockmuster, plan_b, rhythmus und flaute: das Ziel, um das es ging." },
       },
       required: ["what"],
@@ -683,6 +683,18 @@ const goalRhythms = (sb: SupabaseClient, goalId: string, day: string) =>
   );
 /** update_goal: the goal is no longer active, so its rhythm rests. */
 const RHYTHM_RESTS = "Sein Wochenrhythmus ruht jetzt mit dem Ziel, die kommenden Tage sind aus dem Kalender: sag es in einem Halbsatz. Wird das Ziel wieder aktiv, fragst du, ob er weiterlaufen soll (update_series pausiert false).";
+/** The resting rhythms of a goal that could run again (not ended; none before the rhythm's migration). */
+const restingRhythms = (sb: SupabaseClient, goalId: string, day: string) =>
+  soft<{ id: string }[]>(
+    sb.from("series").select("id").eq("goal_id", goalId).eq("active", false).or(`until_date.is.null,until_date.gte.${day}`).limit(1),
+    [],
+    "resting rhythms",
+  );
+/**
+ * update_goal: the goal is active again, its rhythm still rests (it rested with the goal; that note is long gone from
+ * the conversation by now): the one question, at the moment it matters.
+ */
+const RHYTHM_WAKES = "Sein Wochenrhythmus ruht noch: frag sie einmal, ob er wieder jede Woche im Kalender stehen soll; erst nach ihrem Ja update_series mit pausiert false.";
 
 /** The tool result for one day of a rhythm changed or deleted on its own. */
 const SERIES_DAY_NOTE = "Nur dieser Tag; der Wochenrhythmus bleibt, wie er ist.";
@@ -818,6 +830,13 @@ async function doneDays(sb: SupabaseClient, habitId: string, today: string): Pro
   if (error) throw error;
   return (data ?? []).map((l) => String(l.day));
 }
+
+/**
+ * Tools only the daily conversation runs (they answer «nur im täglichen Gespräch» elsewhere): its context brings the
+ * rhythms, the Wochenblick and the «once» marks they belong to. Getting to know her, they are not offered at all, so
+ * the coach never plans a call that can only fail (a rhythm she asks for then goes in as single blocks).
+ */
+const CHECKIN_ONLY = new Set(["create_series", "update_series", "note_offer", "wochenblick"]);
 
 // Changes to goals and habits run one after another within a round (see converse()).
 const PLAN_TOOLS = new Set([
@@ -1240,6 +1259,12 @@ async function runTool(
       }
       // reached, paused or dropped: its weekly rhythm rests with it (trigger goals_series), its coming days go
       const resting = patch.status !== undefined && patch.status !== "active" ? await goalRhythms(sb, id, day) : [];
+      // active again (it was not): a rhythm that rested with it waits for her word
+      let waking = false;
+      if (patch.status === "active") {
+        const [cur, rhythms] = await Promise.all([sb.from("goals").select("status").eq("id", id).maybeSingle(), restingRhythms(sb, id, day)]);
+        waking = !cur.error && !!cur.data && cur.data.status !== "active" && rhythms.length > 0;
+      }
       const [{ data, error }, time] = await Promise.all([
         sb.from("goals").update(patch).eq("id", id).select("*, milestones(*)").maybeSingle(),
         goalTime(sb, id),
@@ -1266,6 +1291,7 @@ async function runTool(
           ? { notiert: notNow ? "Erinnert; der Traum ruht jetzt drei Monate. Heute keinen weiteren Traum ansprechen." : "Erinnert. Heute keinen weiteren Traum ansprechen." }
           : {}),
         ...(resting.length && data.status !== "active" ? { rhythmus: RHYTHM_RESTS } : {}),
+        ...(waking && data.status === "active" ? { rhythmus: RHYTHM_WAKES } : {}),
       });
     }
     case "delete_goal": {
@@ -2140,7 +2166,7 @@ async function converse({ sb, userId, body, send }: { sb: SupabaseClient; userId
 
   const tools =
     mode === "onboarding"
-      ? TOOLS
+      ? TOOLS.filter((t) => !CHECKIN_ONLY.has(t.name))
       : mode === "tidy"
         ? TOOLS.filter((t) => ["remember", "update_memory", "forget"].includes(t.name))
         : TOOLS.filter((t) => t.name !== "finish_onboarding");

@@ -144,6 +144,9 @@ describe("the one offer, and what keeps it away", () => {
     expect(rhythmOfferDue(goal, { ...o, hasRhythm: true })).toBe(false);
     expect(rhythmOfferDue(goal, { ...o, activeRhythms: 2 })).toBe(false);
     expect(rhythmOfferDue(goal, { ...o, irregular: true })).toBe(false);
+    // her trainer plans this goal in Nolio: his plan is her week (no second plan next to it)
+    expect(rhythmOfferDue(goal, { ...o, trainer: true })).toBe(false);
+    expect(rhythmOfferDue(goal, { ...o, trainer: false })).toBe(true);
   });
 
   it("counts only rhythms that still run: not a resting or ended one, and one split «ab Januar» once", () => {
@@ -308,6 +311,28 @@ describe("the coach's context", () => {
     expect(ctx({ memories: [{ id: "m1", category: "arbeit", event_date: null, content: "Arbeitet im Schichtdienst im Spital." }] })).not.toContain(OFFER);
   });
 
+  it("never next to her trainer's plan: a goal with entries from Nolio gets no offer, another goal still can", () => {
+    const fromTrainer = {
+      id: "n1",
+      title: "Intervalle",
+      starts_at: "2026-11-18T17:00:00Z",
+      ends_at: "2026-11-18T18:00:00Z",
+      all_day: false,
+      location: null,
+      kind: "block",
+      goal_id: "g1",
+      source: "nolio",
+    };
+    const out = goalsOf(contextBlock({ ...base, goals: [race], series: [], events: [fromTrainer] }));
+    expect(out).not.toContain(OFFER);
+    // the next goal without a trainer gets it instead
+    const both = goalsOf(contextBlock({ ...base, goals: [race, exam], series: [], events: [fromTrainer] }));
+    expect(both.match(/einmal anbieten/g)).toHaveLength(1);
+    expect(both.slice(both.indexOf("[g2]"))).toContain(OFFER);
+    // her own block for the goal is no trainer's plan
+    expect(goalsOf(contextBlock({ ...base, goals: [race], series: [], events: [{ ...fromTrainer, source: "coach" }] }))).toContain(OFFER);
+  });
+
   it("shows her rhythm with its id, how long it runs and what was confirmed, and its days with «jede Woche» for three weeks", () => {
     const at = (iso: string, minutes: number | null, id: string) => ({ id, title: "Laufen", starts_at: iso, ends_at: new Date(Date.parse(iso) + 3600000).toISOString(), all_day: false, location: null, kind: "block", goal_id: "g1", series_id: "s1", minutes });
     const coming = (iso: string, id: string) => ({ id, title: "Laufen", starts_at: iso, ends_at: new Date(Date.parse(iso) + 3600000).toISOString(), all_day: false, location: null, kind: "block", goal_id: "g1", series_id: "s1" });
@@ -420,6 +445,11 @@ describe("the coach's tools", () => {
     // only rhythms that still run (not one that ended) rest with the goal or count as its rhythm
     expect(source).toContain('.eq("active", true).or(`until_date.is.null,until_date.gte.${day}`)');
     expect(source).toContain("...(resting.length && data.status !== \"active\" ? { rhythmus: RHYTHM_RESTS } : {}),");
+    // active again: the rhythm that rested with it is asked about at that moment (only when the goal was not active)
+    expect(source).toContain('waking = !cur.error && !!cur.data && cur.data.status !== "active" && rhythms.length > 0;');
+    expect(source).toContain("...(waking && data.status === \"active\" ? { rhythmus: RHYTHM_WAKES } : {}),");
+    expect(source).toContain('.eq("goal_id", goalId).eq("active", false).or(`until_date.is.null,until_date.gte.${day}`)');
+    expect(source).toContain("erst nach ihrem Ja update_series mit pausiert false.");
     expect(source).toContain('soft<number>(sb.rpc("extend_series"), 0, "extend series"),');
   });
 });
@@ -462,6 +492,8 @@ describe("the migration", () => {
     expect(sql).not.toContain("security definer");
     expect(read("../supabase/functions/account/index.ts")).toContain('["series", "*", ["id"]],');
     expect(read("../src/lib/supabaseBackend.ts")).toContain('["series", ["id"]],');
+    // the demo's export too (the same tables as the real one)
+    expect(read("../src/lib/demoBackend.ts")).toContain("series: u.series ?? [],");
     expect(read("../public/datenschutz.html")).toContain("dazu deine festen Wochenrhythmen (Tage, Uhrzeit, Dauer und welche einzelnen Tage ausfallen)");
   });
 });

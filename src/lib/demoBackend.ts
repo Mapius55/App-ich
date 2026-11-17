@@ -1513,6 +1513,8 @@ export class DemoBackend implements Backend {
       messages: u.messages,
       connections: u.whoop ? [{ provider: "whoop", status: u.whoop.status, consent_ai: u.whoop.consent_ai, connected_at: u.whoop.connected_at, last_sync_at: u.whoop.last_sync_at }] : [],
       whoop_days: u.whoop_days ?? [],
+      // the weekly rhythms (their days are in events)
+      series: u.series ?? [],
     };
   }
 

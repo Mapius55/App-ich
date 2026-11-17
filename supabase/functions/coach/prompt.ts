@@ -516,7 +516,8 @@ function planBLines(c: ContextInput, goals: ContextGoal[], quiet: boolean, local
  * The weekly rhythms (not one that ended): per goal «Wochenrhythmus [id]: Di, Do 18:00–19:00 · seit 3 Wochen · 4 von 6
  * bestätigt», with «pausiert», and once after three weeks that mostly didn't happen the offer to change or pause it (seriesLapse);
  * rhythms without a goal apart (`loose`). For one goal at a time that may get one (rhythmOfferDue: hours per week,
- * no target date or more than three weeks to go, never offered, regular weeks, fewer than two rhythms that run) the one offer with its size
+ * no target date or more than three weeks to go, never offered, regular weeks, fewer than two rhythms that run, not
+ * planned by her trainer in Nolio) the one offer with its size
  * (rhythmSuggestion), never after a pause or in a heavy time, not on a day one was offered already.
  * Unknown rhythms (before their migration): nothing.
  */
@@ -553,7 +554,9 @@ function rhythmLines(c: ContextInput, goals: ContextGoal[], quiet: boolean, loca
   const offeredToday = all.some((g) => !!g.rhythm_asked_at && localDay(g.rhythm_asked_at) === c.day);
   if (!quiet && !offeredToday) {
     const o = { activeRhythms: liveRhythms(c.series, c.day).length, irregular: irregularWeeks(c.memories, c.events ?? []), today: c.day };
-    const due = goals.find((g) => rhythmOfferDue(g, { ...o, hasRhythm: c.series!.some((s) => s.goal_id === g.id) }));
+    // the goals her trainer plans in Nolio (his entries for them in the calendar): no rhythm next to his plan
+    const trainer = new Set((c.events ?? []).filter((e) => e.source === "nolio" && e.goal_id).map((e) => String(e.goal_id)));
+    const due = goals.find((g) => rhythmOfferDue(g, { ...o, hasRhythm: c.series!.some((s) => s.goal_id === g.id), trainer: trainer.has(g.id) }));
     if (due) {
       const size = rhythmSuggestion(due.weekly_hours ?? 0);
       byGoal.set(due.id, `Wochenrhythmus: noch keiner → einmal anbieten, etwa ${size.count} × ${minutesLabel(size.minutes)} pro Woche`);
