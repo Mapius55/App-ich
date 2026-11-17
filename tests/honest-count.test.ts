@@ -17,7 +17,7 @@ import {
   unansweredCredit,
   weekGoalSummary,
 } from "../src/lib/plan";
-import { weekGoalLine } from "../src/time/layout";
+import { WEEK_ROW_MIN, weekGoalLine, weekGoalRoom } from "../src/time/layout";
 import { contextBlock, effortLine, MODE_CHECKIN, patternLine, PERSONA, type ContextInput } from "../supabase/functions/coach/prompt";
 import { BLOCK_NO_NEXT } from "../supabase/functions/coach/rules";
 import { DemoBackend } from "../src/lib/demoBackend";
@@ -258,6 +258,15 @@ describe("Woche: one quiet line per goal, «geplant / gemacht»", () => {
     expect(weekGoalLine(0, 60, "past")).toBe("gemacht 1 Std");
     expect(weekGoalLine(120, 60, "future")).toBe("geplant 2 Std");
     expect(weekGoalLine(0, 0, "past")).toBeNull();
+  });
+  it("the goal lines take only the room the seven rows can spare: none on 320 × 568", () => {
+    // measured in the demo build (Woche, 23–29 Nov): rows' height with one 18 px line shown, and without it
+    expect(weekGoalRoom(226, 18, 18)).toBe(0); // 320 × 568: the rows are pressed already (32 px each)
+    expect(weekGoalRoom(244, 0, 18)).toBe(0); // …and stay so once the line gave way: no flicker
+    expect(weekGoalRoom(343, 18, 18)).toBe(1); // 375 × 667: one line, rows keep 49 px
+    expect(weekGoalRoom(448, 36, 18)).toBe(8); // 390 × 844: every line of a few goals
+    expect(7 * WEEK_ROW_MIN).toBe(329);
+    expect(weekGoalRoom(500, 0, 0)).toBe(0); // nothing measured yet
   });
 });
 

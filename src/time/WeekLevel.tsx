@@ -1,7 +1,8 @@
 // Woche (level 2): seven rows, Monday first. Each row: weekday and date, the first
 // entries in one line, a 06–22 day track (goal blocks in accent, others soft, a now
 // tick today) and a micro line with the time for goals. Under the summary one quiet line per active
-// goal with time that week («Halbmarathon · geplant 3 Std · gemacht 2 Std»). Tap a row → that day. The summary hands
+// goal with time that week («Halbmarathon · geplant 3 Std · gemacht 2 Std»), as many as the rows can spare
+// (none on a small phone, where they stay for a screen reader). Tap a row → that day. The summary hands
 // over to the coach: «Mit dem Coach planen» (on Saturday and Sunday the current week plans the next
 // one: «Nächste Woche mit dem Coach planen»), a past week «Mit dem Coach anschauen» (a look back).
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -17,6 +18,7 @@ import {
   plannedMinutes,
   trackRange,
   weekGoalLine,
+  weekGoalRoom,
   weekKind,
   weekPlanLabel,
   weekPlanText,
@@ -35,8 +37,6 @@ export interface WeekLevelProps {
 }
 
 const TIGHT_ROW = 58;
-/** the goal lines never press a row under this (a 44 px row and its date column, with a little air) */
-const ROW_MIN = 47;
 const localDay = (iso: string) => dayOf(new Date(iso));
 const byStart = (a: CalendarEvent, b: CalendarEvent) => (a.all_day === b.all_day ? a.starts_at.localeCompare(b.starts_at) : a.all_day ? -1 : 1);
 
@@ -62,7 +62,8 @@ export function WeekLevel({ titleId, active }: WeekLevelProps) {
   }, [registerAdd, open]);
 
   // rows tighter than 58 px move the micro line to the end of line 1; the goal lines take only the room the
-  // rows can spare (at least one line): rows and lines share the height, so the count stays put once measured
+  // rows can spare (weekGoalRoom; none on a small phone): rows and lines share the height, so the count stays put
+  // once measured
   const rowsRef = useRef<HTMLOListElement>(null);
   const goalsRef = useRef<HTMLUListElement>(null);
   const [tight, setTight] = useState(false);
@@ -73,8 +74,8 @@ export function WeekLevel({ titleId, active }: WeekLevelProps) {
     const ro = new ResizeObserver(() => {
       setTight(el.clientHeight / 7 < TIGHT_ROW);
       const lines = goalsRef.current;
-      const lineH = (lines?.firstElementChild as HTMLElement | null)?.offsetHeight || 18;
-      setGoalRoom(Math.max(1, Math.floor((el.clientHeight + (lines?.offsetHeight ?? 0) - 7 * ROW_MIN) / lineH)));
+      const lineH = lines?.querySelector<HTMLElement>("li:not(.sr-only)")?.offsetHeight || 18;
+      setGoalRoom(weekGoalRoom(el.clientHeight, lines?.offsetHeight ?? 0, lineH));
     });
     ro.observe(el);
     return () => ro.disconnect();
@@ -177,8 +178,9 @@ export function WeekLevel({ titleId, active }: WeekLevelProps) {
           </p>
           {goalLines.length > 0 && (
             <ul className="wk-goals" ref={goalsRef}>
-              {goalLines.slice(0, goalRoom).map((g) => (
-                <li key={g.id} aria-label={`${g.title}: ${g.spoken.replace(/ · /g, ", ")}`}>
+              {/* the lines without room give way on screen and stay for a screen reader */}
+              {goalLines.map((g, i) => (
+                <li key={g.id} className={i < goalRoom ? undefined : "sr-only"} aria-label={`${g.title}: ${g.spoken.replace(/ · /g, ", ")}`}>
                   <span className="wk-goal-t" aria-hidden="true">
                     {g.title}
                   </span>

@@ -198,6 +198,20 @@ export function weekGoalLine(planned: number, done: number, kind: WeekKind, fmt:
   return parts.length ? parts.join(" · ") : null;
 }
 
+/** The goal lines on Woche never press a day row under this (a 44 px row and its date column, with a little air). */
+export const WEEK_ROW_MIN = 47;
+
+/**
+ * How many goal lines Woche shows: only the room the seven rows can spare above WEEK_ROW_MIN each. None where they
+ * can't (320 × 568: the rows are pressed already, a line would push every day number into the next weekday); the
+ * lines then give way, like the micro line, and stay for a screen reader. `rows` and `lines`: their heights now
+ * (the lines shown with them), `line`: one line's height.
+ */
+export function weekGoalRoom(rows: number, lines: number, line: number): number {
+  if (!(line > 0)) return 0;
+  return Math.max(0, Math.floor((rows + lines - 7 * WEEK_ROW_MIN) / line));
+}
+
 /** a week row's micro line: past "1 Std 45 für Ziele", future "2 Std 30 geplant", today both */
 export function microLine(day: string, today: string, done: number, planned: number): { text: string; kind: "done" | "planned" }[] {
   const rel = daysBetween(today, day);
