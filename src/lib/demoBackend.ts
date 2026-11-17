@@ -39,6 +39,7 @@ import {
   parseClock,
   parseWeekdays,
   PLAN_B_MAX,
+  seriesDayFollows,
   seriesDays,
   seriesKeepsDay,
   seriesPatchFromDay,
@@ -981,10 +982,17 @@ export class DemoBackend implements Backend {
       if (rhythm) {
         checkGoal(u, patch.goal_id);
         checkReminder(patch.reminder_minutes);
-        const next = { ...ev, ...defined(patch) };
-        Object.assign(rhythm, seriesPatchFromDay(next, rhythm.time_zone), { goal_id: next.goal_id ?? null });
-        ev.series_exception = false;
-        if (patch.notes !== undefined) ev.notes = patch.notes;
+        // only what she changed now goes to the rhythm (never what the day had on its own before)
+        const rule = seriesPatchFromDay(ev, { ...ev, ...defined(patch) }, rhythm.time_zone);
+        Object.assign(rhythm, rule);
+        if (seriesDayFollows(ev.series_exception, rule)) {
+          // the day follows the rhythm again; notes stay with the day
+          ev.series_exception = false;
+          if (patch.notes !== undefined) ev.notes = patch.notes;
+        } else {
+          // her exception keeps its own start and takes the change directly (like a direct update: still hers)
+          Object.assign(ev, defined(patch), { sequence: (ev.sequence ?? 0) + 1, updated_at: now() });
+        }
         syncDemoSeries(u, Date.now(), rhythm.id);
         out = { ...(u.events.find((e) => e.id === id) ?? ev) };
         return;

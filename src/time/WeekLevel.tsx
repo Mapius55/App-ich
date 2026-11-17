@@ -198,16 +198,16 @@ export function WeekLevel({ titleId, active }: WeekLevelProps) {
             {week.rows.map((r) => {
               const rel = daysBetween(today, r.day);
               const fromTrainer = r.list.some((e) => e.source === "nolio");
-              // a day of a weekly rhythm: a quiet «jede Woche», like «vom Trainer»; first, so a tight row (320 px)
-              // cuts the minutes rather than the marker
-              const weekly = rel >= 0 && r.list.some((e) => !!e.series_id);
-              const micro = events
-                ? [
-                    ...(weekly ? [{ text: "jede\u00a0Woche", kind: "weekly" as const }] : []),
-                    ...microLine(r.day, today, r.done, r.planned),
-                    ...(fromTrainer ? [{ text: "vom Trainer", kind: "trainer" as const }] : []),
-                  ]
-                : [];
+              // a day of a weekly rhythm: a quiet «jede Woche», like «vom Trainer». The markers come first, so a tight
+              // row (320 px) cuts the minutes rather than a marker, in the order of the entries they belong to: a
+              // trainer's 07:00 run before the 18:00 rhythm never reads as «jede Woche» and keeps its «vom Trainer»
+              const weeklyAt = rel >= 0 ? r.list.findIndex((e) => !!e.series_id) : -1;
+              const weekly = weeklyAt >= 0;
+              const marks = [
+                ...(weekly ? [{ text: "jede\u00a0Woche", kind: "weekly" as const, at: weeklyAt }] : []),
+                ...(fromTrainer ? [{ text: "vom Trainer", kind: "trainer" as const, at: r.list.findIndex((e) => e.source === "nolio") }] : []),
+              ].sort((a, b) => a.at - b.at);
+              const micro = events ? [...marks.map(({ text, kind }) => ({ text, kind })), ...microLine(r.day, today, r.done, r.planned)] : [];
               const n = r.list.length;
               const minutes = [rel <= 0 && r.done > 0 ? `${spokenMinutes(r.done)} für Ziele` : null, rel >= 0 && r.planned > 0 ? `${spokenMinutes(r.planned)} geplant` : null]
                 .filter(Boolean)

@@ -155,17 +155,26 @@ export function irregularWeeks(memories: { content: string }[], entries: { title
 }
 
 /**
- * Offer a rhythm for this goal now (once per goal)? An active goal with hours per week, more than RHYTHM_AHEAD_DAYS
- * before its target date, without a rhythm, never offered (`rhythm_asked_at` null; undefined = unknown: never), not
- * for irregular weeks, and not while she already has RHYTHM_MAX active rhythms.
+ * The rhythms that still run on `today`: active and not ended (its last day not behind). A rhythm split «ab Januar»
+ * (split_series: the old part ends the day before the new one starts, same goal) counts once, as its later part.
+ */
+export function liveRhythms<T extends Pick<SeriesRule, "goal_id" | "active" | "start_date" | "until_date">>(series: readonly T[], today: string): T[] {
+  const live = series.filter((s) => s.active && !(s.until_date && s.until_date < today));
+  return live.filter((s) => !(s.until_date && live.some((o) => o !== s && o.goal_id === s.goal_id && o.start_date === addDays(s.until_date!, 1))));
+}
+
+/**
+ * Offer a rhythm for this goal now (once per goal)? An active goal with hours per week, without a target date or more
+ * than RHYTHM_AHEAD_DAYS before it, without a rhythm, never offered (`rhythm_asked_at` null; undefined = unknown:
+ * never), not for irregular weeks, and not while she already has RHYTHM_MAX rhythms that run (liveRhythms).
  */
 export function rhythmOfferDue(
   g: { kind?: string | null; status: string; target_date: string | null; weekly_hours?: number | null; rhythm_asked_at?: string | null },
   o: { hasRhythm: boolean; activeRhythms: number; irregular: boolean; today: string },
 ): boolean {
   if (g.rhythm_asked_at !== null || o.hasRhythm || o.irregular || o.activeRhythms >= RHYTHM_MAX) return false;
-  if (g.kind === "dream" || g.status !== "active" || !((g.weekly_hours ?? 0) > 0) || !g.target_date) return false;
-  return daysBetween(o.today, g.target_date) > RHYTHM_AHEAD_DAYS;
+  if (g.kind === "dream" || g.status !== "active" || !((g.weekly_hours ?? 0) > 0)) return false;
+  return !g.target_date || daysBetween(o.today, g.target_date) > RHYTHM_AHEAD_DAYS;
 }
 
 /** A rhythm's past days with their answer (goal_time minutes, null = none). */
@@ -221,18 +230,28 @@ export function seriesScopeNeeded(e: DayEntry, next: DayInput, now: number, dayO
   );
 }
 
-/** The rhythm's new values when a change of one day holds for «Alle kommenden» (local time in the rhythm's zone). */
-export function seriesPatchFromDay(
-  next: DayInput,
-  tz: string,
-): Pick<SeriesRule, "title" | "start_time" | "duration_minutes" | "location" | "reminder_minutes"> {
-  const start = localClock(new Date(next.starts_at), tz).minutes;
-  const minutes = next.ends_at ? Math.round((Date.parse(next.ends_at) - Date.parse(next.starts_at)) / 60000) : 60;
-  return {
-    title: next.title,
-    start_time: hm(start),
-    duration_minutes: Math.min(720, Math.max(5, minutes)),
-    location: next.location,
-    reminder_minutes: next.reminder_minutes,
-  };
+type RhythmPatch = Partial<Pick<SeriesRule, "title" | "start_time" | "duration_minutes" | "location" | "reminder_minutes" | "goal_id">>;
+
+/**
+ * The rhythm's new values when a change of one day holds for «Alle kommenden»: only what she changed on that day
+ * (`prev` → `next`; a start in the rhythm's local time). What the day had on its own before (her exception, e.g. moved
+ * to 19:00 this once) never becomes the rhythm's unless she changed it now.
+ */
+export function seriesPatchFromDay(prev: DayInput & { goal_id?: string | null }, next: DayInput & { goal_id?: string | null }, tz: string): RhythmPatch {
+  const length = (d: DayInput) => (d.ends_at ? Math.round((Date.parse(d.ends_at) - Date.parse(d.starts_at)) / 60000) : 60);
+  const out: RhythmPatch = {};
+  if (Date.parse(next.starts_at) !== Date.parse(prev.starts_at)) out.start_time = hm(localClock(new Date(next.starts_at), tz).minutes);
+  if (length(next) !== length(prev)) out.duration_minutes = Math.min(720, Math.max(5, length(next)));
+  if (next.title !== prev.title) out.title = next.title;
+  if ((next.location ?? null) !== (prev.location ?? null)) out.location = next.location ?? null;
+  if ((next.reminder_minutes ?? null) !== (prev.reminder_minutes ?? null)) out.reminder_minutes = next.reminder_minutes ?? null;
+  if (next.goal_id !== undefined && (next.goal_id ?? null) !== (prev.goal_id ?? null)) out.goal_id = next.goal_id ?? null;
+  return out;
 }
+
+/**
+ * «Alle kommenden»: does the day follow the rhythm again afterwards (its exception mark cleared, the rhythm's change
+ * moves it like every other coming day)? Yes unless it was her exception and she left its start as it was: then it
+ * keeps its own time and takes the change directly.
+ */
+export const seriesDayFollows = (exception: boolean | undefined, patch: RhythmPatch) => !exception || patch.start_time !== undefined;

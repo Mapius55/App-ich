@@ -71,7 +71,7 @@ import {
   weekStart,
   type OpenerKind,
 } from "../_shared/plan.ts";
-import { parseClock, parseWeekdays, seriesLabel, SERIES_MAX_ACTIVE, WEEKDAY_CODES } from "../_shared/series.ts";
+import { liveRhythms, parseClock, parseWeekdays, seriesLabel, SERIES_MAX_ACTIVE, WEEKDAY_CODES } from "../_shared/series.ts";
 import { spokenStream, stripEmoji } from "../_shared/spoken.ts";
 import { whoopForCoach } from "../_shared/whoop.ts";
 
@@ -674,9 +674,13 @@ type MilestoneRow = Row & { id: string; title: string; position: number; done_at
 
 // ---------- the weekly rhythm (public.series; its days are entries with series_id) ----------
 
-/** The active weekly rhythms of a goal (none before the rhythm's migration). */
-const goalRhythms = (sb: SupabaseClient, goalId: string) =>
-  soft<{ id: string; title: string }[]>(sb.from("series").select("id, title").eq("goal_id", goalId).eq("active", true).limit(10), [], "goal rhythms");
+/** The weekly rhythms of a goal that still run on `day` (active, not ended; none before the rhythm's migration). */
+const goalRhythms = (sb: SupabaseClient, goalId: string, day: string) =>
+  soft<{ id: string; title: string }[]>(
+    sb.from("series").select("id, title").eq("goal_id", goalId).eq("active", true).or(`until_date.is.null,until_date.gte.${day}`).limit(10),
+    [],
+    "goal rhythms",
+  );
 /** update_goal: the goal is no longer active, so its rhythm rests. */
 const RHYTHM_RESTS = "Sein Wochenrhythmus ruht jetzt mit dem Ziel, die kommenden Tage sind aus dem Kalender: sag es in einem Halbsatz. Wird das Ziel wieder aktiv, fragst du, ob er weiterlaufen soll (update_series pausiert false).";
 
@@ -1041,13 +1045,15 @@ async function runTool(
       };
       const [goal, others] = await Promise.all([
         goalId ? sb.from("goals").select("status, target_date").eq("id", goalId).maybeSingle() : Promise.resolve(null),
-        sb.from("series").select("id, goal_id, weekdays, start_time").eq("active", true).limit(20),
+        sb.from("series").select("id, goal_id, weekdays, start_time, active, start_date, until_date").eq("active", true).limit(40),
       ]);
       if (others.error) throw seriesMissing(others.error);
       if (goal?.error) throw goal.error;
       if (goal && !goal.data) throw new ToolInputError("Ziel nicht gefunden");
       if (goal?.data && goal.data.status !== "active") throw new ToolInputError("Das Ziel ist nicht aktiv: erst wieder aufnehmen (update_goal status active)");
-      const active = (others.data ?? []) as { goal_id: string | null; weekdays: number[]; start_time: string }[];
+      // only the rhythms that still run (an ended one, or the old part of one split «ab Januar», never counts)
+      type Running = { goal_id: string | null; weekdays: number[]; start_time: string; active: boolean; start_date: string; until_date: string | null };
+      const active = liveRhythms((others.data ?? []) as Running[], day);
       if (active.some((o) => o.goal_id === goalId && String(o.start_time).slice(0, 5) === time && o.weekdays.some((w) => weekdays.includes(w))))
         throw new ToolInputError("Diesen Rhythmus gibt es schon (siehe „Wochenrhythmus“): ändere ihn mit update_series");
       if (active.length >= SERIES_MAX_ACTIVE) throw new ToolInputError(`Höchstens ${SERIES_MAX_ACTIVE} Wochenrhythmen gleichzeitig: einen ändern oder beenden`);
@@ -1233,7 +1239,7 @@ async function runTool(
         if (prior) throw new ToolInputError(prior);
       }
       // reached, paused or dropped: its weekly rhythm rests with it (trigger goals_series), its coming days go
-      const resting = patch.status !== undefined && patch.status !== "active" ? await goalRhythms(sb, id) : [];
+      const resting = patch.status !== undefined && patch.status !== "active" ? await goalRhythms(sb, id, day) : [];
       const [{ data, error }, time] = await Promise.all([
         sb.from("goals").update(patch).eq("id", id).select("*, milestones(*)").maybeSingle(),
         goalTime(sb, id),
@@ -1266,7 +1272,7 @@ async function runTool(
       const id = uuid(input.id, "id");
       // Milestones go with it; habits and calendar entries stay, without the link; its weekly rhythm goes with
       // its coming days (the past ones stay as plain blocks).
-      const rhythms = await goalRhythms(sb, id);
+      const rhythms = await goalRhythms(sb, id, day);
       const { data, error } = await sb.from("goals").delete().eq("id", id).select("id, title");
       if (error) throw error;
       if (!data?.length) throw new ToolInputError("Ziel nicht gefunden");

@@ -151,7 +151,9 @@ end;
 $$;
 
 -- Fills every rhythm the caller may see (the coach: her own, on every conversation). With `p_quiet_days` (the daily
--- job) only for people who were here within that many days: a conversation, or an answered or logged block.
+-- job) only for people who were here within that many days: a conversation, or an answered or logged block. Time
+-- that a connection brings by itself (Nolio, WHOOP) is no sign she was here: it never keeps a calendar filling.
+-- A rhythm that ended (its last day lies behind) has nothing left to fill.
 create or replace function public.extend_series(p_quiet_days integer default null)
 returns integer language plpgsql set search_path = '' as $$
 declare
@@ -161,10 +163,12 @@ begin
   for s in
     select x.* from public.series x
     where x.active
+      and (x.until_date is null or x.until_date >= current_date - 1)
       and (p_quiet_days is null
         or exists (select 1 from public.messages m where m.user_id = x.user_id
                      and m.thread between to_char(current_date - p_quiet_days, 'YYYY-MM-DD') and '9999-12-31')
-        or exists (select 1 from public.goal_time t where t.user_id = x.user_id and t.created_at > now() - make_interval(days => p_quiet_days)))
+        or exists (select 1 from public.goal_time t where t.user_id = x.user_id and t.source in ('person', 'coach', 'block')
+                     and t.created_at > now() - make_interval(days => p_quiet_days)))
   loop
     n := n + public.series_fill(s);
   end loop;

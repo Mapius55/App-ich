@@ -25,7 +25,7 @@ import type {
   WhoopSyncResult,
 } from "./types";
 import { normaliseUsername, USERNAME_RE } from "./types";
-import { addDays, dayOf, seriesPatchFromDay, weekStart } from "./plan";
+import { addDays, dayOf, seriesDayFollows, seriesPatchFromDay, weekStart } from "./plan";
 import { blockTimeEntry } from "./demoBackend";
 import { deviceAttribution } from "../../supabase/functions/_shared/nolio.ts";
 
@@ -264,18 +264,23 @@ export class SupabaseBackend implements Backend {
     if (scope === "following") {
       const day = await this.rhythmDay(id);
       if (day) {
-        const next = { ...day.entry, ...patch };
-        const rule = { ...seriesPatchFromDay(next, day.time_zone), goal_id: next.goal_id ?? null };
-        // this day follows the rhythm again, even if she had changed it on its own before
-        if (day.entry.series_exception) {
+        // only what she changed now goes to the rhythm (never what the day had on its own before)
+        const rule = seriesPatchFromDay(day.entry, { ...day.entry, ...patch }, day.time_zone);
+        // the day follows the rhythm again (its change moves it like every coming day); her exception that keeps its
+        // own start takes the change directly and stays hers
+        const follows = seriesDayFollows(day.entry.series_exception, rule);
+        if (follows && day.entry.series_exception) {
           const back = await this.sb.from("events").update({ series_exception: false }).eq("id", id);
           if (back.error) throw back.error;
         }
-        const res = await this.sb.from("series").update(rule).eq("id", day.series_id);
-        if (res.error) throw res.error;
+        if (Object.keys(rule).length) {
+          const res = await this.sb.from("series").update(rule).eq("id", day.series_id);
+          if (res.error) throw res.error;
+        }
         // notes stay with the day
-        if (patch.notes !== undefined && patch.notes !== day.entry.notes) {
-          const n = await this.sb.from("events").update({ notes: patch.notes }).eq("id", id);
+        const own: Partial<EventInput> = follows ? (patch.notes !== undefined && patch.notes !== day.entry.notes ? { notes: patch.notes } : {}) : patch;
+        if (Object.keys(own).length) {
+          const n = await this.sb.from("events").update(own).eq("id", id);
           if (n.error) throw n.error;
         }
         const { data, error } = await this.sb.from("events").select("*").eq("id", id).single();

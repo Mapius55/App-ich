@@ -6,12 +6,14 @@ import { beforeEach, describe, expect, it } from "vitest";
 import {
   irregularWeeks,
   LAPSE_DAYS,
+  liveRhythms,
   parseClock,
   parseWeekdays,
   rhythmOfferDue,
   rhythmSuggestion,
   rhythmTally,
   seriesDays,
+  seriesDayFollows,
   seriesEndDay,
   seriesKeepsDay,
   seriesLabel,
@@ -134,12 +136,26 @@ describe("the one offer, and what keeps it away", () => {
     expect(rhythmOfferDue({ ...goal, rhythm_asked_at: undefined }, o)).toBe(false); // unknown: never
     expect(rhythmOfferDue({ ...goal, weekly_hours: null }, o)).toBe(false);
     expect(rhythmOfferDue({ ...goal, target_date: "2026-12-07" }, o)).toBe(false); // exactly three weeks
-    expect(rhythmOfferDue({ ...goal, target_date: null }, o)).toBe(false);
+    // a goal without a date (e.g. «Japanisch lernen», 2 Std pro Woche) is the classic case: offered too
+    expect(rhythmOfferDue({ ...goal, target_date: null }, o)).toBe(true);
+    expect(rhythmOfferDue({ ...goal, target_date: null, weekly_hours: 0 }, o)).toBe(false);
     expect(rhythmOfferDue({ ...goal, kind: "dream" }, o)).toBe(false);
     expect(rhythmOfferDue({ ...goal, status: "paused" }, o)).toBe(false);
     expect(rhythmOfferDue(goal, { ...o, hasRhythm: true })).toBe(false);
     expect(rhythmOfferDue(goal, { ...o, activeRhythms: 2 })).toBe(false);
     expect(rhythmOfferDue(goal, { ...o, irregular: true })).toBe(false);
+  });
+
+  it("counts only rhythms that still run: not a resting or ended one, and one split «ab Januar» once", () => {
+    const today = "2026-11-16";
+    const old = rule({ id: "a", goal_id: "g1", start_date: "2026-10-01", until_date: "2026-12-31" });
+    const split = rule({ id: "b", goal_id: "g1", start_date: "2027-01-01" });
+    expect(liveRhythms([old, split], today).map((x) => x.id)).toEqual(["b"]);
+    expect(liveRhythms([old], today).map((x) => x.id)).toEqual(["a"]); // ends later, nothing after it: still runs
+    expect(liveRhythms([rule({ id: "c", until_date: "2026-11-15" }), rule({ id: "d", active: false })], today)).toEqual([]);
+    expect(liveRhythms([rule({ id: "e", until_date: today })], today)).toHaveLength(1); // its last day is today
+    // two rhythms of one goal side by side (Tuesday runs, Saturday long run) are two
+    expect(liveRhythms([rule({ id: "f", goal_id: "g1" }), rule({ id: "g", goal_id: "g1", weekdays: [6] })], today)).toHaveLength(2);
   });
 
   it("never to someone whose weeks are irregular (shift work), from her notes or the shifts in her calendar", () => {
@@ -214,14 +230,27 @@ describe("one day in the app: «Nur diesen Termin» or «Alle kommenden», only 
     expect(seriesScopeNeeded({ ...e, series_id: null }, { ...same, title: "x" }, now, dayOfIso)).toBe(false);
   });
 
-  it("«Alle kommenden» gives the rhythm the day's local time and length", () => {
-    expect(seriesPatchFromDay({ ...same, starts_at: "2026-11-19T18:30:00.000Z", ends_at: "2026-11-19T19:45:00.000Z", title: "Intervalle", location: "Allmend" }, "Europe/Zurich")).toEqual({
+  it("«Alle kommenden» gives the rhythm what she changed: the day's local time and length, title, place", () => {
+    expect(seriesPatchFromDay(same, { ...same, starts_at: "2026-11-19T18:30:00.000Z", ends_at: "2026-11-19T19:45:00.000Z", title: "Intervalle", location: "Allmend" }, "Europe/Zurich")).toEqual({
       title: "Intervalle",
       start_time: "19:30",
       duration_minutes: 75,
       location: "Allmend",
-      reminder_minutes: 10,
     });
+    // the same moment written differently is no change; a goal only when it is given and differs
+    expect(seriesPatchFromDay(e, same, "Europe/Zurich")).toEqual({});
+    expect(seriesPatchFromDay({ ...same, goal_id: "g1" }, { ...same, goal_id: undefined }, "Europe/Zurich")).toEqual({});
+    expect(seriesPatchFromDay({ ...same, goal_id: "g1" }, { ...same, goal_id: "g2" }, "Europe/Zurich")).toEqual({ goal_id: "g2" });
+  });
+
+  it("her one-day exception (moved to 19:00) renamed for «Alle kommenden»: the rhythm takes the title, never her 19:00", () => {
+    const moved = { ...same, starts_at: "2026-11-19T18:00:00.000Z", ends_at: "2026-11-19T19:00:00.000Z" };
+    const patch = seriesPatchFromDay(moved, { ...moved, title: "Intervalle" }, "Europe/Zurich");
+    expect(patch).toEqual({ title: "Intervalle" });
+    expect(seriesDayFollows(true, patch)).toBe(false); // keeps its own 19:00, takes the title directly
+    expect(seriesDayFollows(false, patch)).toBe(true);
+    // a new start for every week: the day follows the rhythm again
+    expect(seriesDayFollows(true, seriesPatchFromDay(moved, { ...moved, starts_at: "2026-11-19T19:00:00.000Z", ends_at: "2026-11-19T20:00:00.000Z" }, "Europe/Zurich"))).toBe(true);
   });
 
   it("the detail asks, the delete offers both, the day shows «jede Woche»", () => {
@@ -233,7 +262,11 @@ describe("one day in the app: «Nur diesen Termin» or «Alle kommenden», only 
     expect(form).toContain('also={rhythmDay ? { label: "Alle kommenden", onConfirm: () => remove("following") } : undefined}');
     expect(form).toContain('<p className="sheet-hint">Jede Woche{event.source === "coach" ? " · vom Coach eingetragen" : ""}.</p>');
     expect(read("../src/time/DayLevel.tsx")).toContain('const weekly = e.series_id ? "jede\\u00a0Woche" : null;');
-    expect(read("../src/time/WeekLevel.tsx")).toContain('...(weekly ? [{ text: "jede\\u00a0Woche", kind: "weekly" as const }] : []),');
+    const week = read("../src/time/WeekLevel.tsx");
+    expect(week).toContain('...(weekly ? [{ text: "jede\\u00a0Woche", kind: "weekly" as const, at: weeklyAt }] : []),');
+    // the markers before the minutes, in the order of their entries (a trainer's earlier run keeps «vom Trainer» first)
+    expect(week).toContain("].sort((a, b) => a.at - b.at);");
+    expect(week).toContain("const micro = events ? [...marks.map(({ text, kind }) => ({ text, kind })), ...microLine(r.day, today, r.done, r.planned)] : [];");
     expect(read("../src/components/VoiceConversation.tsx")).toContain('e.event.series_id ? "Jede Woche im Kalender" : "Im Kalender „Bucket List“"');
   });
 });
@@ -313,6 +346,23 @@ describe("the coach's context", () => {
     expect(goalsOf(contextBlock({ ...base, goals: [race], series: [{ ...series, lapse_asked_at: "2026-11-10T08:00:00Z" }], recentBlocks: [at(19, 0), at(16, 0), at(12, null), at(9, 0), at(5, 0)] }))).not.toContain("klappt selten");
   });
 
+  it("an ended rhythm, or the old part of a split one, never keeps the offer for another goal away", () => {
+    const other = { ...race, id: "g3", title: "Velo", rhythm_asked_at: "2026-10-01T08:00:00Z" };
+    const ended = rule({ id: "s0", goal_id: "g3", start_date: "2026-09-01", until_date: "2026-11-01" });
+    const old = rule({ id: "s1", goal_id: "g1", start_date: "2026-10-01", until_date: "2026-12-31" });
+    const split = rule({ id: "s2", goal_id: "g1", start_date: "2027-01-01", weekdays: [2] });
+    const out = goalsOf(contextBlock({ ...base, goals: [{ ...race, rhythm_asked_at: "2026-10-01T08:00:00Z" }, exam, other], series: [ended, old, split] }));
+    expect(out.slice(out.indexOf("[g2]"))).toContain(OFFER);
+    // two that run: no offer
+    const busy = rule({ id: "s3", goal_id: "g3", start_date: "2026-10-01" });
+    expect(goalsOf(contextBlock({ ...base, goals: [{ ...race, rhythm_asked_at: "2026-10-01T08:00:00Z" }, exam, other], series: [busy, old, split] }))).not.toContain(OFFER);
+  });
+
+  it("a goal without a target date but with hours per week gets the one offer", () => {
+    const open: ContextGoal = { ...exam, id: "g4", title: "Japanisch", target_date: null };
+    expect(goalsOf(contextBlock({ ...base, goals: [open], series: [] }))).toContain(`${OFFER}, etwa 2 × 45 Min pro Woche`);
+  });
+
   it("the Wochenblick plans around a rhythm that stands already", () => {
     const out = contextBlock({ ...base, goals: [race], series: [series], review: { due: "anbieten", monday: "2026-11-09", goals: [] } });
     expect(out).toContain("sein Wochenrhythmus steht schon im Kalender: nur ergänzen, was fehlt");
@@ -345,6 +395,8 @@ describe("the coach's tools", () => {
     expect(tool("create_series")).toContain("ohne until bis zum Tag vor dem Zieldatum");
     expect(source).toContain("time_zone: ctx.tz,");
     expect(source).toContain("if (active.length >= SERIES_MAX_ACTIVE) throw new ToolInputError(");
+    // an ended rhythm, or the old part of one split «ab Januar», never counts towards the limit or as a double
+    expect(source).toContain("const active = liveRhythms((others.data ?? []) as Running[], day);");
     expect(source).toContain('throw new ToolInputError("Diesen Rhythmus gibt es schon (siehe „Wochenrhythmus“): ändere ihn mit update_series");');
   });
 
@@ -364,7 +416,9 @@ describe("the coach's tools", () => {
   });
 
   it("the goal reached or paused: its rhythm rests and the coach says so; every conversation fills the rhythms", () => {
-    expect(source).toContain('const resting = patch.status !== undefined && patch.status !== "active" ? await goalRhythms(sb, id) : [];');
+    expect(source).toContain('const resting = patch.status !== undefined && patch.status !== "active" ? await goalRhythms(sb, id, day) : [];');
+    // only rhythms that still run (not one that ended) rest with the goal or count as its rhythm
+    expect(source).toContain('.eq("active", true).or(`until_date.is.null,until_date.gte.${day}`)');
     expect(source).toContain("...(resting.length && data.status !== \"active\" ? { rhythmus: RHYTHM_RESTS } : {}),");
     expect(source).toContain('soft<number>(sb.rpc("extend_series"), 0, "extend series"),');
   });
@@ -396,6 +450,9 @@ describe("the migration", () => {
     expect(sql).toContain("update public.series set active = false where goal_id = new.id and active;");
     expect(sql).toContain("select cron.schedule('i-am-series', '23 3 * * *', 'select public.extend_series(14)')");
     expect(sql).toContain("m.thread between to_char(current_date - p_quiet_days, 'YYYY-MM-DD') and '9999-12-31'");
+    // time a connection brings by itself (Nolio, WHOOP) is no sign she was here: it never keeps a calendar filling
+    expect(sql).toContain("t.source in ('person', 'coach', 'block')");
+    expect(sql).toContain("and (x.until_date is null or x.until_date >= current_date - 1)");
   });
 
   it("every function pins its search_path and runs as the caller; the export reads the rhythms", () => {
@@ -461,6 +518,23 @@ describe("the demo backend mirrors the database", () => {
     expect(after.filter((e) => !e.series_exception).every((e) => e.title === "Intervalle")).toBe(true);
     expect(after.find((e) => e.id === c.id)?.title).toBe("Laufen");
     expect(after.some((e) => e.series_day === a.series_day)).toBe(false);
+  });
+
+  it("«Alle kommenden» on her one-day exception: the rhythm takes the new title, never her moved time", async () => {
+    const { series } = await make(null, { start_time: "18:00", duration_minutes: 60 });
+    const zurich = (iso: string) => new Intl.DateTimeFormat("de-CH", { timeZone: "Europe/Zurich", hour: "2-digit", minute: "2-digit" }).format(new Date(iso));
+    const d = (await days(series.id))[2];
+    await b.updateEvent(d.id, { starts_at: new Date(Date.parse(d.starts_at) + 3600000).toISOString(), ends_at: new Date(Date.parse(d.ends_at!) + 3600000).toISOString() });
+    const renamed = await b.updateEvent(d.id, { title: "Intervalle" }, "following");
+    expect(renamed.series_exception).toBe(true);
+    expect(zurich(renamed.starts_at)).toBe("19:00");
+    const after = await days(series.id);
+    expect(after.every((e) => e.title === "Intervalle")).toBe(true);
+    expect(after.filter((e) => e.id !== d.id).every((e) => zurich(e.starts_at) === "18:00")).toBe(true);
+    // a new start for all coming: the day follows the rhythm again
+    const moved = await b.updateEvent(d.id, { starts_at: new Date(Date.parse(d.starts_at) + 2 * 3600000).toISOString(), ends_at: new Date(Date.parse(d.ends_at!) + 2 * 3600000).toISOString() }, "following");
+    expect(moved.series_exception).toBe(false);
+    expect((await days(series.id)).every((e) => zurich(e.starts_at) === "20:00")).toBe(true);
   });
 
   it("«Alle kommenden» deleted: the rhythm ends the day before; the goal paused: its days go; the goal deleted: the rhythm goes", async () => {
