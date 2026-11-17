@@ -117,9 +117,9 @@ describe("the morning in one minute", () => {
     expect(PERSONA).not.toContain("hat immer einen Tag („heute“, „morgen“, „am Dienstag“) und eine Uhrzeit");
   });
 
-  it("a block only after a clear yes: «okay, danke» as a closing is none", () => {
+  it("a block only after a clear yes: «okay, danke», «Gut, danke», «Gut. Sonst noch etwas?» are none, for blocks or time", () => {
     expect(PERSONA).toContain(
-      "Anders als Termine trägst du Blöcke erst nach einem klaren Ja ein („ja“, „passt“, „gern“, „trag es ein“); ein „okay, danke“ zum Abschluss ist kein Ja: Dann fragst du kurz nach oder lässt es.",
+      "Anders als Termine trägst du Blöcke erst nach einem klaren Ja ein („ja“, „passt“, „gern“, „trag es ein“); „okay, danke“, „Gut, danke“ oder „Gut. Sonst noch etwas?“ ist kein Ja, weder für einen Block noch für Zeit mit log_time: Dann fragst du kurz nach oder lässt es.",
     );
     expect(MODE_CHECKIN).toContain("Erst nach ihrem klaren Ja trägst du ihn ein: create_event mit kind block");
     expect(PERSONA).not.toContain("trägst du Blöcke erst nach ihrem Ja ein");
@@ -136,7 +136,7 @@ describe("the morning in one minute", () => {
 
   it("at most one setup question per conversation, never in the greeting; the connections ask counts too", () => {
     expect(MODE_CHECKIN).toContain(
-      "- Einrichtungsfragen: Fehlen bei einem Ziel Etappen, Zieldatum, die Schätzung des Aufwands oder die Zeit pro Woche und sprecht ihr gerade nicht darüber, stellst du von dir aus höchstens eine solche Frage pro Gespräch, nie in der Begrüssung und nicht an vollen oder müden Tagen. Auch die Frage nach Apps und Geräten (unter „Verbindungen“) ist eine Einrichtungsfrage: Pro Gespräch stellst du höchstens eine von allen.",
+      "- Einrichtungsfragen: Fehlen bei einem Ziel Etappen, Zieldatum, die Schätzung des Aufwands oder die Zeit pro Woche und sprecht ihr gerade nicht darüber, stellst du von dir aus höchstens eine solche Frage pro Gespräch, nie in der Begrüssung und nicht an vollen oder müden Tagen. Auch die Frage nach Apps und Geräten (unter „Verbindungen“) und die nach einem Plan B sind Einrichtungsfragen: Pro Gespräch stellst du höchstens eine von allen.",
     );
     expect(MODE_CHECKIN).toContain("nie in der Begrüssung und nur in einem Gespräch ohne andere Einrichtungsfrage: Du fragst, welche Apps oder Geräte sie nutzt");
     expect(MODE_CHECKIN).not.toContain("holst du das bei Gelegenheit nach");
@@ -222,7 +222,7 @@ describe("after a pause: as always, a small step", () => {
     const sunday = pastBlock("b3", "2026-11-15T17:00:00Z", "2026-11-15T18:00:00Z");
     const out = ctx({ lastSeen: "2026-11-15", goals: [race], pastBlocks: [...missed, sunday] });
     expect(section(out, "Vergangene Blöcke ohne Rückmeldung")).toBe(
-      "## Vergangene Blöcke ohne Rückmeldung ([id] Zeit: Titel (Ziel) · zählen von selbst als geschafft)\n- [b3] So., 15. Nov. (gestern), 18:00–19:00: Lauf (Ziel „Halbmarathon Zürich“)",
+      "## Vergangene Blöcke ohne Rückmeldung ([id] Zeit: Titel (Ziel) · zählen eine Woche lang vorläufig)\n- [b3] So., 15. Nov. (gestern), 18:00–19:00: Lauf (Ziel „Halbmarathon Zürich“)",
     );
     // no pause: an overdue step is asked about once again
     expect(out).toContain("· überfällig seit 6 Tagen");
@@ -360,7 +360,9 @@ describe("the Wochenblick", () => {
   it("the rule: a win, what was in the way, next week's blocks for one goal; skippable; asks once after two declines", () => {
     expect(MODE_CHECKIN).toContain("in höchstens fünf kurzen Wechseln: Zuerst eine Sache, die in der Woche gelungen ist");
     expect(MODE_CHECKIN).toContain("fragst du, was im Weg war, falls etwas nicht geklappt hat, und schlägst dann die Blöcke der neuen Woche für das eine Ziel vor, das dort steht, eingetragen nach ihrem Ja");
-    expect(MODE_CHECKIN).toContain("Danach rufst du wochenblick mit ergebnis gemacht auf. Will sie nicht, ist das in Ordnung: wochenblick mit abgelehnt");
+    expect(MODE_CHECKIN).toContain(
+      "Danach rufst du wochenblick mit ergebnis gemacht auf. Sagt sie Nein oder geht sie nicht darauf ein, ist das in Ordnung: Du rufst gleich wochenblick mit abgelehnt auf, und ihr sprecht über den Tag.",
+    );
     expect(MODE_CHECKIN).toContain("Steht dort „fragen“, fragst du stattdessen einmal, ob sie den Wochenblick überhaupt möchte, und hältst ihre Antwort mit will oder will_nicht fest.");
     expect(MODE_CHECKIN).toContain("Nie, wenn sie müde ist, es ihr nicht gut geht oder etwas drängt. Gibst du ihm einen Namen, heisst er „Wochenblick“.");
   });
@@ -403,14 +405,14 @@ describe("the Wochenblick", () => {
     );
     // asked about there, not a second time among the past blocks; today's block stays there
     expect(section(out, "Vergangene Blöcke ohne Rückmeldung")).toBe(
-      "## Vergangene Blöcke ohne Rückmeldung ([id] Zeit: Titel (Ziel) · zählen von selbst als geschafft)\n- [b-mon] Mo., 23. Nov. (heute), 07:00–07:45: Lauf (Ziel „Halbmarathon Zürich“)\n",
+      "## Vergangene Blöcke ohne Rückmeldung ([id] Zeit: Titel (Ziel) · zählen eine Woche lang vorläufig)\n- [b-mon] Mo., 23. Nov. (heute), 07:00–07:45: Lauf (Ziel „Halbmarathon Zürich“)\n",
     );
     // the trainer's plan is never asked about; nothing open, no list
     expect(section(ctx({ ...monday, review: { ...monday.review, open: [{ ...tue, source: "nolio" }] } }), "Wochenblick")).not.toContain("Blöcke ohne Rückmeldung");
     expect(section(ctx({ ...monday, review: { ...monday.review, open: [] } }), "Wochenblick")).not.toContain("Blöcke ohne Rückmeldung");
     // the rule: her answer with log_time and the block's id, a «nein» with 0
     expect(MODE_CHECKIN).toContain(
-      "Ihre Antwort hältst du mit log_time und event_id fest, auch zu den Blöcken ohne Rückmeldung beim Wochenblick: die tatsächlichen Minuten, die geplante Länge, wenn es wie geplant lief, oder 0, wenn es nicht stattgefunden hat („am Donnerstag nicht gelaufen“).",
+      "Ihre Antwort hältst du mit log_time und event_id fest, auch zu den Blöcken ohne Rückmeldung beim Wochenblick: die geplante Länge, wenn es wie geplant lief, die tatsächlichen Minuten, wenn es nur teilweise klappte, oder 0, wenn es nicht stattgefunden hat („am Donnerstag nicht gelaufen“).",
     );
     expect(source).toContain("openWeekBlocks(rows, goalIds, monday, new Date(now), dayOf)");
     expect(source).toContain("input.review = { due, monday, ...(await weekSummaryFor(");
@@ -449,6 +451,10 @@ describe("the Wochenblick", () => {
     expect(REVIEW_RESULTS).toEqual(["gemacht", "abgelehnt", "will", "will_nicht"]);
     expect(reviewPatch("gemacht", "2026-11-16", 1)).toEqual({ review_week: "2026-11-16", review_declines: 0 });
     expect(reviewPatch("abgelehnt", "2026-11-16", 1)).toEqual({ review_week: "2026-11-16", review_declines: 2 });
+    // a later turn declines the same week again: no second decline (live check: 0→1→2→3 in one conversation)
+    expect(reviewPatch("abgelehnt", "2026-11-16", 1, "2026-11-16")).toEqual({});
+    expect(reviewPatch("abgelehnt", "2026-11-23", 1, "2026-11-16")).toEqual({ review_week: "2026-11-23", review_declines: 2 });
+    expect(reviewPatch("gemacht", "2026-11-16", 1, "2026-11-16")).toEqual({ review_week: "2026-11-16", review_declines: 0 });
     expect(reviewPatch("will", "2026-11-16", 2)).toEqual({ review_wanted: true, review_declines: 0 });
     expect(reviewPatch("will_nicht", "2026-11-16", 2)).toEqual({ review_wanted: false, review_week: "2026-11-16" });
     expect(tools).toContain('name: "wochenblick"');

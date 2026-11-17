@@ -2,13 +2,15 @@
 //   POST {action:"export"} (login) → everything stored about you as JSON, read with your login (Row Level
 //                                    Security): profile (with the birth year; without the token of the
 //                                    calendar link, which would open the calendar), memories, conversations, days,
-//                                    calendar, goals and the dreams of the Bucket List (kind, done_at, memory,
+//                                    calendar (with the weekly rhythms), goals and the dreams of the Bucket List (kind, done_at, memory,
 //                                    reminded_at: every column, "*"), habits, push subscriptions, and from the
 //                                    connections: the connection rows (never tokens), WHOOP daily summaries
-//                                    and the Nolio data.
+//                                    and the Nolio data, and the log of the coach's notifications (never a text).
+//                                    The same tables as the app's own export (src/lib/supabaseBackend.ts).
 //   POST {action:"delete"} (login) → first ends the WHOOP access at WHOOP (as far as possible), then deletes
-//                                    the account. All tables reference auth.users with ON DELETE CASCADE, so
-//                                    removing the auth user removes every row of the person.
+//                                    her weekly rhythms (deleteSeries), then the account. All tables reference
+//                                    auth.users with ON DELETE CASCADE, so removing the auth user removes every
+//                                    row of the person.
 // Deploy with --no-verify-jwt: the login is checked here.
 
 import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2.119.0";
@@ -41,12 +43,17 @@ const TABLES: [string, string, string[]][] = [
   ["messages", "*", ["id"]],
   ["push_subscriptions", "*", ["id"]],
 ];
-/** From the connections (present once their migrations ran). Tokens live in a table nobody but the server can read. */
+/** From the connections, the notification log and the weekly rhythms (present once their migrations ran). Tokens live
+ *  in a table nobody but the server can read. */
 const CONNECTION_TABLES: [string, string, string[]][] = [
   ["connections", "provider, status, external_user_id, consent_ai, consent_ai_changed_at, connected_at, last_sync_at, last_error", ["provider"]],
   ["whoop_days", "*", ["day"]],
   ["nolio_trainings", "*", ["id"]],
   ["nolio_sync", "last_sync_at, last_error, status", ["user_id"]],
+  // which notifications went out or stayed out (template ids and reasons, never a text)
+  ["push_log", "*", ["id"]],
+  // the weekly rhythms (their days are in events)
+  ["series", "*", ["id"]],
 ];
 
 /** All rows of a table, page by page; null when the table isn't there (migration not applied). */
@@ -79,6 +86,18 @@ async function exportData(sb: SupabaseClient, userId: string) {
     if (rows) out[table] = rows;
   }
   return out;
+}
+
+/**
+ * Her weekly rhythms go first, with the service role: their coming days go with them (series_removed), the past ones
+ * stay as plain blocks until the cascade. Without this, a rhythm with coming days made deleteUser fail on a database
+ * without 20261125000000_series_delete_fix.sql: the cascade (as GoTrue's role) took each coming day for one she let
+ * fall away and could not note it on the rhythm (42501). A missing table (migration not applied) is no error; any
+ * other failure is only logged: deleteUser still runs and says whether the account went.
+ */
+async function deleteSeries(admin: SupabaseClient, userId: string): Promise<void> {
+  const { error } = await admin.from("series").delete().eq("user_id", userId);
+  if (error && error.code !== "42P01" && error.code !== "PGRST205") console.error("account: series delete failed:", String(error.code ?? "internal"));
 }
 
 Deno.serve(async (req) => {
@@ -124,6 +143,7 @@ Deno.serve(async (req) => {
   } catch (e) {
     console.error("account: whoop disconnect failed:", String((e as { code?: unknown; name?: unknown })?.code ?? (e as { name?: unknown })?.name ?? "internal"));
   }
+  await deleteSeries(admin, userId);
   const del = await admin.auth.admin.deleteUser(userId);
   if (del.error) return new Response("Could not delete", { status: 500, headers: CORS });
   return json({ ok: true });

@@ -64,6 +64,37 @@ export const NOLIO_EDIT_REFUSAL =
 export const NOLIO_TIME_REFUSAL =
   "Dieses Training kommt aus Nolio: Es zählt von selbst für das Ziel, sobald es in Nolio erledigt ist. Kein log_time dafür, sonst zählt es doppelt.";
 
+/** log_time with 0 minutes for a block (her «Nein»): the Nein protocol, at the moment it happens. */
+export const BLOCK_NO_NEXT =
+  "Danke ihr, dass sie es sagt. Frag höchstens einmal, was dazwischenkam; biete erst danach einen kleineren oder verschobenen Block an. Zähl nie auf, was sonst nicht geklappt hat.";
+
+/**
+ * The same when the goal has her Plan B: instead of the question, a quiet reminder of her own plan for next time,
+ * never a reproach. Without one (or unknown): BLOCK_NO_NEXT.
+ */
+export function blockNoNext(planB: string | null | undefined): string {
+  const plan = typeof planB === "string" ? planB.replace(/\s+/g, " ").trim().slice(0, 200) : "";
+  if (!plan) return BLOCK_NO_NEXT;
+  return `Danke ihr, dass sie es sagt. Statt nach dem Grund zu fragen, erinnerst du sie leise an ihren Plan B („${plan}“), als Angebot fürs nächste Mal, nie als Vorwurf; biete erst danach einen kleineren oder verschobenen Block an. Zähl nie auf, was sonst nicht geklappt hat.`;
+}
+
+/** log_time again for a block with the answer it already has (a later turn repeating her «Nein»): nothing changes. */
+export const BLOCK_ALREADY_LOGGED =
+  "Schon eingetragen: Diese Antwort zum Block steht schon so da. Sag nichts mehr dazu, danke nicht nochmals und frag nicht nochmals danach.";
+
+/**
+ * Whether a block's stored answer (its goal_time row) already is this one: the same goal, minutes and day, and no
+ * other note (`note` undefined keeps the stored one). Then log_time saves nothing and sends no second time_logged.
+ */
+export function sameBlockAnswer(
+  stored: { goal_id?: string | null; minutes: number | string | null; day: string | null; note?: string | null } | null | undefined,
+  next: { goalId: string; minutes: number; day: string; note?: string | null },
+): boolean {
+  if (!stored || stored.minutes === null || Number(stored.minutes) !== next.minutes || stored.day !== next.day) return false;
+  if (stored.goal_id && String(stored.goal_id).toLowerCase() !== next.goalId.toLowerCase()) return false;
+  return next.note === undefined || (next.note ?? null) === (stored.note ?? null);
+}
+
 /** update_event on a Nolio entry: allowed only when nothing but the reminder changes. */
 export function nolioEditAllowed(input: Record<string, unknown>): boolean {
   return Object.keys(input).every((k) => k === "id" || k === "reminder_minutes");
@@ -175,6 +206,89 @@ export function draftStream(o: { whole?: boolean } = {}): { push(delta: string):
   };
 }
 
+// ---------- one reply, said once ----------
+
+/** The words of a text, to compare two replies: lower case, without punctuation. */
+function wordsOf(t: string): string[] {
+  return t.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
+}
+
+/**
+ * The text after its first `n` words, when a sentence ends there («. », «!\n\n», «“. »): what follows. null when
+ * the sentence goes on («Mache ich gern: …» after «Mache ich.»): then it is another sentence and goes out whole.
+ */
+function afterWords(t: string, n: number): string | null {
+  let end = 0;
+  let i = 0;
+  for (const m of t.matchAll(/[\p{L}\p{N}]+/gu)) {
+    end = m.index! + m[0].length;
+    if (++i === n) break;
+  }
+  const rest = t.slice(end);
+  const cut = /^[^\p{L}\p{N}]*?(?:[.!?…][^\s\p{L}\p{N}]*\s+|\n\s*)/u.exec(rest);
+  return cut ? rest.slice(cut[0].length) : null;
+}
+
+/** Under this many words after a different first one, a text is never taken for the earlier reply again. */
+const REPEAT_LOOSE_MIN = 4;
+
+/**
+ * The text of a round after a tool call, when it says the text of the round before it again (once in a live check,
+ * around a redundant tool call: «Klar, Mira, du musst dich jetzt nicht festlegen. …» and then the same with «Gern»):
+ * what repeats is neither sent nor saved twice. `prev`: what the round before said. Pieces come in whole sentences
+ * (draftStream); while they are the same words as `prev` from the start (or after a different first word, from
+ * four words on), they wait. At the first other word everything waiting goes out; a round that says only `prev` again
+ * (or a part of it from its start) sends nothing; one that goes on after all of `prev` with a new sentence sends only
+ * that; one whose sentence goes on after the words of `prev` («Gut, ich trage es ein.» after «Gut.») goes out whole.
+ */
+export function repeatGuard(prev: string): { push(text: string): string; flush(): string } {
+  const before = wordsOf(prev);
+  let held = "";
+  let open = before.length === 0;
+  /**
+   * How the waiting text relates to `prev`: still the same (or a part of it), other, or all of it and then a new
+   * sentence (`rest`, what is new).
+   */
+  const relate = (done: boolean): "same" | "other" | { rest: string } => {
+    const w = wordsOf(held);
+    if (!w.length) return "same";
+    const loose = w[0] !== before[0];
+    if (loose && (before.length < REPEAT_LOOSE_MIN || (done && w.length < REPEAT_LOOSE_MIN))) return "other";
+    for (let i = loose ? 1 : 0; i < Math.min(w.length, before.length); i++) {
+      const last = i === w.length - 1 && !done && w.length <= before.length; // the last word may still be growing
+      if (w[i] !== before[i] && !(last && before[i].startsWith(w[i]))) return "other";
+    }
+    if (w.length <= before.length) return "same";
+    const rest = afterWords(held, before.length);
+    return rest === null ? "other" : { rest };
+  };
+  const release = (): string => {
+    open = true;
+    const out = held;
+    held = "";
+    return out;
+  };
+  return {
+    push(text: string) {
+      if (open) return text;
+      if (!text) return "";
+      held += text;
+      const r = relate(false);
+      if (r === "other") return release();
+      if (r === "same") return "";
+      release();
+      return r.rest;
+    },
+    flush() {
+      if (open || !held) return "";
+      const r = relate(true);
+      if (r === "other") return release();
+      release();
+      return r === "same" ? "" : r.rest;
+    },
+  };
+}
+
 /**
  * A memory that carries WHOOP values (or what the coach read from them), e.g. „Erholung meist um 60 %“
  * or „HRV sinkt nach langen Arbeitstagen“. Checked only on turns where WHOOP values were in the
@@ -227,11 +341,18 @@ export type ReviewResult = (typeof REVIEW_RESULTS)[number];
  * settled, one more decline. «will»: she wants it (asked after two declines), the count back to 0, this week
  * still open. «will_nicht»: never offered again.
  */
-export function reviewPatch(result: ReviewResult, week: string, declines: number): { review_week?: string; review_declines?: number; review_wanted?: boolean } {
+export function reviewPatch(
+  result: ReviewResult,
+  week: string,
+  declines: number,
+  /** the week already noted (profiles.review_week): a second «abgelehnt» for the same week is no new decline */
+  noted: string | null = null,
+): { review_week?: string; review_declines?: number; review_wanted?: boolean } {
   switch (result) {
     case "gemacht":
       return { review_week: week, review_declines: 0 };
     case "abgelehnt":
+      if (noted === week) return {};
       return { review_week: week, review_declines: Math.min(20, Math.max(0, declines) + 1) };
     case "will":
       return { review_wanted: true, review_declines: 0 };

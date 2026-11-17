@@ -186,7 +186,9 @@ export interface GoalEffortInput {
   weekly_hours: number | null;
   prior_hours: number;
   target_date: string | null;
-  time: { logged_minutes: number; block_minutes: number };
+  /** from the view goal_minutes: logged (and answered), past blocks nobody answered that still count, and of those
+   *  the provisional ones (ended within PROVISIONAL_DAYS; missing = none) */
+  time: { logged_minutes: number; block_minutes: number; provisional_minutes?: number };
 }
 
 export type Feasibility = "erreicht" | "machbar" | "knapp" | "kaum machbar";
@@ -194,8 +196,10 @@ export type Feasibility = "erreicht" | "machbar" | "knapp" | "kaum machbar";
 export interface GoalEffort {
   /** estimated total hours, null = not estimated */
   effort: number | null;
-  /** hours done: before the app + logged + past blocks */
+  /** hours done: before the app + logged + past blocks that still count (provisional ones included) */
   done: number;
+  /** of `done`: hours of blocks nobody answered yet that count only provisionally (0 = none); never said as done */
+  provisional: number;
   /** hours left, null without an estimate */
   remaining: number | null;
   /** weeks to work on it: today up to the day before the target date (at least one day), null without a date or when it has passed */
@@ -210,6 +214,8 @@ export interface GoalEffort {
   weeksToFinish: number | null;
   /** needed vs available: up to 85 % "machbar" (a buffer for bad weeks), up to 110 % "knapp", beyond "kaum machbar" */
   feasibility: Feasibility | null;
+  /** the same verdict from confirmed time only (without `provisional`); equal to `feasibility` when nothing is provisional */
+  confirmedFeasibility: Feasibility | null;
 }
 
 /** needed / available up to this share is "machbar"; up to TIGHT_MAX "knapp"; beyond "kaum machbar" */
@@ -219,7 +225,10 @@ export const TIGHT_MAX = 1.1;
 const round1 = (n: number) => Math.round(n * 10) / 10;
 
 export function goalEffort(g: GoalEffortInput, today: string = dayOf()): GoalEffort {
-  const done = round1((g.prior_hours || 0) + (g.time.logged_minutes + g.time.block_minutes) / 60);
+  const doneRaw = (g.prior_hours || 0) + (g.time.logged_minutes + g.time.block_minutes) / 60;
+  // provisional time is part of the blocks that count by themselves
+  const provisionalMin = Math.max(0, Math.min(g.time.block_minutes, g.time.provisional_minutes ?? 0));
+  const done = round1(doneRaw);
   const effort = g.effort_hours && g.effort_hours > 0 ? g.effort_hours : null;
   const remaining = effort === null ? null : round1(Math.max(0, effort - done));
   const days = g.target_date ? daysBetween(today, g.target_date) : null;
@@ -230,16 +239,19 @@ export function goalEffort(g: GoalEffortInput, today: string = dayOf()): GoalEff
   const neededPerDay = remaining !== null && weeksLeft !== null && weeksLeft < 3 ? round1(remaining / (weeksLeft * 7)) : null;
   const available = g.weekly_hours && g.weekly_hours > 0 ? g.weekly_hours : null;
   const weeksToFinish = remaining !== null && available !== null && weeksLeft === null ? Math.ceil(remaining / available) : null;
-  let feasibility: Feasibility | null = null;
-  if (remaining === 0) feasibility = "erreicht";
-  else if (remaining !== null && weeksLeft !== null && available !== null) {
+  const verdict = (doneHours: number): Feasibility | null => {
+    const left = effort === null ? null : round1(Math.max(0, effort - doneHours));
+    if (left === 0) return "erreicht";
+    if (left === null || weeksLeft === null || available === null) return null;
     // unrounded, so the buffers don't move with the display rounding
-    const ratio = remaining / weeksLeft / available;
-    feasibility = ratio <= FEASIBLE_MAX ? "machbar" : ratio <= TIGHT_MAX ? "knapp" : "kaum machbar";
-  }
+    const ratio = left / weeksLeft / available;
+    return ratio <= FEASIBLE_MAX ? "machbar" : ratio <= TIGHT_MAX ? "knapp" : "kaum machbar";
+  };
+  const feasibility = verdict(done);
   return {
     effort,
     done,
+    provisional: round1(provisionalMin / 60),
     remaining,
     weeksLeft: weeksLeft === null ? null : round1(weeksLeft),
     neededPerWeek,
@@ -247,6 +259,7 @@ export function goalEffort(g: GoalEffortInput, today: string = dayOf()): GoalEff
     available,
     weeksToFinish,
     feasibility,
+    confirmedFeasibility: provisionalMin > 0 ? verdict(round1(doneRaw - provisionalMin / 60)) : feasibility,
   };
 }
 
@@ -264,34 +277,84 @@ export function durationLabel(weeks: number): string {
   return `${Math.round(months / 12)} Jahre`;
 }
 
-// ---------- the year at a glance: minutes for goals per day ----------
+// ---------- honest counting: a past block nobody answered ----------
+
+/** A past goal block nobody answered counts provisionally for this many days after it ended, then no more. */
+export const PROVISIONAL_DAYS = 7;
+const PROVISIONAL_MS = PROVISIONAL_DAYS * 86400000;
+
+/** How a past block nobody answered counts: as it always did, provisionally, or (null) not at all. */
+export type BlockCredit = "kept" | "provisional" | null;
 
 /**
- * Minutes that went into goals per local day: logged time, plus past planned blocks
- * for a goal that nobody answered yet (an answered block is already in the log).
+ * How a past goal block nobody answered counts, as the view goal_minutes counts it:
+ * - "kept": it ended and was entered before honest counting began (`from`, public.honest_count_from()), so it
+ *   counts as it always did (no sudden drop in anyone's numbers); also while `from` is unknown (null);
+ * - "provisional": it ended within the last PROVISIONAL_DAYS: it counts, shown lighter, and is never said as done;
+ * - null: it has not ended yet, or after those days it quietly stops counting (never a miss, never «verpasst»).
+ * Without `created_at` (older rows) only the end decides.
+ */
+export function unansweredCredit(b: { ends_at: string | null; created_at?: string | null }, now: number, from: string | null | undefined): BlockCredit {
+  const end = b.ends_at ? Date.parse(b.ends_at) : NaN;
+  if (!Number.isFinite(end) || end > now) return null;
+  const f = from ? Date.parse(from) : NaN;
+  if (!Number.isFinite(f)) return "kept";
+  const created = b.created_at ? Date.parse(b.created_at) : NaN;
+  if (end < f && !(created >= f)) return "kept";
+  return end > now - PROVISIONAL_MS ? "provisional" : null;
+}
+
+// ---------- the year at a glance: minutes for goals per day ----------
+
+type DayBlock = { id: string; starts_at: string; ends_at: string | null; all_day: boolean; kind: string; goal_id: string | null; source?: string | null; created_at?: string | null };
+
+export interface GoalDayMinutes {
+  /** local day → minutes that count: logged and answered time, plus past blocks nobody answered that still count */
+  total: Record<string, number>;
+  /** local day → of those, the minutes that count only provisionally (shown lighter) */
+  provisional: Record<string, number>;
+}
+
+/**
+ * Minutes that went into goals per local day: logged time, plus past planned blocks for a goal that nobody
+ * answered yet (an answered block is already in the log) while they still count (unansweredCredit, `from`:
+ * when honest counting began; undefined or null: every such block counts, as before).
  * A planned Nolio training (source "nolio") never counts by itself: the completed training
  * arrives as logged time from Nolio, so counting the plan too would count it twice.
  * `dayOfIso` turns an ISO start time into the person's local day.
  */
-export function dayMinutes(
+export function goalDayMinutes(
   log: { day: string; minutes: number }[],
-  blocks: { id: string; starts_at: string; ends_at: string | null; all_day: boolean; kind: string; goal_id: string | null; source?: string | null }[],
+  blocks: DayBlock[],
   answered: Set<string>,
   now: Date,
   dayOfIso: (iso: string) => string,
-): Record<string, number> {
-  const out: Record<string, number> = {};
-  for (const t of log) if (t.minutes > 0) out[t.day] = (out[t.day] ?? 0) + t.minutes;
+  from?: string | null,
+): GoalDayMinutes {
+  const total: Record<string, number> = {};
+  const provisional: Record<string, number> = {};
+  for (const t of log) if (t.minutes > 0) total[t.day] = (total[t.day] ?? 0) + t.minutes;
   for (const b of blocks) {
     if (b.kind !== "block" || !b.goal_id || b.all_day || !b.ends_at || answered.has(b.id) || b.source === "nolio") continue;
-    const end = new Date(b.ends_at).getTime();
-    if (end > now.getTime()) continue;
-    const min = Math.min(1440, Math.max(0, Math.round((end - new Date(b.starts_at).getTime()) / 60000)));
+    const credit = unansweredCredit(b, now.getTime(), from);
+    if (!credit) continue;
+    const min = Math.min(1440, Math.max(0, Math.round((Date.parse(b.ends_at) - Date.parse(b.starts_at)) / 60000)));
     if (!min) continue;
     const d = dayOfIso(b.starts_at);
-    out[d] = (out[d] ?? 0) + min;
+    total[d] = (total[d] ?? 0) + min;
+    if (credit === "provisional") provisional[d] = (provisional[d] ?? 0) + min;
   }
-  return out;
+  return { total, provisional };
+}
+
+/** goalDayMinutes, only the minutes that count per day */
+export function dayMinutes(log: { day: string; minutes: number }[], blocks: DayBlock[], answered: Set<string>, now: Date, dayOfIso: (iso: string) => string, from?: string | null): Record<string, number> {
+  return goalDayMinutes(log, blocks, answered, now, dayOfIso, from).total;
+}
+
+/** The days whose time is mostly provisional (more than half of it): drawn lighter in the year's heat. */
+export function provisionalDays(m: GoalDayMinutes): Set<string> {
+  return new Set(Object.keys(m.provisional).filter((d) => m.provisional[d] * 2 > (m.total[d] ?? 0)));
 }
 
 /**
@@ -777,9 +840,9 @@ export function smallStepMinutes(blockMinutes: number[], weeklyHours: number | n
   return Math.min(45, Math.max(15, Math.round(usual / 2 / 5) * 5));
 }
 
-type WeekBlock = { goal_id: string | null; starts_at: string; ends_at: string | null; all_day: boolean; kind?: string; source?: string | null; answered: boolean };
+type WeekBlock = { goal_id: string | null; starts_at: string; ends_at: string | null; all_day: boolean; kind?: string; source?: string | null; created_at?: string | null; answered: boolean };
 
-/** One of her own past blocks nobody answered yet (it counts provisionally): timed, ended by `now`, not the trainer's plan. */
+/** One of her own past blocks nobody answered yet: timed, ended by `now`, not the trainer's plan. */
 function openBlock(b: WeekBlock, now: Date): boolean {
   return (!b.kind || b.kind === "block") && !b.all_day && !!b.ends_at && !b.answered && b.source !== "nolio" && Date.parse(b.ends_at) <= now.getTime();
 }
@@ -791,13 +854,17 @@ export interface WeekGoalSummary {
   blocks: number;
   /** minutes recorded for it that week: logged, answered blocks, completed trainings */
   done_minutes: number;
-  /** minutes of its own past blocks that week nobody answered (they count provisionally) */
+  /** minutes of its own past blocks that week nobody answered (never a miss) */
   open_minutes: number;
+  /** what counts for it that week, as the goal's bar counts it: done_minutes plus the open blocks that still
+   *  count (provisionally, or from before honest counting; unansweredCredit) */
+  counted_minutes: number;
 }
 
 /**
- * Planned against done per goal for the week from `monday` (for the Wochenblick). Only confirmed time counts
- * as done; a block nobody answered is «open», never a miss. Goals with nothing planned and nothing done are left out.
+ * Planned against done per goal for the week from `monday` (the Wochenblick, and the per-goal line on Woche).
+ * done_minutes is confirmed time only; a block nobody answered is «open», never a miss. `from`: when honest
+ * counting began (for counted_minutes). Goals with nothing planned and nothing done are left out.
  */
 export function weekGoalSummary(
   goalIds: string[],
@@ -806,10 +873,11 @@ export function weekGoalSummary(
   monday: string,
   now: Date,
   dayOfIso: (iso: string) => string,
+  from?: string | null,
 ): WeekGoalSummary[] {
   const sunday = addDays(monday, 6);
   const inWeek = (d: string) => d >= monday && d <= sunday;
-  const out = new Map(goalIds.map((id) => [id, { goal_id: id, planned_minutes: 0, blocks: 0, done_minutes: 0, open_minutes: 0 }]));
+  const out = new Map(goalIds.map((id) => [id, { goal_id: id, planned_minutes: 0, blocks: 0, done_minutes: 0, open_minutes: 0, counted_minutes: 0 }]));
   for (const b of blocks) {
     const s = b.goal_id ? out.get(b.goal_id) : undefined;
     if (!s || (b.kind && b.kind !== "block") || b.all_day || !b.ends_at || !inWeek(dayOfIso(b.starts_at))) continue;
@@ -817,11 +885,16 @@ export function weekGoalSummary(
     if (!min) continue;
     s.planned_minutes += min;
     s.blocks++;
-    if (openBlock(b, now)) s.open_minutes += min;
+    if (!openBlock(b, now)) continue;
+    s.open_minutes += min;
+    if (unansweredCredit(b, now.getTime(), from)) s.counted_minutes += min;
   }
   for (const t of log) {
     const s = out.get(t.goal_id);
-    if (s && t.minutes > 0 && inWeek(t.day)) s.done_minutes += t.minutes;
+    if (s && t.minutes > 0 && inWeek(t.day)) {
+      s.done_minutes += t.minutes;
+      s.counted_minutes += t.minutes;
+    }
   }
   return [...out.values()].filter((s) => s.planned_minutes > 0 || s.done_minutes > 0);
 }
@@ -839,6 +912,127 @@ export function openWeekBlocks<B extends WeekBlock>(blocks: B[], goalIds: string
       return !!b.goal_id && goals.has(b.goal_id) && d >= monday && d <= sunday && openBlock(b, now) && Date.parse(b.ends_at!) > Date.parse(b.starts_at);
     })
     .sort((a, b) => Date.parse(a.starts_at) - Date.parse(b.starts_at));
+}
+
+// ---------- a block's answer: Ja · Teilweise · Nein, and the pattern of a goal's blocks ----------
+
+/** What she answered for a past block: null = nothing yet, "ja" (as planned or more), "teilweise" (some), "nein" (0). */
+export type BlockAnswerState = "ja" | "teilweise" | "nein" | null;
+
+export function blockAnswerState(minutes: number | null | undefined, planned: number): BlockAnswerState {
+  if (minutes === null || minutes === undefined) return null;
+  if (minutes <= 0) return "nein";
+  return minutes < planned ? "teilweise" : "ja";
+}
+
+/** «Teilweise» without a number: half of the planned length in steps of 5 minutes, at least 5, less than planned. */
+export function partialMinutes(planned: number): number {
+  const half = Math.max(5, Math.round(planned / 2 / 5) * 5);
+  return Math.max(1, Math.min(half, Math.round(planned) - 1));
+}
+
+/** The pattern of a goal's blocks looks back this many days. */
+export const PATTERN_DAYS = 28;
+/** The coach offers to adapt a goal's blocks from their pattern at most once in this many days. */
+export const PATTERN_EVERY_DAYS = 7;
+
+export interface BlockPattern {
+  /** her own past blocks for the goal in the window */
+  planned: number;
+  /** answered with time (Ja or Teilweise) */
+  confirmed: number;
+  /** of those, with less than planned (Teilweise) */
+  partial: number;
+  /** answered «Nein» (0 minutes): kept as data */
+  missed: number;
+  /** nobody answered */
+  open: number;
+  /** a start hour (local) or else a weekday that at least two «Nein» share, where more didn't work than worked */
+  slot: { hour: number; count: number } | { weekday: number; count: number } | null;
+  /** worth offering once to adapt them: a slot that doesn't work, or most of them didn't happen (at least three) */
+  adapt: boolean;
+}
+
+/**
+ * The pattern of one goal's blocks over the last PATTERN_DAYS: planned, confirmed, «Nein» (where they cluster)
+ * and open. Only her own timed blocks that have ended (not the trainer's plan). `minutes`: the answer (null = none).
+ * `clockOf`: the local minutes since midnight and weekday (0 = Monday) of an ISO time. Null without any block.
+ */
+export function blockPattern(
+  blocks: { starts_at: string; ends_at: string | null; all_day?: boolean; kind?: string; source?: string | null; minutes: number | null }[],
+  now: number,
+  clockOf: (iso: string) => { minutes: number; weekday: number },
+): BlockPattern | null {
+  const since = now - PATTERN_DAYS * 86400000;
+  const past = blocks.filter(
+    (b) => (!b.kind || b.kind === "block") && !b.all_day && b.source !== "nolio" && !!b.ends_at && Date.parse(b.ends_at) <= now && Date.parse(b.starts_at) >= since,
+  );
+  if (!past.length) return null;
+  const p: BlockPattern = { planned: past.length, confirmed: 0, partial: 0, missed: 0, open: 0, slot: null, adapt: false };
+  const byHour = new Map<number, { missed: number; worked: number }>();
+  const byDay = new Map<number, { missed: number; worked: number }>();
+  const tally = (m: Map<number, { missed: number; worked: number }>, k: number) => m.get(k) ?? m.set(k, { missed: 0, worked: 0 }).get(k)!;
+  for (const b of past) {
+    const planned = Math.round((Date.parse(b.ends_at!) - Date.parse(b.starts_at)) / 60000);
+    const state = blockAnswerState(b.minutes, planned);
+    if (state === null) {
+      p.open++;
+      continue;
+    }
+    const c = clockOf(b.starts_at);
+    const key = state === "nein" ? "missed" : "worked";
+    tally(byHour, Math.floor(c.minutes / 60))[key]++;
+    tally(byDay, c.weekday)[key]++;
+    if (state === "nein") p.missed++;
+    else {
+      p.confirmed++;
+      if (state === "teilweise") p.partial++;
+    }
+  }
+  // the slot with the most «Nein» (the earlier one on a tie), if at least two and more than worked there
+  const worst = (m: Map<number, { missed: number; worked: number }>) =>
+    [...m.entries()].filter(([, v]) => v.missed >= 2 && v.missed > v.worked).sort((a, b) => b[1].missed - a[1].missed || a[0] - b[0])[0];
+  const hour = worst(byHour);
+  const day = hour ? undefined : worst(byDay);
+  p.slot = hour ? { hour: hour[0], count: hour[1].missed } : day ? { weekday: day[0], count: day[1].missed } : null;
+  p.adapt = p.slot !== null || (p.missed >= 3 && p.missed > p.confirmed);
+  return p;
+}
+
+/**
+ * May the coach offer to adapt the goal's blocks now (at most once in PATTERN_EVERY_DAYS)? `askedAt`: when it
+ * last did (goals.pattern_asked_at); null = never; undefined = unknown (then never: nothing could be noted).
+ */
+export function patternOfferDue(askedAt: string | null | undefined, today: string, dayOfIso: (iso: string) => string): boolean {
+  if (askedAt === undefined) return false;
+  if (askedAt === null) return true;
+  const last = dayOfIso(askedAt);
+  return !isDay(last) || daysBetween(last, today) >= PATTERN_EVERY_DAYS;
+}
+
+type PatternBlock = Parameters<typeof blockPattern>[0][number];
+
+/**
+ * The offer to adapt a goal's blocks, for the pattern line: "anbieten" (worth it, `p.adapt`, and not offered in the
+ * last PATTERN_EVERY_DAYS), "angeboten" (offered within them) or null. After an offer only the blocks since then
+ * count for the next one: the same old «Nein» never bring it back week after week (she may have moved the blocks,
+ * or said she keeps them). `askedAt`: goals.pattern_asked_at (null = never; undefined = unknown: never offered).
+ */
+export function patternOffer(
+  p: BlockPattern,
+  blocks: PatternBlock[],
+  askedAt: string | null | undefined,
+  now: number,
+  today: string,
+  clockOf: (iso: string) => { minutes: number; weekday: number },
+  dayOfIso: (iso: string) => string,
+): "anbieten" | "angeboten" | null {
+  if (!p.adapt || askedAt === undefined) return null;
+  if (!patternOfferDue(askedAt, today, dayOfIso)) return "angeboten";
+  if (askedAt === null) return "anbieten";
+  const since = Date.parse(askedAt);
+  const fresh = Number.isFinite(since) ? blockPattern(blocks.filter((b) => Date.parse(b.starts_at) > since), now, clockOf) : p;
+  return fresh?.adapt ? "anbieten" : null;
 }
 
 export type TodayWin = { kind: "zeit"; title: string; minutes: number } | { kind: "etappe"; title: string; goal: string } | { kind: "gewohnheit"; title: string };
@@ -864,6 +1058,56 @@ export function todayWins(
   for (const g of goals) for (const m of g.milestones) if (m.done_at && dayOfIso(m.done_at) === today) wins.push({ kind: "etappe", title: m.title, goal: g.title });
   for (const h of habits) if (h.done_days.includes(today)) wins.push({ kind: "gewohnheit", title: h.title });
   return wins;
+}
+
+/** 45 → «45 Min», 60 → «1 Std», 75 → «1 Std 15 Min» (written as it is said) */
+export function minutesText(m: number): string {
+  const t = Math.round(m);
+  const h = Math.floor(t / 60);
+  const rest = t % 60;
+  return h ? `${h} Std${rest ? ` ${rest} Min` : ""}` : `${rest} Min`;
+}
+
+/**
+ * The quiet line on Jetzt: what she did today, only what is confirmed (todayWins: logged time, answered blocks,
+ * completed trainings, steps done, habits ticked), e.g. «Heute: 40 Min für Halbmarathon Zürich · Dehnen».
+ * Null when there is nothing: never «0», never what is missing, never what was only planned.
+ */
+export function todayWinsLine(wins: TodayWin[]): string | null {
+  if (!wins.length) return null;
+  return `Heute: ${wins.map((w) => (w.kind === "zeit" ? `${minutesText(w.minutes)} für ${w.title}` : w.title)).join(" · ")}`;
+}
+
+// ---------- Plan B: one if-then plan per serious goal ----------
+
+/** goals.plan_b, her if-then sentence («Wenn es regnet, laufe ich auf dem Laufband.»): at most this many characters. */
+export const PLAN_B_MAX = 200;
+/** goals.obstacle, what could get in the way («Regen»), for the coach: at most this many characters. */
+export const OBSTACLE_MAX = 160;
+
+type PlanBGoal = { kind?: string | null; status: string; target_date: string | null; weekly_hours?: number | null };
+
+/**
+ * Serious: she works toward a date with real time for it. An active goal (not a dream) whose target date still
+ * lies ahead, with hours per week or planned blocks (`hasBlocks`: blocks for it in the calendar, past or coming).
+ */
+export function seriousGoal(g: PlanBGoal, hasBlocks: boolean, today: string): boolean {
+  if (g.kind === "dream" || g.status !== "active" || !g.target_date || !isDay(g.target_date) || g.target_date <= today) return false;
+  return (g.weekly_hours ?? 0) > 0 || hasBlocks;
+}
+
+/**
+ * Ask once now what could get in the way (Plan B)? A serious goal with neither a Plan B nor an obstacle, never
+ * asked (plan_b_asked_at null). Unknown (undefined, e.g. before the column) means never: nothing could be noted.
+ */
+export function planBDue(
+  g: PlanBGoal & { plan_b?: string | null; obstacle?: string | null; plan_b_asked_at?: string | null },
+  hasBlocks: boolean,
+  today: string,
+): boolean {
+  if (g.plan_b_asked_at !== null) return false;
+  if (g.plan_b?.trim() || g.obstacle?.trim()) return false;
+  return seriousGoal(g, hasBlocks, today);
 }
 
 /** «Viel» in one day: at least this many of her own messages. */

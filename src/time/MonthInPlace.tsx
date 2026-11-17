@@ -82,12 +82,13 @@ export function MonthInPlace({ month, label, today, data, origin, closing, reduc
             `l${level}`,
             future && "future",
             day === today && "today",
+            !future && day !== today && level > 0 && data.provisional.has(day) && "prov",
             future && data.planned.has(day) && "planned",
             data.targets.has(day) && "target",
           ]
             .filter(Boolean)
             .join(" ");
-          const aria = `${daySubline(day, today)}: ${m ? `${spokenMinutes(m)} für Ziele` : "keine Zeit für Ziele"}${n ? `, ${n} ${n === 1 ? "Eintrag" : "Einträge"}` : ""}${data.planned.has(day) && future ? ", geplant" : ""}${data.targets.has(day) ? ", Zieltag" : ""}. Tag öffnen`;
+          const aria = `${daySubline(day, today)}: ${m ? `${spokenMinutes(m)} für Ziele${data.provisional.has(day) ? ", vorläufig" : ""}` : "keine Zeit für Ziele"}${n ? `, ${n} ${n === 1 ? "Eintrag" : "Einträge"}` : ""}${data.planned.has(day) && future ? ", geplant" : ""}${data.targets.has(day) ? ", Zieltag" : ""}. Tag öffnen`;
           return (
             <button key={day} type="button" className={cls} data-day={day} aria-label={aria} aria-current={day === today ? "date" : undefined} onClick={() => onDay(day)}>
               <span className="mo-num">{Number(day.slice(8))}</span>

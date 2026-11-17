@@ -86,8 +86,10 @@ export function DayLevel({ titleId, active, weather }: DayLevelProps) {
     ro.observe(box);
     return () => ro.disconnect();
   }, []);
-  const contentKey = `${shown}|${allItems.map((it) => (it.kind === "event" ? `${it.e.id}${it.past ? "p" : ""}${it.e.title.length}` : it.kind)).join(",")}|${Object.keys(data.answers).length}`;
-  const layoutKey = `${contentKey}|${boxH}`;
+  // what the day shows (her «frühere» or «mehr» stays open while she answers a block: Ja · Teilweise · Nein);
+  // the fit is measured again when an answer changes a row's height
+  const contentKey = `${shown}|${allItems.map((it) => (it.kind === "event" ? `${it.e.id}${it.past ? "p" : ""}${it.e.title.length}` : it.kind)).join(",")}`;
+  const layoutKey = `${contentKey}|${Object.keys(data.answers).length}|${boxH}`;
   const [fitState, setFitState] = useState<{ key: string; fit: Fit; limit: number }>({ key: "", fit: 0, limit: Infinity });
   const [user, setUser] = useState<{ key: string; expanded: boolean; pastOpen: boolean }>({ key: "", expanded: false, pastOpen: false });
   const fit: Fit = fitState.key === layoutKey ? fitState.fit : 0;
@@ -229,7 +231,7 @@ export function DayLevel({ titleId, active, weather }: DayLevelProps) {
                       answers={data.answers}
                       now={now.getTime()}
                       onOpen={(el) => open({ kind: "event", event: it.e, day: shown }, el)}
-                      onAnswer={(done) => data.answer(it.e, done)}
+                      onAnswer={(done, minutes) => data.answer(it.e, done, minutes)}
                     />
                   );
                 })}
@@ -260,7 +262,7 @@ function DayRow(props: {
   answers: Answers;
   now: number;
   onOpen(el: HTMLElement): void;
-  onAnswer(done: boolean | null): void;
+  onAnswer(done: boolean | null, minutes?: number): void;
 }) {
   const { e, past, compact, goal, flash, answers, now } = props;
   const ref = useRef<HTMLLIElement>(null);
@@ -271,8 +273,10 @@ function DayRow(props: {
   const nolio = e.source === "nolio"; // planned by the trainer: read-only, counts by itself once done in Nolio
   const planned = goal && !nolio ? pastBlockMinutes(e, now) : null;
   const goalLabel = goal ? (goal === e.title ? "Ziel" : goal) : null;
-  const meta = planned === null ? [e.location, goalLabel, nolio ? "vom Trainer" : null].filter(Boolean).join(" · ") : "";
-  const label = `${e.title}, ${e.all_day ? "ganztägig" : `${time}${end ? ` bis ${end}` : ""}`}${e.kind === "block" ? ", Block" : ""}${goal ? `, Ziel ${goal}` : ""}${nolio ? ", vom Trainer geplant. Ansehen" : ". Bearbeiten"}${fresh ? ", neu vom Coach" : ""}`;
+  // a day of a weekly rhythm: a quiet «jede Woche» (one unit: never broken over two lines)
+  const weekly = e.series_id ? "jede\u00a0Woche" : null;
+  const meta = planned === null ? [e.location, goalLabel, weekly, nolio ? "vom Trainer" : null].filter(Boolean).join(" · ") : "";
+  const label = `${e.title}, ${e.all_day ? "ganztägig" : `${time}${end ? ` bis ${end}` : ""}`}${e.kind === "block" ? ", Block" : ""}${e.series_id ? ", jede Woche" : ""}${goal ? `, Ziel ${goal}` : ""}${nolio ? ", vom Trainer geplant. Ansehen" : ". Bearbeiten"}${fresh ? ", neu vom Coach" : ""}`;
   return (
     <li
       ref={ref}

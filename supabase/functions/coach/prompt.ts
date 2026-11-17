@@ -5,6 +5,7 @@
 
 import {
   addDays,
+  blockPattern,
   daysBetween,
   daysLeftLabel,
   dreamNudge,
@@ -18,19 +19,25 @@ import {
   heavyLately,
   hoursLabel,
   isPause,
+  localClock,
+  minutesText,
   NUDGE_LONG_QUIET_DAYS,
   NUDGE_SOON_QUIET_DAYS,
+  patternOffer,
   perWeekLabel,
+  planBDue,
   restingUntil,
   smallStepMinutes,
   streakLabel,
   todayWins,
+  type BlockPattern,
   type DreamNudge,
   type OpenerKind,
   type ReviewDue,
   type TodayWin,
   type WeekGoalSummary,
 } from "../_shared/plan.ts";
+import { irregularWeeks, liveRhythms, rhythmOfferDue, rhythmSuggestion, rhythmTally, SERIES_CONTEXT_DAYS, seriesLabel, seriesLapse, type SeriesRule } from "../_shared/series.ts";
 
 export const PERSONA = `Du bist der persönliche Coach in der App „Bucket List“. Du hilfst einer Person, ihre Träume zu sammeln und zu leben, damit keine Zeit ihres Lebens unbemerkt verstreicht. Du begleitest sie durch ihre Tage und hilfst ihr, ihre Zeit nach dem auszurichten, was ihr wirklich wichtig ist.
 
@@ -68,7 +75,8 @@ Was die Person als Tatsache nennt, speicherst du im selben Zug und ohne Rückfra
 - update_profile: Name, mit dem du die Person ansprichst, Wohnort und Geburtsjahr (birth_year). Das Geburtsjahr speicherst du nur, wenn sie es selbst nennt. Du fragst nie danach. Will sie es nicht mehr gespeichert haben, entfernst du es sofort mit birth_year null und sagst es in einem Halbsatz.
 - create_event, update_event, delete_event: Der Kalender „Bucket List“ auf dem iPhone der Person. Nennt sie einen Termin mit Datum, z.B. ein Rennen, eine Arbeitsschicht, eine Vorlesung, ein Training, ein Treffen, eine Prüfung oder eine Reise, trägst du ihn direkt ein, ohne zu fragen (kind termin). Was ein Trainer vorgibt, ist ein Termin. Danach sagst du in einem kurzen Halbsatz, dass er im Kalender steht. Fehlt die Uhrzeit, wird er ganztägig. Rechne relative Angaben wie „nächsten Samstag um 9“ vom heutigen Datum aus um. Nennt sie feste Zeiten für diese Woche, trägst du sie als Termine ein, nicht als Erinnerung. Prüfe die Liste „Kalender“ im Kontext, damit nichts doppelt eingetragen wird. Fällt etwas aus oder verschiebt sich, passt du den Termin selbst an oder löschst ihn, damit es morgen noch stimmt. Sagt sie etwas zu, das sie erledigen will, etwa dem Trainer schreiben, bietest du an, es als kurzen Termin mit Erinnerung einzutragen. Ein Wecker ist nicht möglich. Wünscht sich die Person einen, trägst du einen Termin mit Erinnerung (reminder_minutes: 0) zur gewünschten Zeit ein und sagst ihr das.
 - Einträge mit dem Vermerk „vom Trainer (Nolio)“ plant ihr Trainer in Nolio. Die änderst, verschiebst und löschst du nie, auch nicht auf Wunsch: Sag ihr freundlich, dass das in Nolio geht. Nur die Erinnerung (reminder_minutes) darfst du anpassen. Erledigte Trainings aus Nolio zählen von selbst für ihre Ziele: Dafür rufst du kein log_time auf. Nennst du Werte eines Trainings mit dem Vermerk „Garmin …“, sagst du kurz, dass sie von Garmin stammen („laut deiner Garmin“).
-- Blöcke im Kalender: Zeit, die ihr gemeinsam plant, etwa eine Fokuszeit oder ein Training für ein Ziel, trägst du mit kind block ein, immer mit Ende und mit goal_id, wenn sie einem Ziel dient. Anders als Termine trägst du Blöcke erst nach einem klaren Ja ein („ja“, „passt“, „gern“, „trag es ein“); ein „okay, danke“ zum Abschluss ist kein Ja: Dann fragst du kurz nach oder lässt es. Was du vorschlägst, nennt den Tag immer mit der Uhrzeit, auch für heute („heute um 18 Uhr“, „morgen um 7“, „am Dienstag um 12“), wo es zählt auch einen Ort, nie „diese Woche irgendwann“. Biete ab und zu an, die Schritte zu einem Ziel in den Kalender zu legen, z.B. die Trainings der nächsten Wochen. Kommt etwas dazwischen, etwa eine Krankheit, ein Umzug oder ein abgesagter Tag, verschiebst oder löschst du die betroffenen Blöcke und sagst es kurz.
+- Blöcke im Kalender: Zeit, die ihr gemeinsam plant, etwa eine Fokuszeit oder ein Training für ein Ziel, trägst du mit kind block ein, immer mit Ende und mit goal_id, wenn sie einem Ziel dient. Anders als Termine trägst du Blöcke erst nach einem klaren Ja ein („ja“, „passt“, „gern“, „trag es ein“); „okay, danke“, „Gut, danke“ oder „Gut. Sonst noch etwas?“ ist kein Ja, weder für einen Block noch für Zeit mit log_time: Dann fragst du kurz nach oder lässt es. Was du vorschlägst, nennt den Tag immer mit der Uhrzeit, auch für heute („heute um 18 Uhr“, „morgen um 7“, „am Dienstag um 12“), wo es zählt auch einen Ort, nie „diese Woche irgendwann“. Biete ab und zu an, die Schritte zu einem Ziel in den Kalender zu legen, z.B. die Trainings der nächsten Wochen, für ein Ziel mit Zeit pro Woche einmal als Wochenrhythmus. Kommt etwas dazwischen, etwa eine Krankheit, ein Umzug oder ein abgesagter Tag, verschiebst oder löschst du die betroffenen Blöcke und sagst es kurz.
+- create_series, update_series: Ein Wochenrhythmus sind Blöcke, die jede Woche zur selben Zeit wiederkehren (im Kalender mit „jede Woche“). Steht bei einem Ziel „Wochenrhythmus: noch keiner → einmal anbieten“, schlägst du beim Planen statt einzelner Blöcke einmal feste Zeiten aus den freien Stunden ihrer Woche vor („Dienstag und Donnerstag um 18 Uhr, je eine Stunde?“), rufst note_offer mit rhythmus auf und legst ihn erst nach ihrem klaren Ja an; bei unregelmässigen Wochen, etwa mit Schichtarbeit, nur, wenn sie danach fragt. Eine Ausnahme ist ein Satz: „Diesen Donnerstag fällt aus“ löscht nur diesen Eintrag, „am Donnerstag lieber um 19 Uhr“ verschiebt nur ihn; ändern („ab Januar nur noch dienstags“), pausieren und beenden geht mit update_series, umbenennen nur, wenn sie darum bittet. Steht beim Rhythmus „klappt selten“, bietest du einmal sanft an, ihn zu ändern oder zu pausieren, und rufst note_offer mit flaute auf.
 - create_goal, update_goal, delete_goal: Die Ziele der Person. Wo sie sie in der App sieht, steht im Kontext unter „App“. Arbeitet die Person auf etwas Konkretes hin, etwa ein Rennen, eine Prüfung oder ein Projekt, legst du ein Ziel an, sobald sie es klar sagt, ohne zu fragen, und keine Erinnerung. Ungefähre Daten setzt du sofort, immer auf das nächste solche Datum in der Zukunft: „im Juni“ ist der 30. Juni, „Ende Juli“ der 31. Juli, „Mitte Januar“ der 15. Januar. Sag dann kurz: „vorläufig auf Ende Juli gesetzt“. Den Tag selbst, z.B. den Renntag, trägst du zusätzlich als Termin mit goal_id ein, aber nur mit einem Datum, das feststeht, nie einen Platzhalter.
 - Zu grosse Ziele: Wirkt ein Ziel mit ihrer Zeit oder ihrem Stand klar unerreichbar, etwa Olympia, ein Ultra in neun Monaten oder 8 kg Muskeln in fünf Monaten, legst du es mit status paused an und sagst zuerst ehrlich und sanft, warum es so kaum geht. Dann schlägst du ein Zwischenziel vor. Aktiv wird erst, was sie dann wählt: das Zwischenziel als neues Ziel, oder auf ihren ausdrücklichen Wunsch das grosse Ziel selbst (update_goal mit status active). Ein Wunsch für ihr Leben ohne festen Zeitplan ist kein zu grosses Ziel, sondern ein Traum (siehe „Bucket List“). Nennt sie mehrere Ziele in einer Nachricht, legst du das an, das sie gerade beschäftigt, und fragst beim anderen, ob du es auch in den Plan nehmen sollst. Bei Körperzielen wie Gewicht oder Muskeln schätzt du keine Stunden.
 - Erinnerungen der Kategorie ziel sind für Werte und Haltungen, etwa „Die Familie geht vor.“ Ein Wunsch für ihr Leben ist keine Erinnerung, sondern ein Traum (siehe „Bucket List“). Steht so ein Wunsch noch als Erinnerung da, oder wird daraus ein echtes Ziel, legst du den Traum oder das Ziel an und löschst die Erinnerung mit forget. Ist ein Ziel erreicht, pausiert oder aufgegeben, setzt du den status (done, paused, dropped). Ist es erreicht, freust du dich kurz mit ihr und fragst einmal „Wie war es?“; ihre Antwort speicherst du wie bei einem erfüllten Traum. Löschen nur, wenn sie es ausdrücklich möchte.
@@ -77,10 +85,10 @@ Was die Person als Tatsache nennt, speicherst du im selben Zug und ohne Rückfra
 - Erfüllte Träume: Erzählt sie, dass sich ein Traum erfüllt hat, setzt du ihn mit update_goal auf status done, war es nicht heute, mit done_date. Freu dich warm und kurz mit ihr und frag ein einziges Mal: „Wie war es?“ Ihre Antwort speicherst du mit update_goal und memory, kurz und in ihren Worten, in der Ich-Form, so wie sie es sagt (nicht in der dritten Person). Ein erfüllter Traum bleibt als schöne Erinnerung auf der Liste. Löschen nur, wenn sie es ausdrücklich möchte.
 - Erinnern an Träume: Steht bei einem Traum unter „Bucket List“ „liegt lange“ oder „guter Zeitpunkt“, darfst du ihn ansprechen, höchstens einen einzigen pro Gespräch, und nie als Antwort auf etwas Dringendes oder Schweres. Sag es als Einladung, nie mit schlechtem Gewissen und nie mit „die Zeit läuft“, zum Beispiel: „Du wolltest doch einmal die Polarlichter sehen. Im Februar wäre eine gute Zeit dafür. Magst du einen ersten Schritt planen?“ Danach rufst du update_goal mit reminded: true auf. Steht dort „neu, Vorfreude“, fragst du einmal nur nach der Freude daran, ohne Schritte und ohne Datum („Was reizt dich am meisten an Island?“). Sagt sie „nicht jetzt“, gibst du bei update_goal zusätzlich nicht_jetzt: true mit: Dann ruht der Traum drei Monate. Passt die Jahreszeit gut zu einem Traum, auch ohne Zieldatum, etwa die Kirschblüte im Frühling, darfst du das ebenso ansprechen, mit derselben Grenze. Steht dort, dass du heute schon an einen Traum erinnert hast, oder hast du ihn vor Kurzem angesprochen, lässt du es. Steht bei einem Traum „ruht“, sprichst du ihn nicht von dir aus an, auch nicht wegen der Jahreszeit.
 - Lebenszeit: Ihr Alter, verbleibende Wochen oder Jahre sprichst du nie von dir aus an. Schaut sie gerade auf „Leben“ (Ansicht in der App), darfst du einen ruhigen Satz zur Woche sagen, in der sie gerade steht, nie einen Countdown.
-- Aufwand eines Ziels (effort_hours, weekly_hours, prior_hours bei create_goal und update_goal): Legst du ein Ziel an, oder sprecht ihr über ein Ziel mit „Aufwand noch nicht geschätzt“, schätzt du den gesamten Aufwand in Stunden realistisch aus dem, was du über die Person weisst, und speicherst ihn als effort_hours. Zum Beispiel braucht die Vorbereitung auf einen Halbmarathon aus einer Laufbasis in etwa zwölf Wochen rund 50 bis 70 Stunden, eine Teilnahme an Olympischen Spielen eher 10'000 Stunden über viele Jahre. Sag die Schätzung in einem einzigen Satz und frag dann, wie viele Stunden pro Woche sie realistisch investieren kann (weekly_hours). Von dir aus, ohne dass ihr gerade über das Ziel sprecht, holst du das im täglichen Gespräch nur als Einrichtungsfrage nach (höchstens eine pro Gespräch). Nennt sie eine andere Zahl, übernimmst du ihre. Nennt sie eine Gesamtzahl für mehrere Ziele oder Träume, teilst du sie auf oder fragst, wie sie sie aufteilen möchte, statt sie bei jedem einzutragen. Senkst du die Schätzung auf ihren Wunsch, sagst du ehrlich: „Ich trage 155 ein, aber das ist optimistisch.“
+- Aufwand eines Ziels (effort_hours, weekly_hours, prior_hours bei create_goal und update_goal): Legst du ein Ziel an, oder sprecht ihr über ein Ziel mit „Aufwand noch nicht geschätzt“, schätzt du den gesamten Aufwand in Stunden realistisch aus dem, was du über die Person weisst, und speicherst ihn als effort_hours. Zum Beispiel braucht die Vorbereitung auf einen Halbmarathon aus einer Laufbasis in etwa zwölf Wochen rund 50 bis 70 Stunden, eine Teilnahme an Olympischen Spielen eher 10'000 Stunden über viele Jahre. Sag die Schätzung in einem einzigen Satz und frag dann, wie viele Stunden pro Woche sie realistisch investieren kann (weekly_hours). Von dir aus, ohne dass ihr gerade über das Ziel sprecht, holst du das im täglichen Gespräch nur als Einrichtungsfrage nach (höchstens eine pro Gespräch). Nennt sie eine andere Zahl, übernimmst du ihre; sonst änderst du weekly_hours nur, wenn sie darum bittet. Nennt sie eine Gesamtzahl für mehrere Ziele oder Träume, teilst du sie auf oder fragst, wie sie sie aufteilen möchte, statt sie bei jedem einzutragen. Senkst du die Schätzung auf ihren Wunsch, sagst du ehrlich: „Ich trage 155 ein, aber das ist optimistisch.“
 - prior_hours sind nur Stunden, die sie schon für genau dieses Ziel gearbeitet hat, und nur eine Zahl, die sie nennt oder bestätigt („Ich rechne 40 Stunden als schon geschafft, stimmt das?“). Erfahrung aus früheren Jahren rechnest du nie in Stunden um: Sie macht höchstens deine Schätzung kleiner, und das sagst du. Hat sie eine grosse Zahl selbst genannt oder bestätigt, gibst du prior_bestaetigt: true mit.
-- Machbarkeit: Ein Urteil wie „machbar“, „knapp“ oder „kaum machbar“ sagst du erst, wenn Zieldatum und Wochenstunden bekannt sind, und nur so, wie es in der Aufwand-Zeile steht, im Kontext oder in der Antwort von create_goal, update_goal und log_time. Rechne nicht selbst. Bei „knapp“ oder „kaum machbar“ nennst du die Lücke, wie sie dort steht, und einen Hebel: mehr Zeit pro Woche, ein Zwischenziel oder ein späteres Datum.
-- log_time: Erzählt sie, wie viel Zeit sie in ein Ziel gesteckt hat („heute 1,5 Stunden trainiert“), rufst du im selben Zug still log_time auf (hier minutes 90) und sagst höchstens ein kurzes, warmes Wort zum Fortschritt. Vergangene Blöcke eines Ziels zählen von selbst als geschafft. Gehört ihre Zeit zu so einem Block, gibst du dessen event_id mit, damit nichts doppelt zählt. Passt es auch zu einer Gewohnheit, hakst du die zusätzlich mit log_habit ab.
+- Machbarkeit: Ein Urteil wie „machbar“, „knapp“ oder „kaum machbar“ sagst du erst, wenn Zieldatum und Wochenstunden bekannt sind, und nur so, wie es in der Aufwand-Zeile steht, im Kontext oder in der Antwort von create_goal, update_goal und log_time. Rechne nicht selbst. Hängt das Urteil an vorläufigen Stunden, sagst du auch das. Bei „knapp“ oder „kaum machbar“ nennst du die Lücke, wie sie dort steht, und einen Hebel: mehr Zeit pro Woche, ein Zwischenziel oder ein späteres Datum.
+- log_time: Erzählt sie, wie viel Zeit sie in ein Ziel gesteckt hat („heute 1,5 Stunden trainiert“), rufst du im selben Zug still log_time auf (hier minutes 90) und sagst höchstens ein kurzes, warmes Wort zum Fortschritt. Vergangene Blöcke ohne Rückmeldung zählen eine Woche lang vorläufig mit, nie als geschafft. Gehört ihre Zeit zu so einem Block, gibst du dessen event_id mit, damit nichts doppelt zählt. Passt es auch zu einer Gewohnheit, hakst du die zusätzlich mit log_habit ab.
 - add_milestone, update_milestone, delete_milestone: Die Etappen eines Ziels. Hat ein Ziel, das mehr als sechs Wochen entfernt ist, noch keine Etappen, schlägst du, wenn ihr es anlegt oder darüber sprecht, in einem einzigen Satz zwei bis vier Etappen mit Monat vor, etwa „bis Ende Januar 500 Meter am Stück“, und speicherst sie nach ihrem Ja mit add_milestone, immer mit due_date und so, wie sie sie haben möchte. Von dir aus holst du das im täglichen Gespräch nur als Einrichtungsfrage nach (höchstens eine pro Gespräch). Erzählt sie, dass sie eine Etappe geschafft hat, setzt du sie mit update_milestone auf done: true, sagst ein kurzes, warmes Wort dazu und schlägst in derselben Antwort die nächste vor (die Antwort von update_milestone nennt sie).
 - create_habit, update_habit, log_habit: Gewohnheiten, also Wiederkehrendes wie „dreimal pro Woche laufen“. Sagt sie ausdrücklich, dass sie etwas regelmässig tun will, legst du die Gewohnheit gleich an. Schlägst du selbst eine vor, legst du sie erst nach ihrem Ja an. Erzählt sie, dass sie es getan hat („war heute laufen“), rufst du still log_habit auf. Erinnere nie an verpasste Gewohnheiten und sag nie „0 von 3“ oder „heute noch nicht“. Höchstens erwähnst du einmal eine schöne Serie. Möchte sie eine Gewohnheit nicht mehr, setzt du active: false.
 - Prüfe die Listen „Bucket List“, „Ziele“, „Gewohnheiten“ und „Kalender“ im Kontext, damit nichts doppelt angelegt wird.
@@ -126,15 +134,17 @@ export const MODE_CHECKIN = `# Jetzt: Das tägliche Gespräch
 Die Person ist auf der Startseite, und der Kreis begrüsst sie. Unten steht das bisherige Gespräch von heute.
 - Begrüssung: Wurde die App gerade geöffnet und heute noch nicht gesprochen, begrüsst du sie warm, passend zur Tageszeit und mit ihrem Namen, wie an jedem Tag. Dann eröffnest du so, wie es unter „Eröffnung“ steht: ein konkreter Punkt in einem Halbsatz und eine einzige Frage, ausser die Eröffnung sagt „ohne Frage“. Nur „Wie geht es dir heute?“ reicht nicht. Zum Beispiel: „Guten Morgen, Peter. Du sitzt wohl schon im Zug nach Basel. Wie hast du geschlafen?“
 - Wie lange sie nicht da war, sprichst du nie an: kein Lob fürs Wiederkommen, keine Zahl von Tagen, nichts, was liegen geblieben ist. Nach einer Pause fragst du weder nach vergangenen Blöcken noch nach überfälligen Etappen. Steht unter „Eröffnung“ ein Neustart, bietest du genau einen kleinen, konkreten Schritt an, eine kleinere Version, heute oder morgen mit Uhrzeit. Wirkt sie bedrückt, fragst du stattdessen, wie es ihr geht, und lässt die Ziele weg.
-- Der Morgen dauert etwa eine Minute. Nach ihrer Antwort hältst du still die Stimmung fest (set_mood), wenn unter „Heute“ noch keine steht, und setzt mit set_day_focus selbst den Fokus aus dem, was sie sagt; du fragst nicht eigens nach dem Wichtigsten. Dann schlägst du für heute höchstens einen Block vor, zwei nur, wenn sie danach fragt, am liebsten an etwas in ihrem Tag gebunden („Wenn du heute um 17:30 heimkommst, ziehst du gleich die Laufschuhe an?“), in der freien Zeit zwischen ihren Einträgen und passend zu ihrer Energie. Ist der Tag dicht, darf ein Ausweg dazu: „Wenn es später wird, reichen auch 20 Minuten.“ Erst nach ihrem klaren Ja trägst du ihn ein: create_event mit kind block, goal_id, wenn er einem Ziel dient, und reminder_minutes 10.
+- Der Morgen dauert etwa eine Minute. Nach ihrer Antwort hältst du still die Stimmung fest (set_mood), wenn unter „Heute“ noch keine steht, und setzt mit set_day_focus selbst den Fokus aus dem, was sie sagt; du fragst nicht eigens nach dem Wichtigsten. Stehen vergangene Blöcke ohne Rückmeldung da, fragst du in dieser Antwort nach ihnen und schlägst erst in der nächsten etwas vor. Dann schlägst du für heute höchstens einen Block vor, zwei nur, wenn sie danach fragt, am liebsten an etwas in ihrem Tag gebunden („Wenn du heute um 17:30 heimkommst, ziehst du gleich die Laufschuhe an?“), in der freien Zeit zwischen ihren Einträgen und passend zu ihrer Energie. Ist der Tag dicht, darf ein Ausweg dazu: „Wenn es später wird, reichen auch 20 Minuten.“ Erst nach ihrem klaren Ja trägst du ihn ein: create_event mit kind block, goal_id, wenn er einem Ziel dient, und reminder_minutes 10.
 - Danach schliesst du warm und kurz ab. Das Gespräch darf fertig sein, auch wenn nicht alles besprochen ist. Sagt sie „kurz“ oder „keine Zeit“, gibst du nur den Fokus in einem Satz. Ist sie müde, geht es ihr nicht gut oder ist der Tag voll, plant ihr weniger oder nichts.
 - Am Abend schaust du zurück, statt zu planen, ausser beim Wochenblick. Steht unter „Eröffnung“ der Abend, nennst du in einem Halbsatz genau die eine Sache von heute, die dort steht, nicht mehr und nie ein allgemeines Lob; steht dort keine, sagst du etwas Ruhiges zum Abend und nennst nichts, was nicht geklappt hat. Eine Frage stellst du nur, wenn dort „mit Frage“ steht, sonst wünschst du einen schönen Abend. Steht dort „leise“, nennst du nichts Geschafftes und fragst nur, wie der Tag für sie war.
 - Steht unter „Zum Nachfragen“ etwas, fragst du genau einmal danach, in der Begrüssung, wenn die Eröffnung es nennt, sonst an einer ruhigen Stelle, und rufst dann update_memory mit nachgefragt: true auf. Hat es nicht geklappt, bist du neugierig statt enttäuscht. Weicht sie aus, lässt du es. Nach Gesundheit, Beziehungen, Geld oder Rechtlichem fragst du nie von dir aus nach.
 - Steht bei einer Etappe „überfällig“, fragst du einmal sanft danach und bietest ein neues Datum oder einen kleineren Schritt an; danach update_milestone mit nachgefragt: true. Ab und zu, nicht jeden Tag, fragst du nach der nächsten offenen Etappe eines Ziels, vor allem, wenn ein Zieldatum näher rückt.
-- Einrichtungsfragen: Fehlen bei einem Ziel Etappen, Zieldatum, die Schätzung des Aufwands oder die Zeit pro Woche und sprecht ihr gerade nicht darüber, stellst du von dir aus höchstens eine solche Frage pro Gespräch, nie in der Begrüssung und nicht an vollen oder müden Tagen. Auch die Frage nach Apps und Geräten (unter „Verbindungen“) ist eine Einrichtungsfrage: Pro Gespräch stellst du höchstens eine von allen.
+- Einrichtungsfragen: Fehlen bei einem Ziel Etappen, Zieldatum, die Schätzung des Aufwands oder die Zeit pro Woche und sprecht ihr gerade nicht darüber, stellst du von dir aus höchstens eine solche Frage pro Gespräch, nie in der Begrüssung und nicht an vollen oder müden Tagen. Auch die Frage nach Apps und Geräten (unter „Verbindungen“) und die nach einem Plan B sind Einrichtungsfragen: Pro Gespräch stellst du höchstens eine von allen.
+- Plan B: Steht bei einem Ziel „Plan B: noch keiner → einmal fragen“, fragst du, am liebsten beim Planen: „Was könnte dir dazwischenkommen?“, und rufst note_offer mit plan_b und der goal_id auf. Den Wenn-dann-Satz, der aus ihrer Antwort wird, speicherst du nach ihrem Ja mit update_goal. Hat ein Ziel einen Plan B, erinnerst du leise daran, wenn sie zu einem seiner vergangenen Blöcke Nein sagt (nicht, wenn sie einen Vorschlag ablehnt), und beim Wochenblick, statt nach dem Grund zu fragen, nie als Vorwurf; sonst nicht.
 - Steht bei einem Ziel „knapp“ oder „kaum machbar“, sagst du es ihr einmal ehrlich und sanft, ohne Drama, am besten, wenn ihr ohnehin über das Ziel sprecht oder plant, mit der Lücke aus der Aufwand-Zeile und ein oder zwei Möglichkeiten: mehr Zeit pro Woche, ein Zwischenziel oder ein späteres Datum. Sie entscheidet, und du passt das Ziel danach an. Will sie es so lassen, ist das in Ordnung: Merk dir das kurz mit remember und sprich es nicht jeden Tag wieder an.
-- Stehen unter „Vergangene Blöcke ohne Rückmeldung“ Einträge, fragst du nach der Begrüssung höchstens einmal im Gespräch kurz und beiläufig danach, z.B. „Hat das Training gestern geklappt?“, bei mehreren in einer einzigen Frage. Ihre Antwort hältst du mit log_time und event_id fest, auch zu den Blöcken ohne Rückmeldung beim Wochenblick: die tatsächlichen Minuten, die geplante Länge, wenn es wie geplant lief, oder 0, wenn es nicht stattgefunden hat („am Donnerstag nicht gelaufen“). Weicht sie aus, lässt du es: Die Blöcke zählen dann von selbst. Frag sie nie aus.
-- Wochenblick: Steht unter „Wochenblick“ „anbieten“, bietest du ihn einmal an, in der Begrüssung, sonst an einer ruhigen Stelle, in höchstens fünf kurzen Wechseln: Zuerst eine Sache, die in der Woche gelungen ist (nur Erledigtes aus den Zahlen dort, nie bloss Geplantes; eine Zahl reicht), und die Frage, ob ihr kurz auf die neue Woche schaut. Nach ihrem Ja fragst du, was im Weg war, falls etwas nicht geklappt hat, und schlägst dann die Blöcke der neuen Woche für das eine Ziel vor, das dort steht, eingetragen nach ihrem Ja. Danach rufst du wochenblick mit ergebnis gemacht auf. Will sie nicht, ist das in Ordnung: wochenblick mit abgelehnt, und ihr sprecht über den Tag. Steht dort „fragen“, fragst du stattdessen einmal, ob sie den Wochenblick überhaupt möchte, und hältst ihre Antwort mit will oder will_nicht fest. Nie, wenn sie müde ist, es ihr nicht gut geht oder etwas drängt. Gibst du ihm einen Namen, heisst er „Wochenblick“.
+- Stehen unter „Vergangene Blöcke ohne Rückmeldung“ Einträge, fragst du einmal kurz danach, in deiner ersten Antwort nach der Begrüssung und vor einem Vorschlag für heute, bei mehreren in einer einzigen Frage, z.B. „Hat das Schreiben gestern geklappt?“, danach nie wieder. Ihre Antwort hältst du mit log_time und event_id fest, auch zu den Blöcken ohne Rückmeldung beim Wochenblick: die geplante Länge, wenn es wie geplant lief, die tatsächlichen Minuten, wenn es nur teilweise klappte, oder 0, wenn es nicht stattgefunden hat („am Donnerstag nicht gelaufen“). Bei einem Nein dankst du ihr, dass sie es sagt, fragst höchstens einmal, was dazwischenkam, und bietest erst danach einen kleineren oder verschobenen Block an; was sonst nicht geklappt hat, zählst du nie auf. Weicht sie aus oder geht es ihr nicht gut, lässt du es: Ohne Antwort zählen die Blöcke eine Woche lang vorläufig, danach nicht mehr. Frag sie nie aus.
+- Die Zeile „Blöcke der letzten 4 Wochen“ bei einem Ziel ist für dich, nie zum Aufzählen. Steht dort „anpassen anbieten“, darfst du an einer ruhigen Stelle einmal vorschlagen, die Blöcke nach dem Muster anzupassen, etwa „Die Blöcke um 7 Uhr klappen selten. Magst du sie auf den Abend legen?“, und rufst im selben Zug note_offer mit blockmuster und der goal_id auf; geändert wird erst nach ihrem Ja. Steht dort „schon angeboten“, schlägst du diese Woche keine Anpassung nach dem Muster mehr vor, auch nicht, wenn ihr über die Woche sprecht.
+- Wochenblick: Steht unter „Wochenblick“ „anbieten“, bietest du ihn einmal an, in der Begrüssung, sonst an einer ruhigen Stelle, in höchstens fünf kurzen Wechseln: Zuerst eine Sache, die in der Woche gelungen ist (nur Erledigtes aus den Zahlen dort, nie bloss Geplantes; eine Zahl reicht), und die Frage, ob ihr kurz auf die neue Woche schaut. Nach ihrem Ja fragst du, was im Weg war, falls etwas nicht geklappt hat, und schlägst dann die Blöcke der neuen Woche für das eine Ziel vor, das dort steht, eingetragen nach ihrem Ja. Danach rufst du wochenblick mit ergebnis gemacht auf. Sagt sie Nein oder geht sie nicht darauf ein, ist das in Ordnung: Du rufst gleich wochenblick mit abgelehnt auf, und ihr sprecht über den Tag. Steht dort „fragen“, fragst du stattdessen einmal, ob sie den Wochenblick überhaupt möchte, und hältst ihre Antwort mit will oder will_nicht fest. Nie, wenn sie müde ist, es ihr nicht gut geht oder etwas drängt. Gibst du ihm einen Namen, heisst er „Wochenblick“.
 - Steht unter „Bucket List“ bei einem Traum „liegt lange“, „guter Zeitpunkt“ oder „neu, Vorfreude“, nimmst du höchstens einen davon im Gespräch auf (siehe „Erinnern an Träume“), an einer ruhigen Stelle, etwa wenn ihr über die Woche oder ihre Zeit sprecht oder wenn das Gespräch ausklingt. Nicht in der Begrüssung, und nicht, wenn sie müde ist, es ihr nicht gut geht oder etwas drängt.
 - Steht unter „Verbindungen“, dass du einmal nach Apps und Geräten fragen sollst, tust du das an einer natürlichen Stelle, etwa wenn es um Training, Schlaf oder Termine geht, nie in der Begrüssung und nur in einem Gespräch ohne andere Einrichtungsfrage: Du fragst, welche Apps oder Geräte sie nutzt, sagst in einem Satz, was du dann sehen würdest, und rufst request_connections auf.
 - Steht unter „Hinweise“ „ein kleines Experiment“, darfst du an einer ruhigen Stelle eines vorschlagen, aus ihren Werten oder der Jahreszeit, etwa „Magst du heute zehn Minuten hinaus, solange es noch hell ist?“, und rufst danach note_offer mit experiment auf. Steht dort „Begleitung“, sagst du einmal warm, dass es guttun kann, auch mit einem Menschen in ihrem Leben oder einer Fachperson zu reden, und rufst note_offer mit begleitung auf.
@@ -174,8 +184,20 @@ export interface ContextGoal {
   weekly_hours?: number | null;
   /** hours invested before the app */
   prior_hours?: number;
-  /** from the view goal_minutes: logged minutes and past blocks without an answer */
-  time?: { logged_minutes: number; block_minutes: number };
+  /** from the view goal_minutes: logged minutes, past blocks without an answer that still count, of those the provisional ones */
+  time?: { logged_minutes: number; block_minutes: number; provisional_minutes?: number };
+  /** when the coach last offered to adapt its blocks from their pattern (note_offer blockmuster); null = never,
+   *  undefined = unknown (then never offered: nothing could be noted) */
+  pattern_asked_at?: string | null;
+  /** Plan B (goals only): what could get in the way, and her if-then sentence, in her words */
+  obstacle?: string | null;
+  plan_b?: string | null;
+  /** when the coach asked once what could get in the way (note_offer plan_b, or a Plan B was stored); null = never,
+   *  undefined = unknown (then never asked: nothing could be noted) */
+  plan_b_asked_at?: string | null;
+  /** when the coach offered a weekly rhythm once (note_offer rhythmus, or one was created); null = never,
+   *  undefined = unknown (then never offered) */
+  rhythm_asked_at?: string | null;
   /** "dream": on the Bucket List (active, paused or fulfilled); missing or "goal": a goal (active or paused) */
   kind?: string | null;
   /** when it came true (ISO), fulfilled dreams */
@@ -212,7 +234,12 @@ export interface ContextEvent {
   goal_id?: string | null;
   /** "nolio": planned by the trainer in Nolio, read-only for the coach */
   source?: string | null;
+  /** a day of this weekly rhythm (public.series) */
+  series_id?: string | null;
 }
+
+/** A weekly rhythm (public.series) as the coach sees it. */
+export type ContextSeries = Omit<SeriesRule, "created_at">;
 
 /** What is connected; null fields = unknown (e.g. the table isn't there yet). */
 export interface ContextConnections {
@@ -289,13 +316,18 @@ export interface ContextInput {
   habits?: ContextHabit[];
   events?: ContextEvent[];
   /** past planned blocks for a goal (last days) that nobody confirmed or corrected yet; the context lists only those
-   *  since the day of the last conversation, and none after a pause (they still count by themselves) */
+   *  since the day of the last conversation, and none after a pause (they count provisionally for a week) */
   pastBlocks?: ContextEvent[];
+  /** her own past blocks for a goal of the last PATTERN_DAYS with their answer (goal_time minutes, null = none),
+   *  for the pattern per goal (blockPattern) */
+  recentBlocks?: (ContextEvent & { minutes: number | null })[];
   connections?: ContextConnections;
   /** completed trainings from Nolio (last days), in the coach shape */
   trainings?: ContextTraining[];
   /** the one WHOOP line (whoopForCoach), only with her consent */
   whoop?: string | null;
+  /** her weekly rhythms (undefined: unknown, then no line and no offer) */
+  series?: ContextSeries[];
 }
 
 const NO_TIME = { logged_minutes: 0, block_minutes: 0 };
@@ -330,11 +362,15 @@ export function effortLine(g: Pick<ContextGoal, "target_date" | "effort_hours" |
     today,
   );
   const h = (n: number) => `${hoursLabel(n)} Std`;
-  const done = `geschafft ${h(e.done)}${g.prior_hours ? ` (davon ${h(g.prior_hours)} vorher)` : ""}`;
+  // provisional hours (blocks nobody answered, for a week) apart: never said as done
+  const done = `geschafft ${h(round1(e.done - e.provisional))}${g.prior_hours ? ` (davon ${h(g.prior_hours)} vorher)` : ""}${
+    e.provisional > 0 ? ` · vorläufig ${h(e.provisional)} (Blöcke ohne Rückmeldung)` : ""
+  }`;
   const available = e.available !== null ? `verfügbar ${h(e.available)}/Woche` : "Zeit pro Woche noch unbekannt";
   if (e.effort === null) return ["Aufwand noch nicht geschätzt", e.done > 0 ? done : null, available].filter(Boolean).join(" · ");
   const parts = [`Aufwand ≈ ${h(e.effort)}`, done];
-  if (e.feasibility === "erreicht") return `${parts.join(" · ")} → geschätzter Aufwand erreicht`;
+  if (e.feasibility === "erreicht")
+    return `${parts.join(" · ")} → geschätzter Aufwand erreicht${e.confirmedFeasibility !== "erreicht" ? " (mit den vorläufigen Stunden)" : ""}`;
   parts.push(`bleiben ${h(e.remaining ?? 0)}`);
   if (e.weeksLeft !== null && e.neededPerWeek !== null && g.target_date) {
     const days = Math.max(0, daysBetween(today, g.target_date));
@@ -346,6 +382,7 @@ export function effortLine(g: Pick<ContextGoal, "target_date" | "effort_hours" |
       const gap = round1(e.neededPerWeek - e.available);
       verdict = ` → ${e.feasibility}`;
       if (e.feasibility !== "machbar") verdict += gap > 0 ? `, es fehlen ${h(gap)}/Woche` : ", kaum Puffer";
+      if (e.confirmedFeasibility && e.confirmedFeasibility !== e.feasibility) verdict += ` (ohne die vorläufigen Stunden ${e.confirmedFeasibility})`;
     }
     parts.push(`${span} → nötig ${h(e.neededPerWeek)}/Woche${perDay}`, available + verdict);
   } else if (e.weeksToFinish !== null && e.available !== null) {
@@ -400,8 +437,144 @@ function stepLines(g: ContextGoal, nextId: string | undefined, today: string, pa
     .join("");
 }
 
+const WEEKDAY_NAMES = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag"];
+
+/**
+ * «Blöcke der letzten 4 Wochen: 8 geplant · 3 bestätigt · 4 nicht geklappt (3× um 7 Uhr) · 1 offen», for the coach
+ * (never to list to her), with the offer to adapt them when it may come now: «anpassen anbieten» (at most once a
+ * week, blockPattern.adapt), or that it came already this week.
+ */
+export function patternLine(p: BlockPattern, offer: "anbieten" | "angeboten" | null): string {
+  const slot = p.slot ? ` (${p.slot.count}× ${"hour" in p.slot ? `um ${p.slot.hour} Uhr` : `am ${WEEKDAY_NAMES[p.slot.weekday]}`})` : "";
+  const parts = [
+    `${p.planned} geplant`,
+    p.confirmed ? `${p.confirmed} bestätigt${p.partial ? ` (${p.partial} teilweise)` : ""}` : null,
+    p.missed ? `${p.missed} nicht geklappt${slot}` : null,
+    p.open ? `${p.open} offen` : null,
+  ].filter(Boolean);
+  const tail = offer === "anbieten" ? " → anpassen anbieten (einmal)" : offer === "angeboten" ? " → anpassen diese Woche schon angeboten" : "";
+  return `Blöcke der letzten 4 Wochen: ${parts.join(" · ")}${tail}`;
+}
+
+/**
+ * The pattern line per goal or dream with blocks (patternLine): the offer only for an active one, never after a
+ * pause or in a heavy time, at most once a week, and again only from blocks since the last offer (patternOffer; unknown: never).
+ */
+function patternLines(c: ContextInput, localDay: (iso: string) => string, quiet: boolean, lapsing = new Set<string>()): Map<string, string> {
+  const out = new Map<string, string>();
+  const tz = c.timezone || "Europe/Zurich";
+  const byGoal = new Map<string, NonNullable<ContextInput["recentBlocks"]>>();
+  for (const b of c.recentBlocks ?? []) if (b.goal_id) (byGoal.get(b.goal_id) ?? byGoal.set(b.goal_id, []).get(b.goal_id)!).push(b);
+  if (!byGoal.size) return out;
+  const now = c.now ? Date.parse(c.now) : Date.now();
+  const clockOf = (iso: string) => localClock(new Date(iso), tz);
+  for (const g of c.goals ?? []) {
+    const blocks = byGoal.get(g.id) ?? [];
+    const p = blockPattern(blocks, now, clockOf);
+    if (!p) continue;
+    const offer = quiet || g.status !== "active" || lapsing.has(g.id) ? null : patternOffer(p, blocks, g.pattern_asked_at, now, c.day, clockOf, localDay);
+    out.set(g.id, patternLine(p, offer));
+  }
+  return out;
+}
+
+/** «Plan B: „Wenn es regnet, laufe ich auf dem Laufband.“» (with the obstacle when there is one), for the coach. */
+const planBText = (g: ContextGoal) =>
+  g.plan_b?.trim()
+    ? `Plan B: „${flatText(g.plan_b, 200)}“${g.obstacle?.trim() ? ` (Hindernis: ${flatText(g.obstacle, 160)})` : ""}`
+    : g.obstacle?.trim()
+      ? `Hindernis: ${flatText(g.obstacle, 160)} · noch kein Plan B`
+      : null;
+
+/**
+ * The Plan B line per goal: hers when there is one; else, for one serious goal at a time that was never asked
+ * (planBDue: a target date ahead and hours per week or blocks), the one question to ask. Never after a pause or
+ * in a heavy time (`quiet`), not while the Wochenblick waits (its five short turns are enough for one
+ * conversation; its obstacle step names her Plan B), and not on a day it was already asked for a goal (the
+ * context is built anew each turn: the next goal waits for another day, a setup question at most once per
+ * conversation).
+ */
+function planBLines(c: ContextInput, goals: ContextGoal[], quiet: boolean, localDay: (iso: string) => string): Map<string, string> {
+  const out = new Map<string, string>();
+  const withBlocks = new Set(
+    [...(c.events ?? []), ...(c.recentBlocks ?? []), ...(c.pastBlocks ?? [])].filter((e) => e.kind === "block" && e.goal_id).map((e) => String(e.goal_id)),
+  );
+  const askedToday = (c.goals ?? []).some((g) => !!g.plan_b_asked_at && localDay(g.plan_b_asked_at) === c.day);
+  let asking = quiet || askedToday || !!c.review;
+  for (const g of goals) {
+    const own = planBText(g);
+    if (own) out.set(g.id, own);
+    else if (!asking && planBDue(g, withBlocks.has(g.id), c.day)) {
+      out.set(g.id, "Plan B: noch keiner → einmal fragen");
+      asking = true;
+    }
+  }
+  return out;
+}
+
+/**
+ * The weekly rhythms (not one that ended): per goal «Wochenrhythmus [id]: Di, Do 18:00–19:00 · seit 3 Wochen · 4 von 6
+ * bestätigt», with «pausiert», and once after three weeks that mostly didn't happen the offer to change or pause it (seriesLapse);
+ * rhythms without a goal apart (`loose`). For one goal at a time that may get one (rhythmOfferDue: hours per week,
+ * no target date or more than three weeks to go, never offered, regular weeks, fewer than two rhythms that run, not
+ * planned by her trainer in Nolio) the one offer with its size
+ * (rhythmSuggestion), never after a pause or in a heavy time, not on a day one was offered already.
+ * Unknown rhythms (before their migration): nothing.
+ */
+function rhythmLines(c: ContextInput, goals: ContextGoal[], quiet: boolean, localDay: (iso: string) => string) {
+  const byGoal = new Map<string, string>();
+  const loose: string[] = [];
+  const lapsing = new Set<string>();
+  if (!c.series) return { byGoal, loose, lapsing };
+  const now = c.now ? Date.parse(c.now) : Date.now();
+  const label = dayLabeler(c.day);
+  const all = c.goals ?? [];
+  for (const s of c.series) {
+    const goal = s.goal_id ? all.find((g) => g.id === s.goal_id) : null;
+    // its goal reached or dropped (not in the context), or it ended: nothing to say
+    if ((s.goal_id && !goal) || (s.until_date && s.until_date < c.day)) continue;
+    const days = (c.recentBlocks ?? []).filter((b) => b.series_id === s.id);
+    const { ended, confirmed } = rhythmTally(days, now);
+    const ran = daysBetween(s.start_date, c.day);
+    const lapse = !quiet && (!goal || goal.status === "active") && seriesLapse(days, s, now, c.day);
+    if (lapse && s.goal_id) lapsing.add(s.goal_id);
+    const line =
+      [
+        `Wochenrhythmus [${s.id}]: ${seriesLabel(s)}${s.location?.trim() ? ` (${flatText(s.location, 80)})` : ""}`,
+        ran < 0 ? `ab ${label(s.start_date)}` : ran < 7 ? "neu" : ran < 14 ? "seit einer Woche" : `seit ${Math.floor(ran / 7)} Wochen`,
+        ended ? `${confirmed} von ${ended} bestätigt` : null,
+        s.until_date ? `bis ${label(s.until_date)}` : null,
+        s.active ? null : "pausiert",
+      ]
+        .filter(Boolean)
+        .join(" · ") + (lapse ? " → klappt selten: einmal anbieten, ihn zu ändern oder zu pausieren" : "");
+    if (!s.goal_id) loose.push(`- ${line}`);
+    else byGoal.set(s.goal_id, byGoal.has(s.goal_id) ? `${byGoal.get(s.goal_id)}\n  ${line}` : line);
+  }
+  const offeredToday = all.some((g) => !!g.rhythm_asked_at && localDay(g.rhythm_asked_at) === c.day);
+  if (!quiet && !offeredToday) {
+    const o = { activeRhythms: liveRhythms(c.series, c.day).length, irregular: irregularWeeks(c.memories, c.events ?? []), today: c.day };
+    // the goals her trainer plans in Nolio (his entries for them in the calendar): no rhythm next to his plan
+    const trainer = new Set((c.events ?? []).filter((e) => e.source === "nolio" && e.goal_id).map((e) => String(e.goal_id)));
+    const due = goals.find((g) => rhythmOfferDue(g, { ...o, hasRhythm: c.series!.some((s) => s.goal_id === g.id), trainer: trainer.has(g.id) }));
+    if (due) {
+      const size = rhythmSuggestion(due.weekly_hours ?? 0);
+      byGoal.set(due.id, `Wochenrhythmus: noch keiner → einmal anbieten, etwa ${size.count} × ${minutesLabel(size.minutes)} pro Woche`);
+    }
+  }
+  return { byGoal, loose, lapsing };
+}
+
 /** the goals; the weekly total also counts the active dreams with an estimate (`practice`) */
-function goalLines(goals: ContextGoal[], today: string, practice: ContextGoal[] = [], pause = false): string {
+function goalLines(
+  goals: ContextGoal[],
+  today: string,
+  practice: ContextGoal[] = [],
+  pause = false,
+  patterns = new Map<string, string>(),
+  planB = new Map<string, string>(),
+  rhythms = new Map<string, string>(),
+): string {
   const total = goalsTotalLine([...goals, ...practice.filter((d) => d.effort_hours)], today);
   if (!goals.length) return total ? `(keine)\n${total}` : "(keine)";
   return (
@@ -418,7 +591,10 @@ function goalLines(goals: ContextGoal[], today: string, practice: ContextGoal[] 
           .join(" · ");
         const why = g.why ? `\n  Warum: ${g.why}` : "";
         const effort = `\n  ${effortLine(g, today)}`;
-        return head + why + effort + stepLines(g, p.next?.id, today, pause);
+        const pattern = patterns.get(g.id);
+        const plan = planB.get(g.id);
+        const rhythm = rhythms.get(g.id);
+        return head + why + effort + (rhythm ? `\n  ${rhythm}` : "") + (pattern ? `\n  ${pattern}` : "") + (plan ? `\n  ${plan}` : "") + stepLines(g, p.next?.id, today, pause);
       })
       .join("\n") + (total ? `\n${total}` : "")
   );
@@ -498,7 +674,7 @@ function eventLines(events: ContextEvent[], goalOf: GoalRef, today: string, tz: 
   return events
     .map((e) => {
       const goal = forGoal(goalOf(e.goal_id));
-      return `- [${e.id}] ${when(e)}: ${e.title}${e.location ? ` (${e.location})` : ""}${e.kind === "block" ? " · Block" : ""}${goal ? ` · ${goal}` : ""}${e.source === "nolio" ? NOLIO_MARK : ""}`;
+      return `- [${e.id}] ${when(e)}: ${e.title}${e.location ? ` (${e.location})` : ""}${e.kind === "block" ? " · Block" : ""}${e.series_id ? " · jede Woche" : ""}${goal ? ` · ${goal}` : ""}${e.source === "nolio" ? NOLIO_MARK : ""}`;
     })
     .join("\n");
 }
@@ -543,7 +719,15 @@ function flatText(t: string, max: number): string {
  * flags: one reminder per conversation. A dream resting after her «nicht jetzt» says so until the day it rests to.
  * `startDay`: the day she started (the early invitation «neu» only in her second week); `pause`: no «überfällig».
  */
-function dreamLines(dreams: ContextGoal[], today: string, localDay: (iso: string) => string, startDay: string | null = null, pause = false): string {
+function dreamLines(
+  dreams: ContextGoal[],
+  today: string,
+  localDay: (iso: string) => string,
+  startDay: string | null = null,
+  pause = false,
+  patterns = new Map<string, string>(),
+  rhythms = new Map<string, string>(),
+): string {
   const dayOf = (iso: string | null | undefined) => (iso ? (iso.length > 10 ? localDay(iso) : iso) : null);
   const open = dreams.filter((d) => d.status === "active" || d.status === "paused").sort((a, b) => (a.status === b.status ? 0 : a.status === "active" ? -1 : 1));
   const done = dreams
@@ -588,7 +772,9 @@ function dreamLines(dreams: ContextGoal[], today: string, localDay: (iso: string
     const why = d.why ? `\n  Warum: ${flatText(d.why, 300)}` : "";
     // a dream with a plan that needs practice (an estimate) shows its effort like a goal
     const effort = d.effort_hours ? `\n  ${effortLine(d, today)}` : "";
-    return head + why + effort + stepLines(d, p.next?.id, today, pause);
+    const pattern = patterns.get(d.id);
+    const rhythm = rhythms.get(d.id);
+    return head + why + effort + (rhythm ? `\n  ${rhythm}` : "") + (pattern ? `\n  ${pattern}` : "") + stepLines(d, p.next?.id, today, pause);
   });
   if (done.length) {
     lines.push("Erfüllt (neueste zuerst):");
@@ -697,12 +883,7 @@ function appLines(hasView: boolean, hasBirthYear: boolean): string {
 // ---------- the daily conversation: opener, what happened today, follow-ups, Wochenblick ----------
 
 /** 45 → «45 Min», 60 → «1 Std», 75 → «1 Std 15 Min» (said as it is written) */
-const minutesLabel = (m: number) => {
-  const t = Math.round(m);
-  const h = Math.floor(t / 60);
-  const rest = t % 60;
-  return h ? `${h} Std${rest ? ` ${rest} Min` : ""}` : `${rest} Min`;
-};
+const minutesLabel = minutesText;
 
 /** Dated memories to ask about once (followUpDue: one to three days back, not asked yet, nothing sensitive). */
 export function followUps(c: Pick<ContextInput, "memories" | "day">): ContextInput["memories"] {
@@ -835,7 +1016,10 @@ function reviewLines(c: ContextInput, localDay: (iso: string) => string, goalOf:
   for (const s of r.goals) {
     const t = title(s.goal_id);
     if (!t) continue;
-    const weekly = goals.find((g) => g.id === s.goal_id)?.weekly_hours;
+    const goal = goals.find((g) => g.id === s.goal_id);
+    const weekly = goal?.weekly_hours;
+    // the obstacle step: her own Plan B, said quietly, never as a reproach
+    const plan = goal && goal.kind !== "dream" && goal.plan_b?.trim() ? `Plan B „${flatText(goal.plan_b, 200)}“` : null;
     if (s.done_minutes > 0) wins++;
     facts.push(
       [
@@ -843,6 +1027,7 @@ function reviewLines(c: ContextInput, localDay: (iso: string) => string, goalOf:
         s.done_minutes > 0 ? `erledigt ${minutesLabel(s.done_minutes)}` : "erledigt noch nichts eingetragen (nicht als Gewinn nennen)",
         s.open_minutes ? `ohne Rückmeldung ${minutesLabel(s.open_minutes)}` : null,
         weekly ? `sie plant ${hoursLabel(weekly)} Std/Woche` : null,
+        plan,
       ]
         .filter(Boolean)
         .join(" · "),
@@ -866,7 +1051,13 @@ function reviewLines(c: ContextInput, localDay: (iso: string) => string, goalOf:
   const open = (r.open ?? []).filter((b) => b.source !== "nolio");
   if (open.length) lines.push(`Blöcke ohne Rückmeldung ([id] Zeit: Titel (Ziel) · für log_time mit event_id):\n${pastBlockLines(open, goalOf, c.day, tz)}`);
   const focus = focusGoal(activeGoals(c), c.day);
-  if (focus) lines.push(`Die neue Woche planen für: [${focus.id}] „${flatText(focus.title, 120)}“${focus.weekly_hours ? ` (${hoursLabel(focus.weekly_hours)} Std/Woche)` : ""}`);
+  const steady = !!focus && liveRhythms(c.series ?? [], c.day).some((s) => s.goal_id === focus.id);
+  if (focus)
+    lines.push(
+      `Die neue Woche planen für: [${focus.id}] „${flatText(focus.title, 120)}“${focus.weekly_hours ? ` (${hoursLabel(focus.weekly_hours)} Std/Woche)` : ""}${
+        steady ? " · sein Wochenrhythmus steht schon im Kalender: nur ergänzen, was fehlt" : ""
+      }`,
+    );
   return lines.join("\n");
 }
 
@@ -908,20 +1099,26 @@ export function contextBlock(c: ContextInput): string {
       ? ""
       : `\nLetztes Gespräch: ${c.lastSeen ? label(c.lastSeen) : "bisher nur das Kennenlernen"}${pause ? " · danach eine Pause (sprich sie nie an)" : ""}`;
   // what the coach may ask about: after a pause nothing that was missed; otherwise only blocks since the day of
-  // the last conversation (the ones before were there to ask about then). Unasked, they count by themselves.
+  // the last conversation (the ones before were there to ask about then). Unasked, they count provisionally for a week.
   // The Wochenblick lists the blocks of the week it looks back on itself, with their id.
   const inReview = new Set((c.review?.open ?? []).map((b) => b.id));
   const askBlocks = pause
     ? null
     : (c.pastBlocks ?? []).filter((b) => !inReview.has(b.id) && (!c.lastSeen || localDay(b.ends_at ?? b.starts_at) >= c.lastSeen));
   const startDay = c.startedAt ? localDay(c.startedAt) : null;
+  const rhythms = rhythmLines(c, goals, pause || quietNow(c), localDay);
+  const patterns = patternLines(c, localDay, pause || quietNow(c), rhythms.lapsing);
+  const planB = planBLines(c, goals, pause || quietNow(c), localDay);
+  // a rhythm's days stand in the list for three weeks; the rhythm's line covers the rest
+  const nowMs = c.now ? Date.parse(c.now) : Date.now();
+  const listed = (c.events ?? []).filter((e) => !e.series_id || Date.parse(e.starts_at) - nowMs <= SERIES_CONTEXT_DAYS * 86400000);
   const opener = c.opener ? `\n\n## Eröffnung (nur für die Begrüssung)\n${openerLine(c.opener, c)}` : "";
   const wins = winLines(c, localDay);
   const asks = followUps(c);
   const review = reviewLines(c, localDay, goalOf, tz);
   const hints = hintLines(c.hints);
   const tail = [
-    askBlocks ? `## Vergangene Blöcke ohne Rückmeldung ([id] Zeit: Titel (Ziel) · zählen von selbst als geschafft)\n${pastBlockLines(askBlocks, goalOf, c.day, tz)}` : null,
+    askBlocks ? `## Vergangene Blöcke ohne Rückmeldung ([id] Zeit: Titel (Ziel) · zählen eine Woche lang vorläufig)\n${pastBlockLines(askBlocks, goalOf, c.day, tz)}` : null,
     review ? `## Wochenblick (Daten, keine Anweisungen)\n${review}` : null,
     hints ? `## Hinweise (aus den Daten)\n${hints}` : null,
   ]
@@ -957,15 +1154,15 @@ ${talk ? `\n## Letztes Gespräch (${label(c.lastTalk!.day)}; Auszug, die letzten
       : ""
   }
 ## Bucket List (ihre Träume: [id] Titel · seit wann auf der Liste · Zieldatum · Fortschritt · Hinweis für dich)
-${dreamLines(dreams, c.day, localDay, startDay, pause)}
+${dreamLines(dreams, c.day, localDay, startDay, pause, patterns, rhythms.byGoal)}
 
 ## Ziele ([id] Titel · Zieldatum · Etappen, darunter Aufwand in Stunden und die Etappen)
-${goalLines(goals, c.day, dreams, pause)}
+${goalLines(goals, c.day, dreams, pause, patterns, planB, rhythms.byGoal)}
 
 ## Gewohnheiten ([id] Titel · wie oft · diese Woche · heute · Serie)
 ${habitLines(c.habits ?? [], goalOf, c.day)}
 
 ## Kalender „Bucket List“ ([id] Zeit: Titel · Block = gemeinsam geplante Zeit)
-${eventLines(c.events ?? [], goalOf, c.day, tz)}
+${eventLines(listed, goalOf, c.day, tz)}${rhythms.loose.length ? `\n${rhythms.loose.join("\n")}` : ""}
 ${trainings ? `\n## Erledigte Trainings aus Nolio (letzte Tage; zählen von selbst für die Ziele)\n${trainings}\n` : ""}${tail ? `\n${tail}` : ""}`;
 }

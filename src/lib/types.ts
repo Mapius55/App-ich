@@ -46,8 +46,18 @@ export interface CalendarEvent {
   /** the goal this entry serves, if any */
   goal_id: string | null;
   sequence?: number;
+  /** when it was entered (honest counting: an unanswered block entered before it began counts as before) */
+  created_at?: string;
   updated_at?: string;
+  /** a day of a weekly rhythm (Fester Wochenrhythmus): the rhythm, and the local day it belongs to */
+  series_id?: string | null;
+  series_day?: string | null;
+  /** she changed this day on its own: the rhythm's later changes leave it as it is */
+  series_exception?: boolean;
 }
+
+/** A change to one day of a weekly rhythm: «Nur diesen Termin» or «Alle kommenden». */
+export type EventScope = "this" | "following";
 
 /** Fields that can be set when creating or changing a calendar entry. */
 export type EventInput = Pick<CalendarEvent, "title" | "starts_at" | "ends_at" | "all_day" | "location" | "notes" | "reminder_minutes"> &
@@ -90,8 +100,11 @@ export interface Goal {
   prior_hours: number;
   /** sorted by position */
   milestones: Milestone[];
-  /** time that went into the goal: logged minutes, and past planned blocks not yet confirmed (they count too) */
-  time: { logged_minutes: number; block_minutes: number };
+  /**
+   * time that went into the goal (the view goal_minutes): logged minutes (answered blocks too), past planned blocks
+   * nobody answered that still count, and of those the provisional ones (ended within a week, shown lighter)
+   */
+  time: { logged_minutes: number; block_minutes: number; provisional_minutes: number };
   /** which Nolio trainings count toward it (sport ids, names or slugs), null = not chosen */
   sports?: string[] | null;
   /**
@@ -103,11 +116,22 @@ export interface Goal {
   memory: string | null;
   /** when the coach last brought the dream up (its reminders; the server's clock), null = never */
   reminded_at?: string | null;
+  /**
+   * Plan B (goals): what could get in the way («Regen», for the coach) and her if-then sentence in her words
+   * («Wenn es regnet, laufe ich auf dem Laufband.»), which she sees and edits in the detail; null = none.
+   * Missing before their migration.
+   */
+  obstacle?: string | null;
+  plan_b?: string | null;
+  /** when the coach asked once what could get in the way (the server's clock; a stored Plan B sets it too), null = never */
+  plan_b_asked_at?: string | null;
+  /** when the coach offered a weekly rhythm once (a rhythm for the goal sets it too), null = never */
+  rhythm_asked_at?: string | null;
 }
 
 /** done_at only together with status done: when it was reached, if not now (null = now). */
 export type GoalInput = Pick<Goal, "title"> &
-  Partial<Pick<Goal, "why" | "target_date" | "status" | "effort_hours" | "weekly_hours" | "prior_hours" | "sports" | "kind" | "memory" | "done_at">>;
+  Partial<Pick<Goal, "why" | "target_date" | "status" | "effort_hours" | "weekly_hours" | "prior_hours" | "sports" | "kind" | "memory" | "done_at" | "obstacle" | "plan_b">>;
 
 /** A piece of time that went into a goal. */
 export interface GoalTime {
@@ -294,8 +318,10 @@ export interface Backend {
   /** Calendar entries starting in [from, to) (ISO). Without arguments: from yesterday on. */
   listEvents(from?: string, to?: string): Promise<CalendarEvent[]>;
   addEvent(e: EventInput): Promise<CalendarEvent>;
-  updateEvent(id: string, patch: Partial<EventInput>): Promise<CalendarEvent>;
-  deleteEvent(id: string): Promise<void>;
+  /** A day of a weekly rhythm: "this" (default) changes only it (her exception), "following" the rhythm for every coming day. */
+  updateEvent(id: string, patch: Partial<EventInput>, scope?: EventScope): Promise<CalendarEvent>;
+  /** A coming day of a weekly rhythm: "this" (default) lets only it fall away, "following" ends the rhythm from that day. */
+  deleteEvent(id: string, scope?: EventScope): Promise<void>;
 
   /** Goals with their milestones; without done/dropped ones unless `all`. */
   listGoals(all?: boolean): Promise<Goal[]>;
@@ -307,11 +333,18 @@ export interface Backend {
   deleteMilestone(id: string): Promise<void>;
   /**
    * A past planned block (kind 'block' with a goal): did it happen? done=false records 0 minutes,
-   * done=true records its planned length (or `minutes`), null removes the answer so it counts by itself again.
+   * done=true records its planned length (or `minutes`), null removes the answer so it counts by itself again
+   * (as goal_minutes counts a block nobody answered: provisionally for a week after it ended). «Teilweise» is done=true with fewer `minutes`.
    */
   setBlockDone(eventId: string, done: boolean | null, minutes?: number): Promise<void>;
   /** Answers given for blocks: event_id → minutes (0 = didn't happen). */
   blockAnswers(eventIds: string[]): Promise<Record<string, number>>;
+  /**
+   * When honest counting began (public.honest_count_from()): a past block nobody answered counts provisionally
+   * for a week after it ended, except one that ended and was entered before this moment (it counts as before).
+   * null = not known (then every such block counts, as before). See unansweredCredit in plan.ts.
+   */
+  countingFrom(): Promise<string | null>;
   /** Time entries for goals on days in [from, to] (YYYY-MM-DD, inclusive), for the year view. */
   listGoalTime(from: string, to: string): Promise<GoalTime[]>;
 

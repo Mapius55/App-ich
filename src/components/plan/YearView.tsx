@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { backend } from "../../lib/backend";
-import { addDays, dayMinutes, dayOf, heatLevel, heatThresholds, yearWeeks } from "../../lib/plan";
+import { addDays, dayOf, goalDayMinutes, heatLevel, heatThresholds, provisionalDays, unansweredCredit, yearWeeks } from "../../lib/plan";
 import { longDay, minutesLabel } from "../../lib/dates";
 import type { CalendarEvent, Goal, GoalTime } from "../../lib/types";
 
@@ -22,7 +22,7 @@ interface Props {
 export function YearView({ goals, today, refresh }: Props) {
   const weeks = useMemo(() => yearWeeks(today), [today]);
   const from = weeks[0][0];
-  const [data, setData] = useState<{ log: GoalTime[]; blocks: CalendarEvent[] } | null>(null);
+  const [data, setData] = useState<{ log: GoalTime[]; blocks: CalendarEvent[]; from: string | null } | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const scroller = useRef<HTMLDivElement>(null);
 
@@ -30,9 +30,9 @@ export function YearView({ goals, today, refresh }: Props) {
     let alive = true;
     const startIso = new Date(`${from}T00:00:00`).toISOString();
     const endIso = new Date(`${addDays(today, 1)}T00:00:00`).toISOString();
-    Promise.all([backend.listGoalTime(from, today), backend.listEvents(startIso, endIso)])
-      .then(([log, events]) => alive && setData({ log, blocks: events.filter((e) => e.kind === "block" && e.goal_id) }))
-      .catch(() => alive && setData({ log: [], blocks: [] }));
+    Promise.all([backend.listGoalTime(from, today), backend.listEvents(startIso, endIso), backend.countingFrom()])
+      .then(([log, events, countFrom]) => alive && setData({ log, blocks: events.filter((e) => e.kind === "block" && e.goal_id), from: countFrom }))
+      .catch(() => alive && setData({ log: [], blocks: [], from: null }));
     return () => {
       alive = false;
     };
@@ -44,10 +44,12 @@ export function YearView({ goals, today, refresh }: Props) {
     if (el) el.scrollLeft = el.scrollWidth;
   }, [data]);
 
-  const perDay = useMemo(() => {
-    if (!data) return {};
+  // blocks nobody answered count while they still count (provisionally for a week); mostly provisional days are lighter
+  const { perDay, provisional } = useMemo(() => {
+    if (!data) return { perDay: {} as Record<string, number>, provisional: new Set<string>() };
     const answered = new Set(data.log.flatMap((t) => (t.event_id ? [t.event_id] : [])));
-    return dayMinutes(data.log, data.blocks, answered, new Date(), (iso) => dayOf(new Date(iso)));
+    const m = goalDayMinutes(data.log, data.blocks, answered, new Date(), (iso) => dayOf(new Date(iso)), data.from);
+    return { perDay: m.total, provisional: provisionalDays(m) };
   }, [data]);
 
   const thresholds = useMemo(() => heatThresholds(Object.values(perDay)), [perDay]);
@@ -61,8 +63,8 @@ export function YearView({ goals, today, refresh }: Props) {
     const answered = new Set(data.log.flatMap((t) => (t.event_id ? [t.event_id] : [])));
     for (const t of data.log) if (t.day === selected && t.minutes > 0) byGoal.set(t.goal_id, (byGoal.get(t.goal_id) ?? 0) + t.minutes);
     for (const b of data.blocks) {
-      if (answered.has(b.id) || b.all_day || !b.ends_at || !b.goal_id || dayOf(new Date(b.starts_at)) !== selected) continue;
-      if (Date.parse(b.ends_at) > Date.now()) continue;
+      if (answered.has(b.id) || b.all_day || !b.ends_at || !b.goal_id || b.source === "nolio" || dayOf(new Date(b.starts_at)) !== selected) continue;
+      if (!unansweredCredit(b, Date.now(), data.from)) continue;
       const m = Math.min(1440, Math.round((Date.parse(b.ends_at) - Date.parse(b.starts_at)) / 60000));
       byGoal.set(b.goal_id, (byGoal.get(b.goal_id) ?? 0) + m);
     }
@@ -110,9 +112,9 @@ export function YearView({ goals, today, refresh }: Props) {
                       key={d}
                       type="button"
                       role="gridcell"
-                      className={`year-day l${level}${future ? " future" : ""}${d === today ? " today" : ""}${d === selected ? " selected" : ""}`}
+                      className={`year-day l${level}${future ? " future" : ""}${level && provisional.has(d) ? " prov" : ""}${d === today ? " today" : ""}${d === selected ? " selected" : ""}`}
                       disabled={future}
-                      aria-label={`${longDay(d)}: ${m ? minutesLabel(m) : "keine Zeit für Ziele"}`}
+                      aria-label={`${longDay(d)}: ${m ? `${minutesLabel(m)}${provisional.has(d) ? ", vorläufig" : ""}` : "keine Zeit für Ziele"}`}
                       aria-pressed={d === selected}
                       onClick={() => setSelected(d === selected ? null : d)}
                     />

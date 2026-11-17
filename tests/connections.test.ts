@@ -385,7 +385,7 @@ describe("demo backend: connections", () => {
     expect(past.goal_id).toBe(goal.id);
     await expect(b.setBlockDone(past.id, true)).rejects.toThrow(/automatisch/);
     const [g] = await b.listGoals();
-    expect(g.time).toEqual({ logged_minutes: 55, block_minutes: 0 }); // the training, not the plan
+    expect(g.time).toEqual({ logged_minutes: 55, block_minutes: 0, provisional_minutes: 0 }); // the training, not the plan
     const log = await b.listGoalTime(addDays(dayOf(), -3), dayOf());
     expect(log).toEqual([expect.objectContaining({ goal_id: goal.id, minutes: 55, source: "nolio" })]);
     // a strength session maps to nothing for a running goal

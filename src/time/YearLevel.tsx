@@ -237,6 +237,7 @@ export function YearLevel({ titleId, active }: YearLevelProps) {
                               future && "future",
                               day === today && "today",
                               day === today && arriving && "arrive",
+                              !future && day !== today && level > 0 && data.provisional.has(day) && "prov",
                               future && data.planned.has(day) && "planned",
                               data.targets.has(day) && "target",
                             ]

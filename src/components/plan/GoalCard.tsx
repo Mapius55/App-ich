@@ -100,9 +100,11 @@ export function GoalCard({ goal, today, index, onOpen, onEstimate, onToggle, onA
               aria-valuemin={0}
               aria-valuemax={e.effort}
               aria-valuenow={Math.min(e.done, e.effort)}
-              aria-valuetext={`${hoursLabel(e.done)} von etwa ${hoursLabel(e.effort)} Stunden`}
+              aria-valuetext={`${hoursLabel(e.done)} von etwa ${hoursLabel(e.effort)} Stunden${e.provisional > 0 ? `, davon ${hoursLabel(e.provisional)} vorläufig` : ""}`}
             >
-              <span style={{ transform: `scaleX(${Math.min(1, e.done / e.effort)})` }} />
+              {/* hours of blocks nobody answered yet (provisional for a week): the same bar, lighter */}
+              {e.provisional > 0 && <span className="effort-prov" style={{ transform: `scaleX(${Math.min(1, e.done / e.effort)})` }} />}
+              <span style={{ transform: `scaleX(${Math.min(1, Math.max(0, e.done - e.provisional) / e.effort)})` }} />
             </div>
           </>
         ) : (

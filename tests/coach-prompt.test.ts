@@ -174,7 +174,7 @@ describe("contextBlock: past blocks without an answer", () => {
       ],
     });
     expect(out).toContain(
-      "## Vergangene Blöcke ohne Rückmeldung ([id] Zeit: Titel (Ziel) · zählen von selbst als geschafft)\n" +
+      "## Vergangene Blöcke ohne Rückmeldung ([id] Zeit: Titel (Ziel) · zählen eine Woche lang vorläufig)\n" +
         "- [e7] Fr., 13. Nov. (gestern), 18:00–19:30: Lauftraining (Ziel „Halbmarathon Zürich“)\n" +
         "- [e8] Di., 10. Nov., 07:00–08:00: Intervalle (Ziel „Halbmarathon Zürich“)",
     );
@@ -273,7 +273,7 @@ describe("prompt texts", () => {
     for (const name of ["effort_hours", "weekly_hours", "prior_hours", "log_time", "event_id", "10'000 Stunden", "medizinischen Ratschl"]) {
       expect(PERSONA).toContain(name);
     }
-    for (const name of ["knapp", "kaum machbar", "Vergangene Blöcke ohne Rückmeldung", "log_time", "höchstens einmal im Gespräch"]) {
+    for (const name of ["knapp", "kaum machbar", "Vergangene Blöcke ohne Rückmeldung", "log_time", "in deiner ersten Antwort nach der Begrüssung"]) {
       expect(MODE_CHECKIN).toContain(name);
     }
     expect(MODE_ONBOARDING).toContain("effort_hours");

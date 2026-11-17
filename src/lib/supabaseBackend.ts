@@ -8,6 +8,7 @@ import type {
   CoachRequest,
   DayState,
   EventInput,
+  EventScope,
   Goal,
   GoalInput,
   GoalTime,
@@ -24,7 +25,7 @@ import type {
   WhoopSyncResult,
 } from "./types";
 import { normaliseUsername, USERNAME_RE } from "./types";
-import { addDays, dayOf, weekStart } from "./plan";
+import { addDays, dayOf, seriesDayFollows, seriesPatchFromDay, weekStart } from "./plan";
 import { blockTimeEntry } from "./demoBackend";
 import { deviceAttribution } from "../../supabase/functions/_shared/nolio.ts";
 
@@ -49,7 +50,7 @@ type GoalRow = Omit<Goal, "milestones" | "time" | "effort_hours" | "weekly_hours
   memory?: string | null;
 };
 type GoalMinutes = Goal["time"];
-const NO_TIME: GoalMinutes = { logged_minutes: 0, block_minutes: 0 };
+const NO_TIME: GoalMinutes = { logged_minutes: 0, block_minutes: 0, provisional_minutes: 0 };
 const toNumber = (v: Numeric | undefined): number | null => (v === null || v === undefined || v === "" ? null : Number(v));
 const toGoal = (row: GoalRow, time: GoalMinutes = NO_TIME): Goal => ({
   ...row,
@@ -57,6 +58,9 @@ const toGoal = (row: GoalRow, time: GoalMinutes = NO_TIME): Goal => ({
   done_at: row.done_at ?? null,
   memory: row.memory ?? null,
   reminded_at: row.reminded_at ?? null,
+  obstacle: row.obstacle ?? null,
+  plan_b: row.plan_b ?? null,
+  plan_b_asked_at: row.plan_b_asked_at ?? null,
   effort_hours: toNumber(row.effort_hours),
   weekly_hours: toNumber(row.weekly_hours),
   prior_hours: toNumber(row.prior_hours) ?? 0,
@@ -72,6 +76,9 @@ const goalRow = <T extends Partial<GoalInput>>(g: T): T => {
   let out = g;
   if ((g.prior_hours as number | null | undefined) === null) out = { ...out, prior_hours: 0 };
   if (typeof g.memory === "string" && !g.memory.trim()) out = { ...out, memory: null };
+  // an emptied Plan B (or obstacle) means none; the trigger goals_plan_b_asked notes the question for a new one
+  if (typeof g.plan_b === "string" && !g.plan_b.trim()) out = { ...out, plan_b: null };
+  if (typeof g.obstacle === "string" && !g.obstacle.trim()) out = { ...out, obstacle: null };
   return out;
 };
 
@@ -105,6 +112,8 @@ const EXPORT_CONNECTION_TABLES: [string, string[]][] = [
   ["nolio_sync", ["user_id"]],
   // which notifications went out or stayed out (template ids and reasons, never a text)
   ["push_log", ["id"]],
+  // the weekly rhythms (their days are in events)
+  ["series", ["id"]],
 ];
 
 // A habit row with its embedded logs (only the days).
@@ -250,28 +259,105 @@ export class SupabaseBackend implements Backend {
     return data as CalendarEvent;
   }
 
-  async updateEvent(id: string, patch: Partial<EventInput>): Promise<CalendarEvent> {
-    // The events_bump trigger raises sequence and updated_at, so subscribed calendars pick it up.
+  async updateEvent(id: string, patch: Partial<EventInput>, scope: EventScope = "this"): Promise<CalendarEvent> {
+    // «Alle kommenden»: the rhythm takes the change, its trigger (series_sync) moves every coming day nobody answered
+    if (scope === "following") {
+      const day = await this.rhythmDay(id);
+      if (day) {
+        // only what she changed now goes to the rhythm (never what the day had on its own before)
+        const rule = seriesPatchFromDay(day.entry, { ...day.entry, ...patch }, day.time_zone);
+        // the day follows the rhythm again (its change moves it like every coming day); her exception that keeps its
+        // own start takes the change directly and stays hers
+        const follows = seriesDayFollows(day.entry.series_exception, rule);
+        if (follows && day.entry.series_exception) {
+          const back = await this.sb.from("events").update({ series_exception: false }).eq("id", id);
+          if (back.error) throw back.error;
+        }
+        if (Object.keys(rule).length) {
+          const res = await this.sb.from("series").update(rule).eq("id", day.series_id);
+          if (res.error) throw res.error;
+        }
+        // notes stay with the day
+        const own: Partial<EventInput> = follows ? (patch.notes !== undefined && patch.notes !== day.entry.notes ? { notes: patch.notes } : {}) : patch;
+        if (Object.keys(own).length) {
+          const n = await this.sb.from("events").update(own).eq("id", id);
+          if (n.error) throw n.error;
+        }
+        const { data, error } = await this.sb.from("events").select("*").eq("id", id).single();
+        if (error) throw error;
+        return data as CalendarEvent;
+      }
+    }
+    // The events_bump trigger raises sequence and updated_at, so subscribed calendars pick it up. A day of a weekly
+    // rhythm changed here is her exception (trigger events_series_exception).
     const { data, error } = await this.sb.from("events").update(patch).eq("id", id).select().single();
     if (error) throw error;
     return data as CalendarEvent;
   }
 
-  async deleteEvent(id: string) {
+  async deleteEvent(id: string, scope: EventScope = "this") {
+    // «Alle kommenden»: the rhythm ends the day before (or goes, when nothing of it is left); its trigger removes
+    // the coming days, past and answered ones stay. «Nur diesen Termin»: the day falls away (a skip marker).
+    if (scope === "following") {
+      const day = await this.rhythmDay(id);
+      if (day?.entry.series_day) {
+        const last = addDays(day.entry.series_day, -1);
+        const res =
+          last >= day.start_date
+            ? await this.sb.from("series").update({ until_date: last }).eq("id", day.series_id)
+            : await this.sb.from("series").delete().eq("id", day.series_id);
+        if (res.error) throw res.error;
+        return;
+      }
+    }
     const { error } = await this.sb.from("events").delete().eq("id", id);
     if (error) throw error;
   }
 
-  /** Minutes per goal from the view goal_minutes (logged time and past blocks not yet answered). */
+  /** A day of a weekly rhythm with its rhythm's time zone and first day; null for any other entry. */
+  private async rhythmDay(id: string): Promise<{ entry: CalendarEvent; series_id: string; time_zone: string; start_date: string } | null> {
+    const { data, error } = await this.sb.from("events").select("*, series(time_zone, start_date)").eq("id", id).maybeSingle();
+    if (error) throw error;
+    const row = data as (CalendarEvent & { series: { time_zone: string; start_date: string } | null }) | null;
+    if (!row?.series_id || !row.series) return null;
+    const { series, ...entry } = row;
+    return { entry, series_id: row.series_id, time_zone: series.time_zone, start_date: series.start_date };
+  }
+
+  /** Minutes per goal from the view goal_minutes (logged time, past blocks not yet answered that still count, of those
+   *  the provisional ones; before the honest-counting migration there is no provisional_minutes: 0). */
   private async goalMinutes(ids: string[]): Promise<Map<string, GoalMinutes>> {
     const out = new Map<string, GoalMinutes>();
     for (const part of chunks(ids)) {
       const { data, error } = await this.sb.from("goal_minutes").select("*").in("goal_id", part);
       if (error) throw error;
-      for (const r of data as { goal_id: string; logged_minutes: Numeric; block_minutes: Numeric }[])
-        out.set(r.goal_id, { logged_minutes: toNumber(r.logged_minutes) ?? 0, block_minutes: toNumber(r.block_minutes) ?? 0 });
+      for (const r of data as { goal_id: string; logged_minutes: Numeric; block_minutes: Numeric; provisional_minutes?: Numeric }[])
+        out.set(r.goal_id, {
+          logged_minutes: toNumber(r.logged_minutes) ?? 0,
+          block_minutes: toNumber(r.block_minutes) ?? 0,
+          provisional_minutes: toNumber(r.provisional_minutes) ?? 0,
+        });
     }
     return out;
+  }
+
+  private countFrom: Promise<string | null> | null = null;
+  /** public.honest_count_from(), asked once per session; a failure (e.g. before its migration) is asked again next time. */
+  countingFrom(): Promise<string | null> {
+    this.countFrom ??= Promise.resolve(this.sb.rpc("honest_count_from")).then(
+      ({ data, error }) => {
+        if (error || typeof data !== "string" || !Number.isFinite(Date.parse(data))) {
+          this.countFrom = null;
+          return null;
+        }
+        return data;
+      },
+      () => {
+        this.countFrom = null;
+        return null;
+      },
+    );
+    return this.countFrom;
   }
 
   private async withTime(rows: GoalRow[]): Promise<Goal[]> {
@@ -353,7 +439,7 @@ export class SupabaseBackend implements Backend {
 
   async setBlockDone(eventId: string, done: boolean | null, minutes?: number) {
     if (done === null) {
-      // no answer any more: the block counts by itself again
+      // no answer any more: the block counts by itself again (provisionally for a week after it ended, as the view counts)
       const { error } = await this.sb.from("goal_time").delete().eq("event_id", eventId);
       if (error) throw error;
       return;
