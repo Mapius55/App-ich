@@ -306,6 +306,13 @@ html.space-on:not([data-place="jetzt"]) .voice-layer .toasts > * { touch-action:
 html.space-on:not([data-place="jetzt"]) .voice-layer::before,
 html.space-on[data-voice-active]:not([data-level="0"]) .voice-layer::before,
 html.space-on[data-typed]:not([data-level="0"]) .voice-layer::before { opacity: 1; }
+/* The first iPhone SE (320 × 568), the typed field open at Jetzt: what rises above the field (what she
+   typed, a toast, a status line, an error, «Hören») reaches into the bright circle. The same ground rises
+   with the stack there too, so that text sits on the dark of the sky; the circle sets behind it and comes
+   back when the stack is down to the field again. */
+@media (max-width: 359px) {
+  html.space-on[data-typed][data-level="0"]:has(.voice-layer :is(.voice-heard, .msg-error, .toasts > *, .voice-status-text:not(.idle-hint):not(.hear-hint), .voice-replay:not(.idle-hint ~ .voice-replay))) .voice-layer::before { opacity: 1; }
+}
 /* away from Jetzt the echo of what was said keeps to one line */
 html.space-on:not([data-level="0"]) .voice-layer .voice-heard,
 html.space-on:not([data-place="jetzt"]) .voice-layer .voice-heard { max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
