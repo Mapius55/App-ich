@@ -51,6 +51,8 @@ describe("the coach's rules from the live check", () => {
       "du fragst nicht eigens nach dem Wichtigsten. Stehen vergangene Blöcke ohne Rückmeldung da, fragst du in dieser Antwort nach ihnen und schlägst erst in der nächsten etwas vor. Dann schlägst du für heute höchstens einen Block vor",
     );
     expect(MODE_CHECKIN).not.toContain("höchstens einmal im Gespräch kurz und beiläufig");
+    // the fixed slot never overrides a bad day: then the blocks just count provisionally
+    expect(MODE_CHECKIN).toContain("Weicht sie aus oder geht es ihr nicht gut, lässt du es: Ohne Antwort zählen die Blöcke eine Woche lang vorläufig");
   });
 
   it("the Plan B reminder only after a «Nein» to one of that goal's past blocks, not to a proposal she declined", () => {
@@ -151,6 +153,20 @@ describe("one reply, said once around a tool round", () => {
 
   it("a repeat that goes on: only what is new follows", () => {
     expect(converse(["Gut, ich trage es ein.", "Gut, ich trage es ein. Viel Spass beim Laufen!"]).saved).toBe("Gut, ich trage es ein.\n\nViel Spass beim Laufen!");
+  });
+
+  it("a sentence that goes on after the earlier words is another sentence: it goes out whole, never cut in the middle", () => {
+    expect(converse(["Gut.", "Gut, ich trage es ein."]).saved).toBe("Gut.\n\nGut, ich trage es ein.");
+    expect(converse(["Mache ich.", "Mache ich gern: morgen um 7 steht drin."]).saved).toBe("Mache ich.\n\nMache ich gern: morgen um 7 steht drin.");
+    expect(converse(["Ich schaue kurz nach.", "Ich schaue kurz nach, ob der Dienstag frei ist. Ja, er ist frei."]).saved).toBe(
+      "Ich schaue kurz nach.\n\nIch schaue kurz nach, ob der Dienstag frei ist. Ja, er ist frei.",
+    );
+    expect(converse(["Klar.", "Klar, Mira, du musst dich jetzt nicht festlegen."], true).saved).toBe("Klar.\n\nKlar, Mira, du musst dich jetzt nicht festlegen.");
+  });
+
+  it("a repeat that ends in a closing quote: what is new follows without the quote", () => {
+    expect(converse(["Du hast „Laufen“ eingetragen.", "Du hast „Laufen“ eingetragen. Und morgen?"]).saved).toBe("Du hast „Laufen“ eingetragen.\n\nUnd morgen?");
+    expect(converse(["Steht drin: „Laufen“.", "Steht drin: „Laufen“. Und morgen?"]).saved).toBe("Steht drin: „Laufen“.\n\nUnd morgen?");
   });
 
   it("another reply goes out as it is, from its first sentence on", () => {

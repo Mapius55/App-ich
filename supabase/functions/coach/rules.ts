@@ -213,15 +213,20 @@ function wordsOf(t: string): string[] {
   return t.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
 }
 
-/** The text after its first `n` words, without the end of the sentence they closed («. », «!\n\n»). */
-function afterWords(t: string, n: number): string {
+/**
+ * The text after its first `n` words, when a sentence ends there («. », «!\n\n», «“. »): what follows. null when
+ * the sentence goes on («Mache ich gern: …» after «Mache ich.»): then it is another sentence and goes out whole.
+ */
+function afterWords(t: string, n: number): string | null {
   let end = 0;
   let i = 0;
   for (const m of t.matchAll(/[\p{L}\p{N}]+/gu)) {
     end = m.index! + m[0].length;
     if (++i === n) break;
   }
-  return t.slice(end).replace(/^[^\s\p{L}\p{N}„«“"(]*\s*/u, "");
+  const rest = t.slice(end);
+  const cut = /^[^\p{L}\p{N}]*?(?:[.!?…][^\s\p{L}\p{N}]*\s+|\n\s*)/u.exec(rest);
+  return cut ? rest.slice(cut[0].length) : null;
 }
 
 /** Under this many words after a different first one, a text is never taken for the earlier reply again. */
@@ -233,14 +238,18 @@ const REPEAT_LOOSE_MIN = 4;
  * what repeats is neither sent nor saved twice. `prev`: what the round before said. Pieces come in whole sentences
  * (draftStream); while they are the same words as `prev` from the start (or after a different first word, from
  * four words on), they wait. At the first other word everything waiting goes out; a round that says only `prev` again
- * (or a part of it from its start) sends nothing; one that goes on after all of `prev` sends only what is new.
+ * (or a part of it from its start) sends nothing; one that goes on after all of `prev` with a new sentence sends only
+ * that; one whose sentence goes on after the words of `prev` («Gut, ich trage es ein.» after «Gut.») goes out whole.
  */
 export function repeatGuard(prev: string): { push(text: string): string; flush(): string } {
   const before = wordsOf(prev);
   let held = "";
   let open = before.length === 0;
-  /** How the waiting text relates to `prev`: still the same (or a part of it), complete and longer, or other. */
-  const relate = (done: boolean): "same" | "longer" | "other" => {
+  /**
+   * How the waiting text relates to `prev`: still the same (or a part of it), other, or all of it and then a new
+   * sentence (`rest`, what is new).
+   */
+  const relate = (done: boolean): "same" | "other" | { rest: string } => {
     const w = wordsOf(held);
     if (!w.length) return "same";
     const loose = w[0] !== before[0];
@@ -249,7 +258,9 @@ export function repeatGuard(prev: string): { push(text: string): string; flush()
       const last = i === w.length - 1 && !done && w.length <= before.length; // the last word may still be growing
       if (w[i] !== before[i] && !(last && before[i].startsWith(w[i]))) return "other";
     }
-    return w.length > before.length ? "longer" : "same";
+    if (w.length <= before.length) return "same";
+    const rest = afterWords(held, before.length);
+    return rest === null ? "other" : { rest };
   };
   const release = (): string => {
     open = true;
@@ -264,20 +275,16 @@ export function repeatGuard(prev: string): { push(text: string): string; flush()
       held += text;
       const r = relate(false);
       if (r === "other") return release();
-      if (r === "longer") {
-        const rest = afterWords(held, before.length);
-        release();
-        return rest;
-      }
-      return "";
+      if (r === "same") return "";
+      release();
+      return r.rest;
     },
     flush() {
       if (open || !held) return "";
       const r = relate(true);
       if (r === "other") return release();
-      const rest = r === "longer" ? afterWords(held, before.length) : "";
       release();
-      return rest;
+      return r === "same" ? "" : r.rest;
     },
   };
 }
