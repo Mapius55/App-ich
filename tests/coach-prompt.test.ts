@@ -273,7 +273,7 @@ describe("prompt texts", () => {
     for (const name of ["effort_hours", "weekly_hours", "prior_hours", "log_time", "event_id", "10'000 Stunden", "medizinischen Ratschl"]) {
       expect(PERSONA).toContain(name);
     }
-    for (const name of ["knapp", "kaum machbar", "Vergangene Blöcke ohne Rückmeldung", "log_time", "höchstens einmal im Gespräch"]) {
+    for (const name of ["knapp", "kaum machbar", "Vergangene Blöcke ohne Rückmeldung", "log_time", "in deiner ersten Antwort nach der Begrüssung"]) {
       expect(MODE_CHECKIN).toContain(name);
     }
     expect(MODE_ONBOARDING).toContain("effort_hours");

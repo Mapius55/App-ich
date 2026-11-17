@@ -168,7 +168,9 @@ describe("Plan B in the coach's context", () => {
     expect(MODE_CHECKIN).toContain(
       "- Plan B: Steht bei einem Ziel „Plan B: noch keiner → einmal fragen“, fragst du, am liebsten beim Planen: „Was könnte dir dazwischenkommen?“, und rufst note_offer mit plan_b und der goal_id auf.",
     );
-    expect(MODE_CHECKIN).toContain("Hat ein Ziel einen Plan B, erinnerst du nach einem Nein zu einem seiner Blöcke und beim Wochenblick leise daran, statt nach dem Grund zu fragen, nie als Vorwurf; sonst nicht.");
+    expect(MODE_CHECKIN).toContain(
+      "Hat ein Ziel einen Plan B, erinnerst du leise daran, wenn sie zu einem seiner vergangenen Blöcke Nein sagt (nicht, wenn sie einen Vorschlag ablehnt), und beim Wochenblick, statt nach dem Grund zu fragen, nie als Vorwurf; sonst nicht.",
+    );
     expect(MODE_CHECKIN).toContain("und die nach einem Plan B sind Einrichtungsfragen: Pro Gespräch stellst du höchstens eine von allen.");
     expect(MODE_CHECKIN).not.toContain("ß");
     expect(MODE_CHECKIN).not.toMatch(/verpasst/i);

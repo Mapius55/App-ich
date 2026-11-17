@@ -78,6 +78,23 @@ export function blockNoNext(planB: string | null | undefined): string {
   return `Danke ihr, dass sie es sagt. Statt nach dem Grund zu fragen, erinnerst du sie leise an ihren Plan B („${plan}“), als Angebot fürs nächste Mal, nie als Vorwurf; biete erst danach einen kleineren oder verschobenen Block an. Zähl nie auf, was sonst nicht geklappt hat.`;
 }
 
+/** log_time again for a block with the answer it already has (a later turn repeating her «Nein»): nothing changes. */
+export const BLOCK_ALREADY_LOGGED =
+  "Schon eingetragen: Diese Antwort zum Block steht schon so da. Sag nichts mehr dazu, danke nicht nochmals und frag nicht nochmals danach.";
+
+/**
+ * Whether a block's stored answer (its goal_time row) already is this one: the same goal, minutes and day, and no
+ * other note (`note` undefined keeps the stored one). Then log_time saves nothing and sends no second time_logged.
+ */
+export function sameBlockAnswer(
+  stored: { goal_id?: string | null; minutes: number | string | null; day: string | null; note?: string | null } | null | undefined,
+  next: { goalId: string; minutes: number; day: string; note?: string | null },
+): boolean {
+  if (!stored || stored.minutes === null || Number(stored.minutes) !== next.minutes || stored.day !== next.day) return false;
+  if (stored.goal_id && String(stored.goal_id).toLowerCase() !== next.goalId.toLowerCase()) return false;
+  return next.note === undefined || (next.note ?? null) === (stored.note ?? null);
+}
+
 /** update_event on a Nolio entry: allowed only when nothing but the reminder changes. */
 export function nolioEditAllowed(input: Record<string, unknown>): boolean {
   return Object.keys(input).every((k) => k === "id" || k === "reminder_minutes");
@@ -184,6 +201,82 @@ export function draftStream(o: { whole?: boolean } = {}): { push(delta: string):
       const rest = open ? held : pass(held);
       held = "";
       open = false;
+      return rest;
+    },
+  };
+}
+
+// ---------- one reply, said once ----------
+
+/** The words of a text, to compare two replies: lower case, without punctuation. */
+function wordsOf(t: string): string[] {
+  return t.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
+}
+
+/** The text after its first `n` words, without the end of the sentence they closed («. », «!\n\n»). */
+function afterWords(t: string, n: number): string {
+  let end = 0;
+  let i = 0;
+  for (const m of t.matchAll(/[\p{L}\p{N}]+/gu)) {
+    end = m.index! + m[0].length;
+    if (++i === n) break;
+  }
+  return t.slice(end).replace(/^[^\s\p{L}\p{N}„«“"(]*\s*/u, "");
+}
+
+/** Under this many words after a different first one, a text is never taken for the earlier reply again. */
+const REPEAT_LOOSE_MIN = 4;
+
+/**
+ * The text of a round after a tool call, when it says the text of the round before it again (once in a live check,
+ * around a redundant tool call: «Klar, Mira, du musst dich jetzt nicht festlegen. …» and then the same with «Gern»):
+ * what repeats is neither sent nor saved twice. `prev`: what the round before said. Pieces come in whole sentences
+ * (draftStream); while they are the same words as `prev` from the start (or after a different first word, from
+ * four words on), they wait. At the first other word everything waiting goes out; a round that says only `prev` again
+ * (or a part of it from its start) sends nothing; one that goes on after all of `prev` sends only what is new.
+ */
+export function repeatGuard(prev: string): { push(text: string): string; flush(): string } {
+  const before = wordsOf(prev);
+  let held = "";
+  let open = before.length === 0;
+  /** How the waiting text relates to `prev`: still the same (or a part of it), complete and longer, or other. */
+  const relate = (done: boolean): "same" | "longer" | "other" => {
+    const w = wordsOf(held);
+    if (!w.length) return "same";
+    const loose = w[0] !== before[0];
+    if (loose && (before.length < REPEAT_LOOSE_MIN || (done && w.length < REPEAT_LOOSE_MIN))) return "other";
+    for (let i = loose ? 1 : 0; i < Math.min(w.length, before.length); i++) {
+      const last = i === w.length - 1 && !done && w.length <= before.length; // the last word may still be growing
+      if (w[i] !== before[i] && !(last && before[i].startsWith(w[i]))) return "other";
+    }
+    return w.length > before.length ? "longer" : "same";
+  };
+  const release = (): string => {
+    open = true;
+    const out = held;
+    held = "";
+    return out;
+  };
+  return {
+    push(text: string) {
+      if (open) return text;
+      if (!text) return "";
+      held += text;
+      const r = relate(false);
+      if (r === "other") return release();
+      if (r === "longer") {
+        const rest = afterWords(held, before.length);
+        release();
+        return rest;
+      }
+      return "";
+    },
+    flush() {
+      if (open || !held) return "";
+      const r = relate(true);
+      if (r === "other") return release();
+      const rest = r === "longer" ? afterWords(held, before.length) : "";
+      release();
       return rest;
     },
   };

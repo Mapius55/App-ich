@@ -25,6 +25,7 @@ import {
 } from "./prompt.ts";
 import {
   birthYearProblem,
+  BLOCK_ALREADY_LOGGED,
   BLOCK_NO_NEXT,
   blockNoNext,
   doneDateProblem,
@@ -36,10 +37,12 @@ import {
   NOLIO_TIME_REFUSAL,
   nolioEditAllowed,
   priorProblem,
+  repeatGuard,
   replyShape,
   REVIEW_NOTES,
   REVIEW_RESULTS,
   reviewPatch,
+  sameBlockAnswer,
   WHOOP_HIDDEN_REPLY,
   WHOOP_MEMORY_REFUSAL,
   whoopInMemory,
@@ -546,7 +549,7 @@ const TOOLS: Anthropic.Beta.BetaTool[] = [
   {
     name: "wochenblick",
     description:
-      "Hält fest, wie der Wochenblick ausging: gemacht (ihr habt zurück- und vorausgeschaut), abgelehnt (sie wollte diese Woche nicht), will oder will_nicht (ihre Antwort auf die Frage, ob sie ihn überhaupt möchte).",
+      "Hält fest, wie der Wochenblick ausging: gemacht (ihr habt zurück- und vorausgeschaut), abgelehnt (sie wollte diese Woche nicht oder ging nicht darauf ein), will oder will_nicht (ihre Antwort auf die Frage, ob sie ihn überhaupt möchte).",
     input_schema: {
       type: "object",
       properties: { ergebnis: { type: "string", enum: [...REVIEW_RESULTS] } },
@@ -1437,6 +1440,10 @@ async function runTool(
       const insert = () =>
         sb.from("goal_time").insert({ ...fields, user_id: userId, source: eventId ? "block" : "coach", event_id: eventId, note: note ?? null });
       if (eventId) {
+        // The same answer again (a later turn repeating her «Nein»): nothing to save and no second time_logged.
+        const stored = await sb.from("goal_time").select("goal_id, day, minutes, note").eq("event_id", eventId).maybeSingle();
+        if (stored.error) throw stored.error;
+        if (sameBlockAnswer(stored.data, { goalId, minutes, day: logDay, note })) return JSON.stringify({ ok: true, hint: BLOCK_ALREADY_LOGGED });
         // One answer per block; a new one replaces it (update, else insert; a race ends in an update).
         const update = () => sb.from("goal_time").update(fields).eq("event_id", eventId).select("id");
         let res = await update();
@@ -2171,6 +2178,7 @@ async function converse({ sb, userId, body, send }: { sb: SupabaseClient; userId
         ? TOOLS.filter((t) => ["remember", "update_memory", "forget"].includes(t.name))
         : TOOLS.filter((t) => t.name !== "finish_onboarding");
   let fullText = "";
+  let lastRoundText = ""; // what the last round that said something said
 
   for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
     const stream = anthropic.beta.messages.stream({
@@ -2191,8 +2199,10 @@ async function converse({ sb, userId, body, send }: { sb: SupabaseClient; userId
     // message) goes out whole, as finalVersion, so not even the draft before such a sentence is heard
     const spoken = spokenStream();
     const draft = draftStream({ whole: !message });
+    // the same reply again after a tool round (once in a live check, around a redundant call): heard and saved once
+    const repeat = repeatGuard(lastRoundText);
     let roundText = "";
-    const emit = (text: string) => {
+    const out = (text: string) => {
       if (!text) return;
       if (!roundText && fullText) {
         fullText += "\n\n";
@@ -2202,11 +2212,14 @@ async function converse({ sb, userId, body, send }: { sb: SupabaseClient; userId
       fullText += text;
       send({ type: "text", text });
     };
+    const emit = (text: string) => out(repeat.push(text));
     stream.on("text", (delta) => emit(draft.push(spoken.push(delta))));
 
     const msg = await stream.finalMessage();
     emit(draft.push(spoken.flush()));
     emit(draft.flush());
+    out(repeat.flush());
+    if (roundText) lastRoundText = roundText;
 
     if (msg.stop_reason === "refusal") {
       const t = "Dazu kann ich leider nichts sagen. Magst du mir erzählen, was dich sonst gerade beschäftigt?";

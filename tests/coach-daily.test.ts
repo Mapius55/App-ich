@@ -117,9 +117,9 @@ describe("the morning in one minute", () => {
     expect(PERSONA).not.toContain("hat immer einen Tag („heute“, „morgen“, „am Dienstag“) und eine Uhrzeit");
   });
 
-  it("a block only after a clear yes: «okay, danke» as a closing is none", () => {
+  it("a block only after a clear yes: «okay, danke», «Gut, danke», «Gut. Sonst noch etwas?» are none, for blocks or time", () => {
     expect(PERSONA).toContain(
-      "Anders als Termine trägst du Blöcke erst nach einem klaren Ja ein („ja“, „passt“, „gern“, „trag es ein“); ein „okay, danke“ zum Abschluss ist kein Ja: Dann fragst du kurz nach oder lässt es.",
+      "Anders als Termine trägst du Blöcke erst nach einem klaren Ja ein („ja“, „passt“, „gern“, „trag es ein“); „okay, danke“, „Gut, danke“ oder „Gut. Sonst noch etwas?“ ist kein Ja, weder für einen Block noch für Zeit mit log_time: Dann fragst du kurz nach oder lässt es.",
     );
     expect(MODE_CHECKIN).toContain("Erst nach ihrem klaren Ja trägst du ihn ein: create_event mit kind block");
     expect(PERSONA).not.toContain("trägst du Blöcke erst nach ihrem Ja ein");
@@ -360,7 +360,9 @@ describe("the Wochenblick", () => {
   it("the rule: a win, what was in the way, next week's blocks for one goal; skippable; asks once after two declines", () => {
     expect(MODE_CHECKIN).toContain("in höchstens fünf kurzen Wechseln: Zuerst eine Sache, die in der Woche gelungen ist");
     expect(MODE_CHECKIN).toContain("fragst du, was im Weg war, falls etwas nicht geklappt hat, und schlägst dann die Blöcke der neuen Woche für das eine Ziel vor, das dort steht, eingetragen nach ihrem Ja");
-    expect(MODE_CHECKIN).toContain("Danach rufst du wochenblick mit ergebnis gemacht auf. Will sie nicht, ist das in Ordnung: wochenblick mit abgelehnt");
+    expect(MODE_CHECKIN).toContain(
+      "Danach rufst du wochenblick mit ergebnis gemacht auf. Sagt sie Nein oder geht sie nicht darauf ein, ist das in Ordnung: Du rufst gleich wochenblick mit abgelehnt auf, und ihr sprecht über den Tag.",
+    );
     expect(MODE_CHECKIN).toContain("Steht dort „fragen“, fragst du stattdessen einmal, ob sie den Wochenblick überhaupt möchte, und hältst ihre Antwort mit will oder will_nicht fest.");
     expect(MODE_CHECKIN).toContain("Nie, wenn sie müde ist, es ihr nicht gut geht oder etwas drängt. Gibst du ihm einen Namen, heisst er „Wochenblick“.");
   });

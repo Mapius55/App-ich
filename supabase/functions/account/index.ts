@@ -8,8 +8,9 @@
 //                                    and the Nolio data, and the log of the coach's notifications (never a text).
 //                                    The same tables as the app's own export (src/lib/supabaseBackend.ts).
 //   POST {action:"delete"} (login) → first ends the WHOOP access at WHOOP (as far as possible), then deletes
-//                                    the account. All tables reference auth.users with ON DELETE CASCADE, so
-//                                    removing the auth user removes every row of the person.
+//                                    her weekly rhythms (deleteSeries), then the account. All tables reference
+//                                    auth.users with ON DELETE CASCADE, so removing the auth user removes every
+//                                    row of the person.
 // Deploy with --no-verify-jwt: the login is checked here.
 
 import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2.119.0";
@@ -87,6 +88,18 @@ async function exportData(sb: SupabaseClient, userId: string) {
   return out;
 }
 
+/**
+ * Her weekly rhythms go first, with the service role: their coming days go with them (series_removed), the past ones
+ * stay as plain blocks until the cascade. Without this, a rhythm with coming days made deleteUser fail on a database
+ * without 20261125000000_series_delete_fix.sql: the cascade (as GoTrue's role) took each coming day for one she let
+ * fall away and could not note it on the rhythm (42501). A missing table (migration not applied) is no error; any
+ * other failure is only logged: deleteUser still runs and says whether the account went.
+ */
+async function deleteSeries(admin: SupabaseClient, userId: string): Promise<void> {
+  const { error } = await admin.from("series").delete().eq("user_id", userId);
+  if (error && error.code !== "42P01" && error.code !== "PGRST205") console.error("account: series delete failed:", String(error.code ?? "internal"));
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST") return new Response("Method not allowed", { status: 405, headers: CORS });
@@ -130,6 +143,7 @@ Deno.serve(async (req) => {
   } catch (e) {
     console.error("account: whoop disconnect failed:", String((e as { code?: unknown; name?: unknown })?.code ?? (e as { name?: unknown })?.name ?? "internal"));
   }
+  await deleteSeries(admin, userId);
   const del = await admin.auth.admin.deleteUser(userId);
   if (del.error) return new Response("Could not delete", { status: 500, headers: CORS });
   return json({ ok: true });
