@@ -341,11 +341,18 @@ export type ReviewResult = (typeof REVIEW_RESULTS)[number];
  * settled, one more decline. «will»: she wants it (asked after two declines), the count back to 0, this week
  * still open. «will_nicht»: never offered again.
  */
-export function reviewPatch(result: ReviewResult, week: string, declines: number): { review_week?: string; review_declines?: number; review_wanted?: boolean } {
+export function reviewPatch(
+  result: ReviewResult,
+  week: string,
+  declines: number,
+  /** the week already noted (profiles.review_week): a second «abgelehnt» for the same week is no new decline */
+  noted: string | null = null,
+): { review_week?: string; review_declines?: number; review_wanted?: boolean } {
   switch (result) {
     case "gemacht":
       return { review_week: week, review_declines: 0 };
     case "abgelehnt":
+      if (noted === week) return {};
       return { review_week: week, review_declines: Math.min(20, Math.max(0, declines) + 1) };
     case "will":
       return { review_wanted: true, review_declines: 0 };

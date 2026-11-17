@@ -451,6 +451,10 @@ describe("the Wochenblick", () => {
     expect(REVIEW_RESULTS).toEqual(["gemacht", "abgelehnt", "will", "will_nicht"]);
     expect(reviewPatch("gemacht", "2026-11-16", 1)).toEqual({ review_week: "2026-11-16", review_declines: 0 });
     expect(reviewPatch("abgelehnt", "2026-11-16", 1)).toEqual({ review_week: "2026-11-16", review_declines: 2 });
+    // a later turn declines the same week again: no second decline (live check: 0→1→2→3 in one conversation)
+    expect(reviewPatch("abgelehnt", "2026-11-16", 1, "2026-11-16")).toEqual({});
+    expect(reviewPatch("abgelehnt", "2026-11-23", 1, "2026-11-16")).toEqual({ review_week: "2026-11-23", review_declines: 2 });
+    expect(reviewPatch("gemacht", "2026-11-16", 1, "2026-11-16")).toEqual({ review_week: "2026-11-16", review_declines: 0 });
     expect(reviewPatch("will", "2026-11-16", 2)).toEqual({ review_wanted: true, review_declines: 0 });
     expect(reviewPatch("will_nicht", "2026-11-16", 2)).toEqual({ review_wanted: false, review_week: "2026-11-16" });
     expect(tools).toContain('name: "wochenblick"');

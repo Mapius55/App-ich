@@ -1511,9 +1511,12 @@ async function runTool(
       // the week it is about, by her clock (from Sunday 16:00 the coming one)
       const clock = localClock(new Date(), ctx.tz);
       const week = reviewWeek(day, clock.day === day ? clock.minutes : 12 * 60);
-      const cur = await sb.from("profiles").select("review_declines").eq("id", userId).maybeSingle();
+      const cur = await sb.from("profiles").select("review_declines, review_week").eq("id", userId).maybeSingle();
       if (cur.error) throw cur.error;
-      const { error } = await sb.from("profiles").update(reviewPatch(result, week, Number(cur.data?.review_declines) || 0)).eq("id", userId);
+      // the same week declined again (a later turn): already noted, no second decline
+      const patch = reviewPatch(result, week, Number(cur.data?.review_declines) || 0, cur.data?.review_week ?? null);
+      if (!Object.keys(patch).length) return JSON.stringify({ ok: true, notiert: "Schon notiert. Diese Woche nicht mehr; sprecht über den Tag." });
+      const { error } = await sb.from("profiles").update(patch).eq("id", userId);
       if (error) throw error;
       return JSON.stringify({ ok: true, notiert: REVIEW_NOTES[result] });
     }
