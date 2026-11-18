@@ -86,7 +86,7 @@ describe("coach tools", () => {
     expect(tool("wochenblick")).toContain("will_nicht");
     // the schema and the check share one list
     expect(tool("note_offer")).toContain("what: { type: \"string\", enum: [...OFFERS] },");
-    expect(source).toContain('const OFFERS = ["experiment", "begleitung", "blockmuster", "plan_b", "rhythmus", "flaute"] as const;');
+    expect(source).toContain('const OFFERS = ["experiment", "begleitung", "blockmuster", "plan_b", "rhythmus", "flaute", "stunden", "etappen"] as const;');
     expect(source).toContain('const what = oneOf(input.what, OFFERS, "what");');
     expect(source.match(/if \(ctx\.mode !== "checkin"\) throw new ToolInputError\("nur im täglichen Gespräch"\);/g)).toHaveLength(5);
     expect(source).toContain('TOOLS.filter((t) => ["remember", "update_memory", "forget"].includes(t.name))');

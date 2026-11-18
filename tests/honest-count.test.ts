@@ -315,7 +315,9 @@ describe("the coach: one batched question, a «Nein» protocol, the pattern at m
   it("shows the pattern under the goal, with the offer only when it may come", () => {
     const out = goalSection(contextBlock(base));
     expect(out).toContain("geschafft 1 Std · vorläufig 1 Std (Blöcke ohne Rückmeldung)");
-    expect(out).toContain("\n  Blöcke der letzten 4 Wochen: 4 geplant · 1 bestätigt · 3 nicht geklappt (3× um 7 Uhr) → anpassen anbieten (einmal)");
+    expect(out).toContain(
+      "\n  Blöcke der letzten 4 Wochen: 4 geplant · 1 bestätigt · 3 nicht geklappt (3× um 7 Uhr) · zuletzt geschafft: 1 Std, Vorschläge höchstens 2 Std → anpassen anbieten (einmal)",
+    );
     // offered this week already
     expect(goalSection(contextBlock({ ...base, goals: [{ ...goal, pattern_asked_at: "2026-11-20T18:00:00Z" }] }))).toContain("→ anpassen diese Woche schon angeboten");
     // offered 11 days ago, since then one «Nein» only: the numbers, no new offer from the old ones

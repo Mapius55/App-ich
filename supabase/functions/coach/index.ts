@@ -18,6 +18,7 @@ import {
   MODE_ONBOARDING,
   MODE_TIDY,
   PERSONA,
+  todayNudge,
   type ContextConnections,
   type ContextGoal,
   type ContextInput,
@@ -41,6 +42,8 @@ import {
   NOLIO_EDIT_REFUSAL,
   NOLIO_TIME_REFUSAL,
   nolioEditAllowed,
+  NUDGE_NO_NOTE,
+  offerNudgeKind,
   priorProblem,
   repeatGuard,
   replyShape,
@@ -69,6 +72,7 @@ import {
   localClock,
   NUDGE_LONG_DAYS,
   NUDGE_NOT_NOW_DAYS,
+  type NudgeKind,
   OBSTACLE_MAX,
   openBlocksOn,
   openWeekBlocks,
@@ -105,7 +109,7 @@ const GOAL_STATUS = ["active", "done", "paused", "dropped"] as const;
 const GOAL_KINDS = ["goal", "dream"] as const;
 const MEMORY_MAX = 1000;
 const EVENT_KINDS = ["termin", "block"] as const;
-const OFFERS = ["experiment", "begleitung", "blockmuster", "plan_b", "rhythmus", "flaute"] as const;
+const OFFERS = ["experiment", "begleitung", "blockmuster", "plan_b", "rhythmus", "flaute", "stunden", "etappen"] as const;
 const MAX_MILESTONES = 12;
 const DEFAULT_TZ = "Europe/Zurich";
 const DAY_MS = 24 * 3600 * 1000;
@@ -419,7 +423,7 @@ const TOOLS: Anthropic.Beta.BetaTool[] = [
         kind: { type: "string", enum: [...GOAL_KINDS], description: "goal oder dream (auf der Bucket List)." },
         done_date: { type: "string", description: "YYYY-MM-DD, mit status done: wann es sich erfüllt hat, wenn nicht heute (ungefähr genügt)." },
         memory: { type: "string", description: "Wie es war (erfüllter Traum), kurz und in ihren Worten, in der Ich-Form, so wie sie es sagt (nicht in der dritten Person); leer entfernt es." },
-        reminded: { type: "boolean", description: "true, nachdem du sie an diesen Traum erinnert hast (liegt lange, guter Zeitpunkt, neu, passende Jahreszeit)." },
+        reminded: { type: "boolean", description: "true, nachdem du sie an diesen Traum erinnert hast (der Traum unter „Anstoss heute“)." },
         nicht_jetzt: { type: "boolean", description: "Nur bei einem Traum, zusammen mit reminded: true, wenn sie „nicht jetzt“ gesagt hat. Dann ruht er drei Monate." },
         planen: {
           type: "boolean",
@@ -580,12 +584,13 @@ const TOOLS: Anthropic.Beta.BetaTool[] = [
   {
     name: "note_offer",
     description:
-      "Hält fest, dass du etwas angeboten hast, das nur selten kommt: experiment (ein kleines Experiment, höchstens einmal pro Woche), begleitung (der einmalige Hinweis auf Menschen in ihrem Leben oder eine Fachperson), blockmuster (du hast angeboten, die Blöcke eines Ziels nach ihrem Muster anzupassen; mit goal_id, höchstens einmal pro Woche und Ziel), plan_b (du hast gefragt, was ihr bei einem Ziel dazwischenkommen könnte; mit goal_id, einmal pro Ziel), rhythmus (du hast für ein Ziel einen Wochenrhythmus angeboten; mit goal_id, einmal pro Ziel) oder flaute (du hast angeboten, den Rhythmus eines Ziels zu ändern oder zu pausieren; mit goal_id).",
+      "Hält fest, dass du etwas angeboten hast, das nur selten kommt: experiment (ein kleines Experiment, höchstens einmal pro Woche), begleitung (der einmalige Hinweis auf Menschen in ihrem Leben oder eine Fachperson), blockmuster (du hast angeboten, die Blöcke eines Ziels nach ihrem Muster anzupassen; mit goal_id, höchstens einmal pro Woche und Ziel), plan_b (du hast gefragt, was ihr bei einem Ziel dazwischenkommen könnte; mit goal_id, einmal pro Ziel), rhythmus (du hast für ein Ziel einen Wochenrhythmus angeboten; mit goal_id, einmal pro Ziel), stunden (du hast nach ihren Stunden pro Woche für ein Ziel gefragt; mit goal_id, einmal pro Ziel), etappen (du hast Etappen für ein Ziel vorgeschlagen; mit goal_id, einmal pro Ziel) oder flaute (du hast angeboten, den Rhythmus eines Ziels zu ändern oder zu pausieren; mit goal_id).",
     input_schema: {
       type: "object",
       properties: {
         what: { type: "string", enum: [...OFFERS] },
-        goal_id: { type: "string", description: "Bei blockmuster, plan_b, rhythmus und flaute: das Ziel, um das es ging." },
+        goal_id: { type: "string", description: "Bei blockmuster, plan_b, rhythmus, stunden, etappen und flaute: das Ziel, um das es ging." },
+        nein: { type: "boolean", description: "true, wenn sie zu diesem Anstoss Nein gesagt hat: Dann ruht diese Art zwei Wochen." },
       },
       required: ["what"],
       additionalProperties: false,
@@ -1301,6 +1306,8 @@ async function runTool(
         const rest = await sb.from("goals").update({ nudge_after: addDays(day, NUDGE_NOT_NOW_DAYS) }).eq("id", id);
         if (rest.error) console.error("nudge_after:", rest.error.code ?? "error");
       }
+      // a dream brought up is the day's Anstoss; her «nicht jetzt» lets the dreams rest two weeks (this one three months)
+      if (patch.reminded_at && goal.kind === "dream" && ctx.mode === "checkin") await noteNudge(sb, day, "traum", notNow);
       send({ type: "goal_saved", goal, ...(!wasDone && data.status === "done" && goal.kind === "dream" ? { fulfilled: true } : {}) });
       // Where the effort stands now, e.g. after she said how much time she has per week (dreams: only with an estimate).
       return JSON.stringify({
@@ -1560,6 +1567,7 @@ async function runTool(
       if (!Object.keys(patch).length) return JSON.stringify({ ok: true, notiert: "Schon notiert. Diese Woche nicht mehr; sprecht über den Tag." });
       const { error } = await sb.from("profiles").update(patch).eq("id", userId);
       if (error) throw error;
+      await noteNudge(sb, day, "wochenblick");
       return JSON.stringify({ ok: true, notiert: REVIEW_NOTES[result] });
     }
     case "come_back": {
@@ -1575,13 +1583,36 @@ async function runTool(
     case "note_offer": {
       if (ctx.mode !== "checkin") throw new ToolInputError("nur im täglichen Gespräch");
       const what = oneOf(input.what, OFFERS, "what");
+      // the day's one Anstoss (profiles.nudge_day), and with nein her «Nein» to its kind: it rests two weeks
+      const kind = offerNudgeKind(what);
+      const no = kind !== null && input.nein !== undefined && bool(input.nein, "nein");
+      const noted = async (note: string) => {
+        if (kind) await noteNudge(sb, day, kind, no);
+        return JSON.stringify({ ok: true, notiert: no ? NUDGE_NO_NOTE : note });
+      };
+      if (what === "stunden" || what === "etappen") {
+        // once per goal (goals.hours_asked_at, steps_asked_at, the server's clock): the Anstoss never comes again for it
+        const goalId = uuid(input.goal_id, "goal_id");
+        const res = await sb
+          .from("goals")
+          .update(what === "stunden" ? { hours_asked_at: new Date().toISOString() } : { steps_asked_at: new Date().toISOString() })
+          .eq("id", goalId)
+          .select("id");
+        if (res.error) throw res.error;
+        if (!res.data?.length) throw new ToolInputError("Ziel nicht gefunden");
+        return await noted(
+          what === "stunden"
+            ? "Notiert. Nach den Stunden pro Woche für dieses Ziel fragst du nicht nochmals; nennt sie eine Zahl, speicherst du sie mit update_goal weekly_hours."
+            : "Notiert. Etappen für dieses Ziel schlägst du nicht nochmals von dir aus vor; gespeichert werden sie nach ihrem Ja mit add_milestone.",
+        );
+      }
       if (what === "rhythmus") {
         // once per goal (goals.rhythm_asked_at, the server's clock; a new rhythm for it sets it too)
         const goalId = uuid(input.goal_id, "goal_id");
         const res = await sb.from("goals").update({ rhythm_asked_at: new Date().toISOString() }).eq("id", goalId).select("id");
         if (res.error) throw res.error;
         if (!res.data?.length) throw new ToolInputError("Ziel nicht gefunden");
-        return JSON.stringify({ ok: true, notiert: "Notiert. Einen Wochenrhythmus für dieses Ziel bietest du nicht nochmals an; legst ihn nur nach ihrem Ja an." });
+        return await noted("Notiert. Einen Wochenrhythmus für dieses Ziel bietest du nicht nochmals an; legst ihn nur nach ihrem Ja an.");
       }
       if (what === "flaute") {
         // per rhythm (series.lapse_asked_at): the next offer only after another three weeks like this
@@ -1597,7 +1628,7 @@ async function runTool(
         const res = await sb.from("goals").update({ plan_b_asked_at: new Date().toISOString() }).eq("id", goalId).select("id");
         if (res.error) throw res.error;
         if (!res.data?.length) throw new ToolInputError("Ziel nicht gefunden");
-        return JSON.stringify({ ok: true, notiert: "Notiert. Nach einem Plan B für dieses Ziel fragst du nicht nochmals." });
+        return await noted("Notiert. Nach einem Plan B für dieses Ziel fragst du nicht nochmals.");
       }
       if (what === "blockmuster") {
         // per goal (goals.pattern_asked_at, the server's clock): the pattern line then says it came this week
@@ -1612,7 +1643,7 @@ async function runTool(
         .update(what === "experiment" ? { experiment_at: new Date().toISOString() } : { support_hint_at: new Date().toISOString() })
         .eq("id", userId);
       if (error) throw error;
-      return JSON.stringify({ ok: true, notiert: what === "experiment" ? "Notiert. Diese Woche kein weiteres Experiment." : "Notiert. Den Hinweis nicht wiederholen." });
+      return await noted(what === "experiment" ? "Notiert. Diese Woche kein weiteres Experiment." : "Notiert. Den Hinweis nicht wiederholen.");
     }
     case "request_location": {
       send({ type: "request_location" });
@@ -1719,6 +1750,16 @@ async function soft<T>(q: PromiseLike<Res<T>>, fallback: T, what: string): Promi
   }
 }
 
+/**
+ * The day's Anstoss came (profiles.nudge_day and nudge_kind: no other one today), and with `no` her «Nein» to its kind
+ * (profiles.nudge_no: it rests NUDGE_NO_DAYS). Its own write (the function note_nudge): a missing function before its
+ * migration never undoes what the tool saved.
+ */
+async function noteNudge(sb: SupabaseClient, day: string, kind: NudgeKind, no = false): Promise<void> {
+  const { error } = await sb.rpc("note_nudge", { p_day: day, p_kind: kind, p_no: no });
+  if (error) console.error("note_nudge:", (error as { code?: string }).code ?? "error");
+}
+
 type CoachProfile = {
   review_week?: string | null;
   review_declines?: number | null;
@@ -1743,7 +1784,7 @@ const planBOf = (rows: Map<string, PlanBRow> | null | undefined, id: string): Pi
  * `day`: her today (the thread).
  */
 async function loadDaily(sb: SupabaseClient, userId: string, day: string, now: number) {
-  const [lastSeen, lastSpoke, lastTalk, talk, profile, openers, todayLog, followed, asked, resting, patternAsked, planB, , series, seriesDays, rhythmAsked, comeBack] = await Promise.all([
+  const [lastSeen, lastSpoke, lastTalk, talk, profile, openers, todayLog, followed, asked, resting, patternAsked, planB, , series, seriesDays, rhythmAsked, comeBack, nudge, nudgeAsked, sessions] = await Promise.all([
     // the last day before today with a conversation, however long ago (a pause)
     soft<{ thread: string }[]>(sb.from("messages").select("thread").lt("thread", day).order("id", { ascending: false }).limit(1), [], "last seen"),
     // her own last message before today and when (the Wochenblick: a greeting she never answered is no conversation);
@@ -1824,7 +1865,36 @@ async function loadDaily(sb: SupabaseClient, userId: string, day: string, now: n
       [],
       "come back",
     ),
+    // the day's one Anstoss: when the last one came, its kind, and her «Nein» per kind (null: unknown, e.g. before the
+    // columns: then no Anstoss, since nothing could be noted)
+    soft<{ nudge_day: string | null; nudge_kind: string | null; nudge_no: Record<string, string> | null } | null>(
+      sb.from("profiles").select("nudge_day, nudge_kind, nudge_no").eq("id", userId).maybeSingle(),
+      null,
+      "nudge",
+    ),
+    // a goal's weekly hours and steps asked once as the Anstoss (null: unknown, then never asked)
+    soft<{ id: string; hours_asked_at: string | null; steps_asked_at: string | null }[] | null>(
+      sb.from("goals").select("id, hours_asked_at, steps_asked_at").or("hours_asked_at.not.is.null,steps_asked_at.not.is.null").limit(200),
+      null,
+      "nudge asked",
+    ),
+    // what she really did per goal over four weeks (every time with minutes, oldest first): the size of a proposal
+    soft<{ goal_id: string; minutes: number }[]>(
+      sb
+        .from("goal_time")
+        .select("goal_id, minutes")
+        .gt("minutes", 0)
+        .gte("day", addDays(day, -PATTERN_DAYS))
+        .lte("day", day)
+        .order("day")
+        .order("created_at")
+        .limit(500),
+      [],
+      "sessions",
+    ),
   ]);
+  const sessionsOf = new Map<string, number[]>();
+  for (const t of sessions) (sessionsOf.get(String(t.goal_id)) ?? sessionsOf.set(String(t.goal_id), []).get(String(t.goal_id))!).push(Number(t.minutes) || 0);
   const talkCounts: Record<string, number> = {};
   for (const r of talk) talkCounts[String(r.thread)] = (talkCounts[String(r.thread)] ?? 0) + 1;
   const talkThread = lastTalk[0] ? String(lastTalk[0].thread) : null;
@@ -1847,6 +1917,15 @@ async function loadDaily(sb: SupabaseClient, userId: string, day: string, now: n
     seriesOf: new Map(seriesDays.map((r) => [String(r.id), String(r.series_id)])),
     rhythmAsked: rhythmAsked ? new Map(rhythmAsked.map((r) => [String(r.id), String(r.rhythm_asked_at)])) : null,
     comeBack: comeBack.map((r) => ({ day: String(r.day), text: String(r.come_back ?? ""), at: r.come_back_at ? String(r.come_back_at) : null })).filter((r) => r.text.trim()),
+    nudge: nudge
+      ? {
+          day: nudge.nudge_day ? String(nudge.nudge_day).slice(0, 10) : null,
+          kind: nudge.nudge_kind ?? null,
+          no: nudge.nudge_no && typeof nudge.nudge_no === "object" ? nudge.nudge_no : null,
+        }
+      : undefined,
+    nudgeAsked: nudgeAsked ? new Map(nudgeAsked.map((r) => [String(r.id), { hours: r.hours_asked_at ?? null, steps: r.steps_asked_at ?? null }])) : null,
+    sessions: sessionsOf,
   };
 }
 
@@ -2073,6 +2152,11 @@ async function converse({ sb, userId, body, send }: { sb: SupabaseClient; userId
       ...planBOf(dailyCtx?.planB, goal.id),
       // a weekly rhythm offered once (undefined: unknown, then never offered)
       rhythm_asked_at: dailyCtx?.rhythmAsked ? (dailyCtx.rhythmAsked.get(goal.id) ?? null) : undefined,
+      // its weekly hours and steps asked once as the Anstoss (undefined: unknown, then never asked)
+      hours_asked_at: dailyCtx?.nudgeAsked ? (dailyCtx.nudgeAsked.get(goal.id)?.hours ?? null) : undefined,
+      steps_asked_at: dailyCtx?.nudgeAsked ? (dailyCtx.nudgeAsked.get(goal.id)?.steps ?? null) : undefined,
+      // what she really did for it lately (the size of a proposal); without the daily data: her answered blocks
+      ...(dailyCtx ? { sessions: dailyCtx.sessions.get(goal.id) ?? [] } : {}),
       milestones: goal.milestones.map((m) => ({ ...m, overdue_asked_for: dailyCtx?.asked.get(String(m.id)) ?? null })),
     };
   });
@@ -2184,11 +2268,11 @@ async function converse({ sb, userId, body, send }: { sb: SupabaseClient; userId
     pastBlocks,
     recentBlocks,
     series: dailyCtx?.series ?? undefined,
+    nudge: dailyCtx?.nudge,
   };
 
   if (dailyCtx) {
     const p = dailyCtx.profile;
-    const blockGoals = [...events, ...pastBlocks].filter((e) => e.kind === "block" && e.goal_id).map((e) => String(e.goal_id));
     // her clock, a pause, a heavy time and the Wochenblick, from what was stored (dailySituation); an unknown
     // Wochenblick state (columns before their migration): never offered, since nothing could be noted
     const { minutes, pause, heavy, review: due } = dailySituation({
@@ -2200,7 +2284,7 @@ async function converse({ sb, userId, body, send }: { sb: SupabaseClient; userId
       todayMood: today?.mood,
       recentDays,
       review: p ? { week: p.review_week ?? null, declines: Number(p.review_declines) || 0, wanted: typeof p.review_wanted === "boolean" ? p.review_wanted : null } : null,
-      hasPlanGoal: hasPlanGoal(goals, blockGoals),
+      hasPlanGoal: hasPlanGoal(goals),
       // a greeting that opened with it on an earlier day and that she answered: offered, even if no tool noted it (K9)
       reviewOfferedOn: dailyCtx.openers.filter((r) => r.kind === "wochenblick" && r.day < context.day && (dailyCtx.talkCounts[r.day] ?? 0) > 0).map((r) => r.day),
     });
@@ -2223,10 +2307,20 @@ async function converse({ sb, userId, body, send }: { sb: SupabaseClient; userId
       // her yes of an evening (come_back): not brought up yet, or brought up in today's greeting (a second open today)
       const pendingBack = dailyCtx.comeBack.find((r) => !r.at) ?? null;
       const raisedBack = dailyCtx.comeBack.find((r) => r.at && localDay(r.at, tz) === context.day) ?? null;
+      // the day's one Anstoss (todayNudge): it opens the greeting after three days without one (the Wochenblick: its own opener)
+      const nudge = todayNudge(input);
       const kind: OpenerKind = isOpenerKind(stored)
         ? stored
         : chooseOpener(
-            { minutes, pause, wochenblick: !!input.review, available: openerCandidates(input), quiet: heavy, comeBack: !!pendingBack },
+            {
+              minutes,
+              pause,
+              wochenblick: !!input.review,
+              available: openerCandidates(input),
+              quiet: heavy,
+              comeBack: !!pendingBack,
+              anstoss: !!nudge?.greeting && nudge.kind !== "wochenblick",
+            },
             dailyCtx.openers.filter((r) => r.day !== context.day),
             context.day,
           );
@@ -2236,6 +2330,8 @@ async function converse({ sb, userId, body, send }: { sb: SupabaseClient; userId
         const { error } = await sb.from("days").upsert({ user_id: userId, day: context.day, opener: kind }, { onConflict: "user_id,day" });
         if (error) console.error("days.opener:", error.code ?? "error");
       }
+      // the greeting carries the day's Anstoss: no other one today (its own tool notes that it was asked)
+      if (kind !== stored && nudge && (kind === "anstoss" || (kind === "wochenblick" && nudge.kind === "wochenblick"))) await noteNudge(sb, context.day, nudge.kind);
       // exactly once: from now on it is brought up (a later open today still finds it for the stored opener)
       if (kind === "zurueck" && pendingBack && !raisedBack) {
         const { error } = await sb.from("days").update({ come_back_at: iso(now) }).eq("user_id", userId).eq("day", pendingBack.day);

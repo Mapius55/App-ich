@@ -693,15 +693,14 @@ describe("prompt rules: the Bucket List", () => {
     expect(PERSONA).toContain("Nennt sie eine Gesamtzahl für mehrere Ziele oder Träume, teilst du sie auf oder fragst, wie sie sie aufteilen möchte, statt sie bei jedem einzutragen.");
   });
 
-  it("reminders: at most one per conversation, an invitation, never guilt or a countdown, then reminded: true", () => {
-    expect(PERSONA).toContain("„liegt lange“ oder „guter Zeitpunkt“");
-    expect(PERSONA).toContain("höchstens einen einzigen pro Gespräch, und nie als Antwort auf etwas Dringendes oder Schweres");
+  it("reminders: only as the day's one Anstoss, an invitation, never guilt or a countdown, then reminded: true", () => {
+    expect(PERSONA).toContain("Von dir aus sprichst du einen Traum nur an, wenn er unter „Anstoss heute“ steht, als Einladung");
     expect(PERSONA).toContain("nie mit schlechtem Gewissen und nie mit „die Zeit läuft“");
-    expect(PERSONA).toContain("„Du wolltest doch einmal die Polarlichter sehen. Im Februar wäre eine gute Zeit dafür. Magst du einen ersten Schritt planen?“");
-    expect(PERSONA).toContain("Danach rufst du update_goal mit reminded: true auf.");
-    expect(PERSONA).toContain("Passt die Jahreszeit gut zu einem Traum, auch ohne Zieldatum");
-    expect(MODE_CHECKIN).toContain("nimmst du höchstens einen davon im Gespräch auf");
-    expect(MODE_CHECKIN).toContain("Nicht in der Begrüssung, und nicht, wenn sie müde ist, es ihr nicht gut geht oder etwas drängt.");
+    expect(PERSONA).toContain("Dabei rufst du update_goal mit reminded: true auf");
+    expect(PERSONA).toContain("die Jahreszeit darfst du dazu nennen");
+    // the guard of every Anstoss: never on a heavy day, never after «kurz»
+    expect(MODE_CHECKIN).toContain("Nie, wenn sie müde ist, es ihr nicht gut geht, etwas drängt oder sie „kurz“ gesagt hat.");
+    expect(MODE_CHECKIN).not.toContain("nimmst du höchstens einen davon im Gespräch auf");
   });
 
   it("life time: never age or remaining weeks unprompted, the birth year never asked for", () => {

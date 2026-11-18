@@ -1,7 +1,7 @@
 // Small, pure rules for the coach's tools (goals, Nolio entries). No Deno-only imports: the tests
 // import this file with vitest, index.ts uses it.
 
-import { daysBetween } from "../_shared/plan.ts";
+import { daysBetween, type NudgeKind } from "../_shared/plan.ts";
 
 /** Prior hours above this share of the estimate need prior_bestaetigt: true (the person named or confirmed them). */
 export const PRIOR_MAX_SHARE = 0.3;
@@ -440,3 +440,22 @@ export const REVIEW_NOTES: Record<ReviewResult, string> = {
   will: "Notiert: Sie möchte ihn. Biete ihn an, wenn es jetzt passt.",
   will_nicht: "Notiert: kein Wochenblick mehr, ausser sie fragt selbst danach.",
 };
+
+// ---------- one Anstoss a day (NEXT #1) ----------
+
+/** The offers of note_offer that are the day's Anstoss (profiles.nudge_day), and their kind; the others are not. */
+const OFFER_NUDGE: Readonly<Record<string, NudgeKind>> = {
+  stunden: "stunden",
+  etappen: "etappen",
+  plan_b: "plan_b",
+  rhythmus: "rhythmus",
+  experiment: "experiment",
+};
+
+/** The Anstoss kind of a note_offer (null: begleitung, blockmuster, flaute are no Anstoss). */
+export function offerNudgeKind(what: string): NudgeKind | null {
+  return OFFER_NUDGE[what] ?? null;
+}
+
+/** What the coach hears back after her «Nein» to the day's Anstoss: that kind rests two weeks (NUDGE_NO_DAYS). */
+export const NUDGE_NO_NOTE = "Notiert: Diese Art von Anstoss ruht jetzt zwei Wochen. Lass es, ohne nachzufragen, und sprecht über das, was sie mitbringt.";

@@ -32,10 +32,18 @@ import { normaliseUsername, USERNAME_RE } from "./types";
 import type { NaturePalette } from "./palette";
 import {
   addDays,
+  dailyNudge,
   dayOf,
+  dreamNudge,
+  experimentDue,
   goalEffort,
+  goalSetback,
+  heavyLately,
   hoursLabel,
+  NUDGE_NOT_NOW_DAYS,
   OBSTACLE_MAX,
+  planBDue,
+  rhythmOfferDue,
   openBlocksOn,
   parseClock,
   parseWeekdays,
@@ -48,6 +56,7 @@ import {
   seriesTimes,
   unansweredCredit,
   weekStart,
+  type DailyNudge,
   type SeriesRule,
 } from "./plan";
 import { mapToGoal, sportKeys, type GoalForMapping, type NolioSport } from "../../supabase/functions/_shared/nolio.ts";
@@ -78,7 +87,26 @@ interface DemoUser {
   honest_from?: string;
   /** like public.series: the weekly rhythms; their days are in events (series_id, series_day) */
   series?: SeriesRule[];
+  /**
+   * like profiles.nudge_day, nudge_kind, nudge_no, experiment_at and goals.hours_asked_at, steps_asked_at: the coach's
+   * one Anstoss a day (dailyNudge); `since`: the day the demo began counting (like profiles.created_at)
+   */
+  nudge?: DemoNudge;
 }
+interface DemoNudge {
+  since: string;
+  day: string | null;
+  kind: string | null;
+  no: Record<string, string>;
+  hours: Record<string, string>;
+  steps: Record<string, string>;
+  experiment_at: string | null;
+  /** like goals.nudge_after: a dream rests after her «nicht jetzt» until this day */
+  rest?: Record<string, string>;
+}
+/** The way out every Anstoss ends with (and how the demo knows its last reply was one). */
+const NUDGE_WAY_OUT = "Sonst schauen wir ein andermal.";
+const DEMO_NO = /^\s*(?:nein|nö|lieber nicht|nicht jetzt|lass(?: es| mal)?|jetzt nicht)\b/i;
 interface DemoWhoop {
   status: "connected" | "pending";
   consent_ai: boolean;
@@ -1613,6 +1641,95 @@ export class DemoBackend implements Backend {
     return { note: `„${dream.title}“ steht jetzt auf deiner Bucket List. `, reply: "Was reizt dich daran am meisten?" };
   }
 
+  /**
+   * Like the real coach's one Anstoss a day (dailyNudge, NEXT #1): the item for today from the demo's data, or null.
+   * The demo has no Wochenblick; the rest follows the same priorities, «once» marks and the 14 days after a «Nein».
+   */
+  private demoNudge(day: string): DailyNudge | null {
+    const u = this.user();
+    const state = u.nudge ?? { since: day, day: null, kind: null, no: {}, hours: {}, steps: {}, experiment_at: null };
+    const now = Date.now();
+    const goals = u.goals.filter((g) => g.kind !== "dream" && g.status === "active");
+    const blocks = u.events.filter((e) => e.kind === "block" && e.goal_id);
+    const answered = new Map(u.goal_time.filter((t) => t.event_id).map((t) => [t.event_id!, t.minutes]));
+    const days = Object.values(u.days).map((d) => ({ day: d.day, mood: d.mood, focus: d.focus }));
+    const recent = days.filter((d) => d.day !== day);
+    const live = (u.series ?? []).filter((r) => r.active && !(r.until_date && r.until_date < day));
+    return dailyNudge({
+      today: day,
+      heavy: heavyLately(u.days[day]?.mood, recent, day),
+      pause: false,
+      review: null,
+      lastDay: state.day,
+      startDay: state.since,
+      no: state.no,
+      entriesToday: u.events.filter((e) => dayOf(new Date(e.starts_at)) === day).length,
+      goals: goals.map((g) => ({
+        id: g.id,
+        target_date: g.target_date,
+        weekly_hours: g.weekly_hours,
+        steps: g.milestones.length,
+        hours_asked_at: state.hours[g.id] ?? null,
+        steps_asked_at: state.steps[g.id] ?? null,
+        planB: planBDue(g, blocks.some((b) => b.goal_id === g.id), day),
+        setback: goalSetback(
+          g,
+          blocks.map((b) => ({ goal_id: b.goal_id, ends_at: b.ends_at, minutes: answered.get(b.id) ?? null })),
+          days,
+          day,
+          now,
+        ),
+        rhythm: rhythmOfferDue(g, { hasRhythm: live.some((r) => r.goal_id === g.id), activeRhythms: live.length, irregular: false, today: day }),
+      })),
+      dreams: u.goals
+        .filter((g) => g.kind === "dream" && g.status === "active")
+        .map((g) => ({ id: g.id, flag: dreamNudge({ ...g, nudge_after: state.rest?.[g.id] ?? null }, day, { startDay: state.since }) }))
+        .filter((d): d is { id: string; flag: NonNullable<typeof d.flag> } => d.flag !== null),
+      experiment: experimentDue(u.goals, state.experiment_at, day, (iso) => dayOf(new Date(iso))),
+    });
+  }
+
+  /** The demo coach brings the Anstoss up: one sentence, one question, a way out; noted like the coach's tools. */
+  private sayNudge(n: DailyNudge, day: string): string {
+    const title = n.id ? (this.user().goals.find((g) => g.id === n.id)?.title ?? "") : "";
+    const at = now();
+    this.mutate((u) => {
+      const st = (u.nudge ??= { since: day, day: null, kind: null, no: {}, hours: {}, steps: {}, experiment_at: null });
+      st.day = day;
+      st.kind = n.kind;
+      const g = n.id ? u.goals.find((x) => x.id === n.id) : undefined;
+      if (n.kind === "stunden" && n.id) st.hours[n.id] = at;
+      if (n.kind === "etappen" && n.id) st.steps[n.id] = at;
+      if (n.kind === "experiment") st.experiment_at = at;
+      if (g && n.kind === "plan_b") g.plan_b_asked_at = at;
+      if (g && n.kind === "rhythmus") g.rhythm_asked_at = at;
+      if (g && n.kind === "traum") g.reminded_at = at;
+    });
+    const ask: Record<DailyNudge["kind"], string> = {
+      wochenblick: "Magst du kurz auf die neue Woche schauen?",
+      stunden: `Wie viele Stunden pro Woche hast du für „${title}“ realistisch?`,
+      plan_b: `Was könnte dir bei „${title}“ dazwischenkommen?`,
+      etappen: `Magst du für „${title}“ ein paar Etappen mit Monat festlegen?`,
+      rhythmus: `Magst du für „${title}“ feste Zeiten in der Woche?`,
+      traum: `Was reizt dich am meisten an „${title}“?`,
+      experiment: "Magst du heute zehn Minuten hinaus, solange es noch hell ist?",
+    };
+    return `${ask[n.kind]} ${NUDGE_WAY_OUT}`;
+  }
+
+  /** Her «Nein» to today's Anstoss: that kind rests two weeks (a dream: three months), like note_offer with nein. */
+  private demoNudgeNo(text: string, day: string, history: ChatMessage[]): boolean {
+    const st = this.user().nudge;
+    const last = [...history].reverse().find((m) => m.role === "assistant")?.content ?? "";
+    if (!st?.kind || st.day !== day || !last.endsWith(NUDGE_WAY_OUT) || !DEMO_NO.test(text)) return false;
+    this.mutate((u) => {
+      u.nudge!.no[st.kind!] = day;
+      if (st.kind === "traum")
+        for (const g of u.goals) if (g.kind === "dream" && g.reminded_at && dayOf(new Date(g.reminded_at)) === day) (u.nudge!.rest ??= {})[g.id] = addDays(day, NUDGE_NOT_NOW_DAYS);
+    });
+    return true;
+  }
+
   async coach(req: CoachRequest, onEvent: (e: CoachEvent) => void) {
     await sleep(500);
     await latency();
@@ -1746,7 +1863,14 @@ export class DemoBackend implements Backend {
           await this.updateProfile({ connections_asked_at: now() });
           reply = `${greet}, ${name}.${this.nolioOwner ? ASK_CONNECTIONS : ASK_WHOOP}`;
           onEvent({ type: "request_connections" });
+        } else {
+          // after three days without an Anstoss, the greeting carries it as its one question (like chooseOpener's «anstoss»)
+          const n = this.demoNudge(req.context.day);
+          if (n?.greeting) reply = `${greet}, ${name}. ${this.sayNudge(n, req.context.day)}`;
+          else if (!u.nudge) this.mutate((x) => (x.nudge = { since: req.context.day, day: null, kind: null, no: {}, hours: {}, steps: {}, experiment_at: null }));
         }
+      } else if (this.demoNudgeNo(req.message, req.context.day, history)) {
+        reply = "Gut, dann lassen wir das.";
       } else if (dreamTurn) {
         reply = dreamTurn.reply;
       } else if (goal) {
@@ -1764,7 +1888,9 @@ export class DemoBackend implements Backend {
           when === "nächste Woche" || when === "in der Woche" ? "am Montag" : when === "an dem Tag" ? "an dem Tag" : when === "morgen" || new Date().getHours() >= 17 ? "morgen" : "heute";
         if (next) reply += ` Für „${next.title}“ schlage ich einen Block ${blockDay} um 18 Uhr vor, eine Stunde.`;
       } else if (habitsDone.length || spent) {
-        reply = "Was steht heute sonst noch an?";
+        // right after a tick or something done: the day's one Anstoss, if there is one
+        const n = this.demoNudge(req.context.day);
+        reply = n ? this.sayNudge(n, req.context.day) : "Was steht heute sonst noch an?";
       } else if (parseDemoMinutes(req.message) && (await this.listGoals()).filter((g) => g.status === "active").length > 1) {
         // time reported, but which goal? ask instead of guessing (and no mood or focus from it)
         reply = "Stark. Für welches Ziel zählt das?";

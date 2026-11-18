@@ -227,12 +227,12 @@ describe("the Wochenblick", () => {
     expect(wochenblickDue({ ...base, pause: true })).toBeNull();
   });
 
-  it("a goal with a plan: active, not a dream, with weekly hours or a block", () => {
-    expect(hasPlanGoal([{ id: "g1", status: "active", weekly_hours: 4 }], [])).toBe(true);
-    expect(hasPlanGoal([{ id: "g1", status: "active", weekly_hours: null }], ["g1"])).toBe(true);
-    expect(hasPlanGoal([{ id: "g1", status: "active", weekly_hours: null }], ["g2"])).toBe(false);
-    expect(hasPlanGoal([{ id: "d1", kind: "dream", status: "active", weekly_hours: 3 }], ["d1"])).toBe(false);
-    expect(hasPlanGoal([{ id: "g1", status: "paused", weekly_hours: 4 }], [])).toBe(false);
+  it("a goal for the Wochenblick: every active goal, not a dream (round 3: also without weekly hours or a block)", () => {
+    expect(hasPlanGoal([{ status: "active" }])).toBe(true);
+    expect(hasPlanGoal([{ kind: "goal", status: "active" }])).toBe(true);
+    expect(hasPlanGoal([{ kind: "dream", status: "active" }])).toBe(false);
+    expect(hasPlanGoal([{ status: "paused" }])).toBe(false);
+    expect(hasPlanGoal([])).toBe(false);
   });
 
   it("plans for one goal: the nearest date ahead, then one with weekly hours, then the first", () => {
@@ -586,12 +586,14 @@ describe("dreams: the early invitation and the rest after «nicht jetzt»", () =
   });
 });
 
-describe("a small experiment for people without goals or dreams", () => {
-  it("only without anything open, at most once a week", () => {
+describe("a small experiment for people without an active goal", () => {
+  it("only without an active goal (dreams don't count), at most once a week", () => {
     expect(experimentDue([], null, "2026-11-16", zurich)).toBe(true);
     expect(experimentDue([{ status: "done" }], null, "2026-11-16", zurich)).toBe(true);
     expect(experimentDue([{ status: "active" }], null, "2026-11-16", zurich)).toBe(false);
-    expect(experimentDue([{ status: "paused" }], null, "2026-11-16", zurich)).toBe(false);
+    // round 3: a dream on her list or a paused goal leaves her without an active goal (Sara with her Island)
+    expect(experimentDue([{ kind: "dream", status: "active" }], null, "2026-11-16", zurich)).toBe(true);
+    expect(experimentDue([{ status: "paused" }], null, "2026-11-16", zurich)).toBe(true);
     expect(experimentDue([], "2026-11-10T18:00:00Z", "2026-11-16", zurich)).toBe(false);
     expect(experimentDue([], "2026-11-09T18:00:00Z", "2026-11-16", zurich)).toBe(true);
   });

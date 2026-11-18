@@ -164,14 +164,15 @@ describe("Plan B in the coach's context", () => {
     expect(goalsOf(contextBlock({ ...base, goals: [race] }))).toContain(ASK);
   });
 
-  it("the rule: once, while planning, as a setup question; a reminder only after a «Nein» and in the Wochenblick, never a reproach", () => {
+  it("the rule: once, while planning or as the day's Anstoss; a reminder only after a «Nein» and in the Wochenblick, never a reproach", () => {
     expect(MODE_CHECKIN).toContain(
-      "- Plan B: Steht bei einem Ziel „Plan B: noch keiner → einmal fragen“, fragst du, am liebsten beim Planen: „Was könnte dir dazwischenkommen?“, und rufst note_offer mit plan_b und der goal_id auf.",
+      "- Plan B: Steht bei einem Ziel „Plan B: noch keiner → einmal fragen“, fragst du beim Planen oder als Anstoss: „Was könnte dir dazwischenkommen?“, und rufst note_offer mit plan_b und der goal_id auf.",
     );
     expect(MODE_CHECKIN).toContain(
       "Hat ein Ziel einen Plan B, erinnerst du leise daran, wenn sie zu einem seiner vergangenen Blöcke Nein sagt (nicht, wenn sie einen Vorschlag ablehnt), und beim Wochenblick, statt nach dem Grund zu fragen, nie als Vorwurf; sonst nicht.",
     );
-    expect(MODE_CHECKIN).toContain("und die nach einem Plan B sind Einrichtungsfragen: Pro Gespräch stellst du höchstens eine von allen.");
+    // of its own accord, at most one thing a day (the Anstoss): no separate cap on setup questions any more
+    expect(MODE_CHECKIN).not.toContain("Einrichtungsfragen");
     expect(MODE_CHECKIN).not.toContain("ß");
     expect(MODE_CHECKIN).not.toMatch(/verpasst/i);
   });

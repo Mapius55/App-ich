@@ -394,7 +394,8 @@ describe("the coach's context", () => {
   });
 
   it("the prompt: one bullet for the rhythm (replacing «ab und zu»), the exception in one sentence, the guards", () => {
-    expect(PERSONA).toContain("für ein Ziel mit Zeit pro Woche einmal als Wochenrhythmus");
+    // round 3: no «ab und zu» offers of its own; the rhythm comes as the day's Anstoss or while planning
+    expect(PERSONA).not.toContain("Biete ab und zu an");
     expect(PERSONA).toContain("- create_series, update_series: Ein Wochenrhythmus sind Blöcke, die jede Woche zur selben Zeit wiederkehren");
     expect(PERSONA).toContain("legst ihn erst nach ihrem klaren Ja an; bei unregelmässigen Wochen, etwa mit Schichtarbeit, nur, wenn sie danach fragt");
     expect(PERSONA).toContain("„Diesen Donnerstag fällt aus“ löscht nur diesen Eintrag, „am Donnerstag lieber um 19 Uhr“ verschiebt nur ihn");

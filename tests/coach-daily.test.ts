@@ -77,7 +77,7 @@ describe("want, not must: the coach has no needs", () => {
 
   it("never lengthens a conversation, and points once to people in her life", () => {
     expect(PERSONA).toContain("Verlängere ein Gespräch nie von dir aus.");
-    expect(MODE_CHECKIN).toContain("Steht dort „Begleitung“, sagst du einmal warm, dass es guttun kann, auch mit einem Menschen in ihrem Leben oder einer Fachperson zu reden, und rufst note_offer mit begleitung auf.");
+    expect(MODE_CHECKIN).toContain("Steht unter „Hinweise“ „Begleitung“, sagst du einmal warm, dass es guttun kann, auch mit einem Menschen in ihrem Leben oder einer Fachperson zu reden, und rufst note_offer mit begleitung auf.");
   });
 
   it("asks about sleep before WHOOP says anything, and still speaks no WHOOP numbers", () => {
@@ -134,25 +134,27 @@ describe("the morning in one minute", () => {
     expect(source).toContain("const reply = finalVersion(stripEmoji(fullText).trim());");
   });
 
-  it("at most one setup question per conversation, never in the greeting; the connections ask counts too", () => {
+  it("one Anstoss a day replaces the setup questions «an einer ruhigen Stelle» (round 3, NEXT #1)", () => {
+    expect(MODE_CHECKIN).not.toContain("Einrichtungsfrage");
     expect(MODE_CHECKIN).toContain(
-      "- Einrichtungsfragen: Fehlen bei einem Ziel Etappen, Zieldatum, die Schätzung des Aufwands oder die Zeit pro Woche und sprecht ihr gerade nicht darüber, stellst du von dir aus höchstens eine solche Frage pro Gespräch, nie in der Begrüssung und nicht an vollen oder müden Tagen. Auch die Frage nach Apps und Geräten (unter „Verbindungen“) und die nach einem Plan B sind Einrichtungsfragen: Pro Gespräch stellst du höchstens eine von allen.",
+      "- Anstoss: Über den Vorschlag für heute hinaus bringst du von dir aus am Tag höchstens eine Sache ein: die unter „Anstoss heute“, in dem Moment, der dort steht.",
     );
+    expect(MODE_CHECKIN).toContain("Was sonst bei einem Ziel fehlt, fragst du nur, wenn ihr gerade darüber sprecht oder plant.");
     expect(MODE_CHECKIN).toContain("nie in der Begrüssung und nie, wenn sie mit Technik wenig zu tun hat: Du fragst, welche Apps oder Geräte sie nutzt");
-    // the one-setup-question limit covers it (the clause in the connections rule said the same again)
-    expect(MODE_CHECKIN).toContain("Auch die Frage nach Apps und Geräten (unter „Verbindungen“) und die nach einem Plan B sind Einrichtungsfragen: Pro Gespräch stellst du höchstens eine von allen.");
     expect(MODE_CHECKIN).not.toContain("holst du das bei Gelegenheit nach");
-    // the persona's goal rules ask only while a goal is created or talked about, else they point to the cap
+    // the persona's goal rules ask while a goal is created or talked about, else only as the day's Anstoss
     expect(prompts).not.toContain("spätestens in der übernächsten Antwort");
     expect(PERSONA).not.toContain("Legst du ein Ziel an oder steht bei einem „Aufwand noch nicht geschätzt“");
     expect(PERSONA).toContain("Legst du ein Ziel an, oder sprecht ihr über ein Ziel mit „Aufwand noch nicht geschätzt“, schätzt du den gesamten Aufwand");
     expect(PERSONA).toContain("schlägst du, wenn ihr es anlegt oder darüber sprecht, in einem einzigen Satz zwei bis vier Etappen mit Monat vor");
-    expect(PERSONA.match(/nur als Einrichtungsfrage nach \(höchstens eine pro Gespräch\)/g)).toHaveLength(2);
+    expect(PERSONA).toContain("Sprecht ihr gerade nicht über das Ziel, fragst du danach nur als Anstoss.");
+    expect(PERSONA).toContain("Sprecht ihr gerade nicht darüber, schlägst du sie nur als Anstoss vor.");
+    expect(PERSONA).not.toContain("Einrichtungsfrage");
   });
 
   it("the greeting asks only when the opener has a question; the evening plans only for the Wochenblick", () => {
     expect(MODE_CHECKIN).toContain("ein konkreter Punkt in einem Halbsatz und eine einzige Frage, ausser die Eröffnung sagt „ohne Frage“.");
-    expect(MODE_CHECKIN).toContain("- Am Abend schaust du zurück, statt zu planen, ausser beim Wochenblick.");
+    expect(MODE_CHECKIN).toContain("- Am Abend schaust du zurück, statt zu planen, ausser beim Wochenblick und beim Anstoss.");
   });
 
   it("the opener is chosen in code and stands in the context only for the greeting", () => {
@@ -487,8 +489,11 @@ describe("dreams: the early joyful invitation, and a rest after «nicht jetzt»"
     expect(out).toContain("- [d2] Polarlichter sehen · seit 11 Tagen auf der Liste · ohne Datum\n");
     const lately = section(ctx({ startedAt, goals: [dream("d1", "2026-11-06"), dream("d2", "2026-11-05", { reminded_at: "2026-11-10T08:00:00Z" })] }), "Bucket List");
     expect(lately).not.toContain("neu, Vorfreude");
-    expect(PERSONA).toContain("Steht dort „neu, Vorfreude“, fragst du einmal nur nach der Freude daran, ohne Schritte und ohne Datum");
-    expect(MODE_CHECKIN).toContain("„liegt lange“, „guter Zeitpunkt“ oder „neu, Vorfreude“, nimmst du höchstens einen davon im Gespräch auf");
+    // joy first; only after her answer a small version that works now, or a first step (round 3, NEXT #5)
+    expect(PERSONA).toContain("Von dir aus sprichst du einen Traum nur an, wenn er unter „Anstoss heute“ steht");
+    expect(PERSONA).toContain("Zuerst fragst du nur nach der Vorfreude („Was reizt dich am meisten an Island?“)");
+    expect(PERSONA).toContain("Erst nach ihrer Antwort schlägst du eine kleine Version vor, die schon jetzt geht, als Vorgeschmack und nie statt des Traums");
+    expect(MODE_CHECKIN).not.toContain("nimmst du höchstens einen davon im Gespräch auf");
   });
 
   it("only in her second week with the app: a dream added in month 3 gets no early invitation, nor without a start", () => {
@@ -502,7 +507,7 @@ describe("dreams: the early joyful invitation, and a rest after «nicht jetzt»"
   });
 
   it("«nicht jetzt»: update_goal nicht_jetzt, and the dream rests (nudge_after)", () => {
-    expect(PERSONA).toContain("Sagt sie „nicht jetzt“, gibst du bei update_goal zusätzlich nicht_jetzt: true mit: Dann ruht der Traum drei Monate.");
+    expect(PERSONA).toContain("sagt sie „nicht jetzt“, zusätzlich mit nicht_jetzt: true: Dann ruht der Traum drei Monate.");
     expect(tools).toContain("nicht_jetzt: {");
     expect(source).toContain("nudge_after: addDays(day, NUDGE_NOT_NOW_DAYS)");
     const resting = dream("d1", "2026-01-01", { nudge_after: "2027-02-01" });
@@ -520,19 +525,25 @@ describe("dreams: the early joyful invitation, and a rest after «nicht jetzt»"
     const awake = section(contextBlock({ ...base, day: "2027-01-08", goals: [resting] }), "Bucket List");
     expect(awake).not.toContain("ruht bis");
     expect(awake).toContain("liegt lange");
-    expect(PERSONA).toContain("Steht bei einem Traum „ruht“, sprichst du ihn nicht von dir aus an, auch nicht wegen der Jahreszeit.");
+    // the day's Anstoss never picks it while it rests (nor for the season: dreams come only as the Anstoss)
+    const nudge = { day: "2026-11-10", no: {} };
+    expect(ctx({ goals: [resting], nudge })).not.toContain("## Anstoss heute");
+    expect(section(contextBlock({ ...base, day: "2027-01-08", goals: [resting], nudge }), "Anstoss heute")).toContain("Traum [d1] „Island umrunden“ (liegt lange)");
   });
 });
 
 describe("rare offers: a small experiment, and pointing to people", () => {
-  it("only when the data allows, and noted with note_offer", () => {
+  it("only when the data allows, and noted with note_offer; the experiment is the day's Anstoss", () => {
     expect(ctx({})).not.toContain("## Hinweise");
-    expect(section(ctx({ hints: { experiment: true } }), "Hinweise")).toBe("## Hinweise (aus den Daten)\n- ein kleines Experiment: möglich (noch keine Ziele und Träume; höchstens einmal pro Woche)");
+    // the experiment is no hint any more: it is a candidate for the one Anstoss of the day (round 3)
+    expect(ctx({ hints: { experiment: true } })).not.toContain("## Hinweise");
+    expect(section(ctx({ hints: { experiment: true }, nudge: { day: null, no: {} } }), "Anstoss heute")).toContain(
+      "- Ein kleines Experiment aus ihren Werten oder der Jahreszeit, etwa „Magst du heute zehn Minuten hinaus, solange es noch hell ist?“ · note_offer experiment",
+    );
     expect(section(ctx({ hints: { support: true } }), "Hinweise")).toContain("- Begleitung: Sie spricht seit gut zwei Wochen fast täglich lange mit dir");
-    expect(MODE_CHECKIN).toContain("Steht unter „Hinweise“ „ein kleines Experiment“, darfst du an einer ruhigen Stelle eines vorschlagen, aus ihren Werten oder der Jahreszeit");
+    expect(MODE_CHECKIN).not.toContain("ein kleines Experiment“, darfst du an einer ruhigen Stelle");
     expect(tools).toContain('name: "note_offer"');
     // the example states nothing the context doesn't have (no sunset time there, only the light)
-    expect(MODE_CHECKIN).toContain("etwa „Magst du heute zehn Minuten hinaus, solange es noch hell ist?“");
     expect(prompts).not.toMatch(/Sonne um \d/);
   });
 });
@@ -541,7 +552,7 @@ describe("the good rules stay", () => {
   it("honest feasibility, one dream per conversation, no age talk, medical and crisis limits", () => {
     expect(PERSONA).toContain("Rechne nicht selbst.");
     expect(MODE_CHECKIN).toContain("Steht bei einem Ziel „knapp“ oder „kaum machbar“, sagst du es ihr einmal ehrlich und sanft");
-    expect(PERSONA).toContain("höchstens einen einzigen pro Gespräch");
+    expect(MODE_CHECKIN).toContain("bringst du von dir aus am Tag höchstens eine Sache ein");
     expect(PERSONA).toContain("Ihr Alter, verbleibende Wochen oder Jahre sprichst du nie von dir aus an.");
     expect(PERSONA).toContain("Du bist weder Therapeut noch Ärztin und gibst keine medizinischen Ratschläge");
     expect(PERSONA).toContain("Die Dargebotene Hand (Telefon 143), im Notfall 144");

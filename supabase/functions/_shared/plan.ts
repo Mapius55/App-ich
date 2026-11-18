@@ -651,10 +651,10 @@ export function heavyLately(todayMood: Mood, recent: { day: string; mood: Mood }
   return last3.filter((d) => heavy(d.mood)).length >= 2;
 }
 
-export type OpenerKind = "termin" | "gestern" | "ziel" | "schlaf" | "jahreszeit" | "neustart" | "wochenblick" | "abend" | "abend_frage" | "zurueck";
+export type OpenerKind = "termin" | "gestern" | "ziel" | "schlaf" | "jahreszeit" | "neustart" | "wochenblick" | "abend" | "abend_frage" | "zurueck" | "anstoss";
 /** The kinds that take turns from day to day, in the order that wins a tie. */
 export const ROTATING_OPENERS: readonly OpenerKind[] = ["termin", "gestern", "ziel", "schlaf", "jahreszeit"];
-const OPENER_KINDS: readonly string[] = [...ROTATING_OPENERS, "neustart", "wochenblick", "abend", "abend_frage", "zurueck"];
+const OPENER_KINDS: readonly string[] = [...ROTATING_OPENERS, "neustart", "wochenblick", "abend", "abend_frage", "zurueck", "anstoss"];
 /** «Wie hast du geschlafen?» not again within this many days (at most twice in seven). */
 export const SLEEP_OPENER_GAP_DAYS = 3;
 /** What she asked the coach to come back to opens a greeting from this local time on (05:00, not in the night). */
@@ -674,13 +674,15 @@ export interface OpenerSituation {
   quiet?: boolean;
   /** she said yes to «soll ich morgen darauf zurückkommen?» and it was not brought up yet (days.come_back) */
   comeBack?: boolean;
+  /** the day's Anstoss goes into this greeting (dailyNudge: none for NUDGE_GREETING_AFTER_DAYS; not the Wochenblick) */
+  anstoss?: boolean;
 }
 
 /**
  * How today's first greeting opens, chosen in code so it really changes from day to day.
  * A situation comes first: after a pause a small restart, then what she asked the coach to come back to (in the
  * morning or at midday, from COME_BACK_FROM; in the evening or the night it waits for the next morning), then a due
- * Wochenblick, then the first open in
+ * Wochenblick, then the day's Anstoss when it goes into the greeting (its one question), then the first open in
  * the evening (a look back; with a question at most three evenings in seven and never two in a row).
  * Otherwise the rotating kinds take turns: of those with something to say today, the one used longest ago
  * (never yesterday's while another fits), ties in the order of ROTATING_OPENERS; sleep only in the morning and not
@@ -691,6 +693,7 @@ export function chooseOpener(s: OpenerSituation, recent: { day: string; kind: st
   if (s.pause) return "neustart";
   if (s.comeBack && s.minutes >= COME_BACK_FROM && s.minutes < EVENING_FROM) return "zurueck";
   if (s.wochenblick) return "wochenblick";
+  if (s.anstoss) return "anstoss";
   const ago = (kinds: string[]) =>
     recent
       .filter((r) => r.kind && kinds.includes(r.kind) && isDay(r.day))
@@ -829,10 +832,12 @@ export function dailySituation(o: {
   return { minutes, pause, heavy, review };
 }
 
-/** A goal that has a plan to look at: active, not a dream, with weekly hours or with a block in the calendar. */
-export function hasPlanGoal(goals: { id: string; kind?: string | null; status: string; weekly_hours?: number | null }[], blockGoalIds: Iterable<string>): boolean {
-  const blocks = new Set(blockGoalIds);
-  return goals.some((g) => g.kind !== "dream" && g.status === "active" && ((g.weekly_hours ?? 0) > 0 || blocks.has(g.id)));
+/**
+ * A goal the Wochenblick is for: any active goal that is no dream (owner decision 1, NEXT #1 question 2 (b)), also
+ * without weekly hours or blocks yet; planning the week is how those come about.
+ */
+export function hasPlanGoal(goals: { kind?: string | null; status: string }[]): boolean {
+  return goals.some((g) => g.kind !== "dream" && g.status === "active");
 }
 
 /**
@@ -1312,15 +1317,15 @@ export function sameTimeLogged(rows: { goal_id: string; day: string; minutes: nu
   return minutes > 0 && rows.some((r) => String(r.goal_id).toLowerCase() === goalId.toLowerCase() && r.day === day && Number(r.minutes) === minutes);
 }
 
-/** People without goals or dreams get one small experiment at most every this many days. */
+/** People without an active goal get one small experiment at most every this many days. */
 export const EXPERIMENT_EVERY_DAYS = 7;
 
 /**
- * One small experiment may be offered (people without any open goal or dream): nothing active or paused,
- * and the last offer (experiment_at) at least a week ago.
+ * One small experiment may be offered: she has no active goal (dreams on her list don't count, nor a paused goal:
+ * Sara with her Island still gets one), and the last offer (experiment_at) was at least a week ago.
  */
-export function experimentDue(goals: { status: string }[], lastAt: string | null | undefined, today: string, dayOfIso: (iso: string) => string): boolean {
-  if (goals.some((g) => g.status === "active" || g.status === "paused")) return false;
+export function experimentDue(goals: { kind?: string | null; status: string }[], lastAt: string | null | undefined, today: string, dayOfIso: (iso: string) => string): boolean {
+  if (goals.some((g) => g.kind !== "dream" && g.status === "active")) return false;
   if (!lastAt) return true;
   const last = dayOfIso(lastAt);
   return !isDay(last) || daysBetween(last, today) >= EXPERIMENT_EVERY_DAYS;
@@ -1328,3 +1333,178 @@ export function experimentDue(goals: { status: string }[], lastAt: string | null
 
 /** The hint to point to people in her life comes back at most after this many days. */
 export const SUPPORT_EVERY_DAYS = 90;
+
+// ---------- one Anstoss a day (NEXT #1 with #5, owner decision 1) ----------
+
+/**
+ * What the coach starts by itself, at most one a day, in this order (dailyNudge): the Wochenblick when it is due,
+ * weekly hours for a dated goal without them, a Plan B after a «Nein» or a frustrated day, steps for a goal more than
+ * six weeks away without any, a weekly rhythm for a goal with weekly hours, a dream (joy first), and for people
+ * without an active goal one small experiment.
+ */
+export const NUDGE_KINDS = ["wochenblick", "stunden", "plan_b", "etappen", "rhythmus", "traum", "experiment"] as const;
+export type NudgeKind = (typeof NUDGE_KINDS)[number];
+export const isNudgeKind = (v: unknown): v is NudgeKind => typeof v === "string" && (NUDGE_KINDS as readonly string[]).includes(v);
+
+/** After her «Nein» to a kind, that kind rests this many days (profiles.nudge_no); the Wochenblick keeps its own rule. */
+export const NUDGE_NO_DAYS = 14;
+/** When no Anstoss came for this many days, the next first greeting of a day carries it. */
+export const NUDGE_GREETING_DAYS = 3;
+/** Steps are proposed for a goal whose target date lies more than this many days ahead (six weeks). */
+export const NUDGE_STEPS_AHEAD_DAYS = 42;
+/** A «Nein» to one of its blocks makes a goal's Plan B the Anstoss for this many days … */
+export const NUDGE_SETBACK_DAYS = 7;
+/** … and so does a frustrated day about it (a low mood with the goal as the day's focus), for this many (today included). */
+export const NUDGE_FRUSTRATED_DAYS = 3;
+
+/** Whether a kind rests after her «Nein» (`no`: kind → the day she said it). The Wochenblick never rests this way. */
+export function nudgeResting(no: Readonly<Record<string, unknown>> | null | undefined, kind: NudgeKind, today: string): boolean {
+  const d = no?.[kind];
+  if (kind === "wochenblick" || typeof d !== "string" || !isDay(d.slice(0, 10)) || !isDay(today)) return false;
+  const ago = daysBetween(d.slice(0, 10), today);
+  return ago > -NUDGE_NO_DAYS && ago < NUDGE_NO_DAYS;
+}
+
+/**
+ * A goal had a setback lately, so its Plan B is worth asking now: she said «Nein» to one of its blocks that ended in
+ * the last NUDGE_SETBACK_DAYS (its answer: 0 minutes), or on one of the last NUDGE_FRUSTRATED_DAYS days (today
+ * included) her mood was low (valence below 0) while the goal was the day's focus (a word of its title in the focus).
+ */
+export function goalSetback(
+  goal: { id: string; title: string },
+  blocks: readonly { goal_id?: string | null; ends_at: string | null; minutes: number | null }[],
+  days: readonly { day: string; mood: Mood; focus: string | null }[],
+  today: string,
+  now: number,
+): boolean {
+  const id = goal.id.toLowerCase();
+  const no = blocks.some((b) => {
+    const end = b.ends_at ? Date.parse(b.ends_at) : NaN;
+    return String(b.goal_id ?? "").toLowerCase() === id && b.minutes === 0 && end <= now && end > now - NUDGE_SETBACK_DAYS * 86400000;
+  });
+  if (no) return true;
+  const words = whatWords(goal.title);
+  // the same word, one the start of the other («Lern», «Lernen»), or the end of a compound («Prüfung» in
+  // «Lehrabschlussprüfung», five letters or more)
+  const same = (a: string, b: string) => {
+    const [short, long] = a.length <= b.length ? [a, b] : [b, a];
+    return long.startsWith(short) || (short.length >= 5 && long.endsWith(short));
+  };
+  return days.some((d) => {
+    if (!isDay(d.day) || typeof d.mood?.valence !== "number" || d.mood.valence >= 0 || !d.focus) return false;
+    const ago = daysBetween(d.day, today);
+    if (ago < 0 || ago >= NUDGE_FRUSTRATED_DAYS) return false;
+    return whatWords(d.focus).some((f) => words.some((w) => same(f, w)));
+  });
+}
+
+/** How many of her latest times for a goal size a proposed block. */
+export const DONE_SESSIONS = 8;
+
+/**
+ * What she really did for a goal lately, so the coach sizes a proposal from it (NEXT #1: Jonas does 25 to 50 minutes,
+ * not 2 hours): the shortest and the longest of her latest DONE_SESSIONS times for it (logged time, answered blocks,
+ * trainings; oldest first), in steps of 5 minutes, and the most a proposed block may be: twice the longest.
+ * Null without any.
+ */
+export function doneRange(minutes: readonly number[]): { low: number; high: number; cap: number } | null {
+  const v = minutes.filter((m) => Number.isFinite(m) && m > 0).slice(-DONE_SESSIONS);
+  if (!v.length) return null;
+  const r = (m: number) => Math.max(5, Math.round(m / 5) * 5);
+  const high = r(Math.max(...v));
+  return { low: r(Math.min(...v)), high, cap: 2 * high };
+}
+
+export interface DailyNudgeGoal {
+  id: string;
+  target_date: string | null;
+  weekly_hours?: number | null;
+  /** how many steps (milestones) it has */
+  steps: number;
+  /** asked once for its weekly hours / its steps (goals.hours_asked_at, steps_asked_at); null = never; undefined =
+   *  unknown (then never asked: nothing could be noted) */
+  hours_asked_at?: string | null;
+  steps_asked_at?: string | null;
+  /** a Plan B may be asked (planBDue) … */
+  planB?: boolean;
+  /** … and it had a setback lately (goalSetback) */
+  setback?: boolean;
+  /** a weekly rhythm may be offered (rhythmOfferDue, series.ts) */
+  rhythm?: boolean;
+}
+
+export interface DailyNudgeInput {
+  /** her today */
+  today: string;
+  /** heavy lately (heavyLately): no Anstoss */
+  heavy: boolean;
+  /** after a pause: a small restart instead */
+  pause: boolean;
+  /** the Wochenblick, when it is due */
+  review: ReviewDue | null;
+  /** the last day with an Anstoss (profiles.nudge_day); null = none yet; undefined = unknown: none, since it could not be noted */
+  lastDay: string | null | undefined;
+  /** the day she started with the app: before any Anstoss, the days for the greeting count from it */
+  startDay?: string | null;
+  /** her «Nein» per kind (profiles.nudge_no: kind → day) */
+  no?: Readonly<Record<string, unknown>> | null;
+  /** how many of her own entries today has: none, or Saturday and Sunday, and a dream comes first */
+  entriesToday: number;
+  /** her active goals (no dreams) */
+  goals: readonly DailyNudgeGoal[];
+  /** open dreams with a reminder flag (dreamNudge), in the order to bring them up */
+  dreams: readonly { id: string; flag: DreamNudge }[];
+  /** one small experiment may be offered (experimentDue: no active goal) */
+  experiment: boolean;
+}
+
+export interface DailyNudge {
+  kind: NudgeKind;
+  /** the goal or dream it is about */
+  id?: string;
+  /** the dream's flag */
+  flag?: DreamNudge;
+  /** the first greeting of the day may carry it: the Wochenblick, or no Anstoss came for NUDGE_GREETING_DAYS */
+  greeting: boolean;
+}
+
+/**
+ * The one Anstoss of today, or null. Never in a heavy time, after a pause, with an unknown state, or once one came
+ * today (`lastDay`). By priority: a due Wochenblick; weekly hours for the nearest dated goal without them (they unlock
+ * the feasibility and the Wochenblick's plan); its Plan B after a setback; steps for a goal more than six weeks away
+ * without any; a weekly rhythm; a dream with a flag (first on a day without entries and on Saturday and Sunday); for
+ * people without an active goal one small experiment. A goal's item comes once (its asked mark); a kind she said «Nein»
+ * to rests NUDGE_NO_DAYS. It goes into the greeting only for the Wochenblick or after NUDGE_GREETING_DAYS without one;
+ * otherwise its moment is right after her next yes, tick or something done in the conversation.
+ */
+export function dailyNudge(o: DailyNudgeInput): DailyNudge | null {
+  if (!isDay(o.today) || o.lastDay === undefined || o.heavy || o.pause) return null;
+  const last = typeof o.lastDay === "string" && isDay(o.lastDay.slice(0, 10)) ? o.lastDay.slice(0, 10) : null;
+  if (last && last >= o.today) return null;
+  const since = last ?? (typeof o.startDay === "string" && isDay(o.startDay) ? o.startDay : null);
+  const greeting = since === null || daysBetween(since, o.today) >= NUDGE_GREETING_DAYS;
+  const pick = (kind: NudgeKind, id?: string, flag?: DreamNudge): DailyNudge => ({
+    kind,
+    ...(id ? { id } : {}),
+    ...(flag ? { flag } : {}),
+    greeting: kind === "wochenblick" || greeting,
+  });
+  const free = (k: NudgeKind) => !nudgeResting(o.no, k, o.today);
+  if (o.review) return pick("wochenblick");
+  const dream = free("traum") ? o.dreams[0] : undefined;
+  if (dream && (weekdayIndex(o.today) >= 5 || o.entriesToday === 0)) return pick("traum", dream.id, dream.flag);
+  const ahead = (g: DailyNudgeGoal) => (g.target_date && isDay(g.target_date) ? daysBetween(o.today, g.target_date) : null);
+  // the nearest target date first, undated ones last (in their order)
+  const goals = [...o.goals].sort((a, b) => (ahead(a) ?? Infinity) - (ahead(b) ?? Infinity));
+  const hours = free("stunden") && goals.find((g) => g.hours_asked_at === null && !((g.weekly_hours ?? 0) > 0) && (ahead(g) ?? 0) > 0);
+  if (hours) return pick("stunden", hours.id);
+  const planB = free("plan_b") && goals.find((g) => g.planB && g.setback);
+  if (planB) return pick("plan_b", planB.id);
+  const steps = free("etappen") && goals.find((g) => g.steps_asked_at === null && g.steps === 0 && (ahead(g) ?? 0) > NUDGE_STEPS_AHEAD_DAYS);
+  if (steps) return pick("etappen", steps.id);
+  const rhythm = free("rhythmus") && goals.find((g) => g.rhythm);
+  if (rhythm) return pick("rhythmus", rhythm.id);
+  if (dream) return pick("traum", dream.id, dream.flag);
+  if (o.experiment && free("experiment")) return pick("experiment");
+  return null;
+}
