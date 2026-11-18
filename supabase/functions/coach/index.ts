@@ -26,9 +26,11 @@ import {
 import {
   birthYearProblem,
   BLOCK_ALREADY_LOGGED,
+  BLOCK_DONE_EARLY,
   BLOCK_LATER_NO,
   BLOCK_NO_NEXT,
   blockNoNext,
+  blockOpenThatDay,
   COME_BACK_NOTE,
   doneDateProblem,
   draftStream,
@@ -68,6 +70,7 @@ import {
   NUDGE_LONG_DAYS,
   NUDGE_NOT_NOW_DAYS,
   OBSTACLE_MAX,
+  openBlocksOn,
   openWeekBlocks,
   PATTERN_DAYS,
   PLAN_B_MAX,
@@ -545,7 +548,7 @@ const TOOLS: Anthropic.Beta.BetaTool[] = [
         day: { type: "string", description: "YYYY-MM-DD, Standard heute (mit event_id der Tag des Blocks). Nicht in der Zukunft." },
         event_id: { type: "string", description: "Optional: der Block (id aus dem Kontext), den das bestätigt oder korrigiert, ein vergangener oder einer von heute." },
         note: { type: "string", description: "Optional, kurz, z.B. „Intervalle“." },
-        zusaetzlich: { type: "boolean", description: "Nur ohne event_id: true, wenn sie dieselbe Zeit am selben Tag wirklich ein zweites Mal gemacht hat." },
+        zusaetzlich: { type: "boolean", description: "Nur ohne event_id: true, wenn es wirklich Zeit dazu war, neben einem Block dieses Tages oder dieselbe Zeit ein zweites Mal." },
       },
       required: ["goal_id", "minutes"],
       additionalProperties: false,
@@ -1442,8 +1445,9 @@ async function runTool(
       if (goalRes.error) throw goalRes.error;
       if (!goalRes.data) throw new ToolInputError("Ziel nicht gefunden");
       let blockDay: string | null = null;
+      let doneEarly = false;
       if (eventId) {
-        const ev = await sb.from("events").select("starts_at, kind, goal_id, source").eq("id", eventId).maybeSingle();
+        const ev = await sb.from("events").select("starts_at, kind, goal_id, source, reminder_minutes").eq("id", eventId).maybeSingle();
         if (ev.error) throw ev.error;
         if (!ev.data) throw new ToolInputError("Block nicht gefunden");
         if (ev.data.source === "nolio") throw new ToolInputError(NOLIO_TIME_REFUSAL);
@@ -1454,6 +1458,8 @@ async function runTool(
         if (Date.parse(ev.data.starts_at) > Date.now()) {
           if (blockDay > day) throw new ToolInputError("Der Block liegt an einem späteren Tag");
           if (minutes === 0) throw new ToolInputError(BLOCK_LATER_NO);
+          // done before it comes: its alarm would ring for something she did already
+          doneEarly = ev.data.reminder_minutes !== null && ev.data.reminder_minutes !== undefined;
         }
       }
       const logDay = optDate(input.day, "day") ?? blockDay ?? day;
@@ -1476,6 +1482,14 @@ async function runTool(
           else if (ins.error) throw missingGoal(ins.error);
           if (res.error) throw res.error;
         }
+        if (doneEarly) {
+          const off = await sb.from("events").update({ reminder_minutes: null }).eq("id", eventId);
+          // the time is saved: a failure here only leaves the alarm
+          if (off.error) {
+            console.error("reminder off:", off.error.code ?? "error");
+            doneEarly = false;
+          }
+        }
       } else {
         // the same minutes for this goal on this day already there (said again, or a block or a habit that has them):
         // no second row unless she really did it twice (D1)
@@ -1483,32 +1497,31 @@ async function runTool(
           const same = await sb.from("goal_time").select("goal_id, day, minutes").eq("goal_id", goalId).eq("day", logDay).eq("minutes", minutes).limit(1);
           if (same.error) throw same.error;
           if (sameTimeLogged(same.data ?? [], goalId, logDay, minutes)) return JSON.stringify({ ok: true, hint: TIME_ALREADY_LOGGED });
+          // a block of this goal on that day without an answer (past, running or later today) would count as well:
+          // nothing saved, the coach answers the block or says it was more time (D1 with K6)
+          const dayStart = Date.parse(`${logDay}T00:00:00Z`);
+          const blocks = await sb
+            .from("events")
+            .select("id, starts_at, all_day, source, goal_time(id)")
+            .eq("goal_id", goalId)
+            .eq("kind", "block")
+            .eq("all_day", false)
+            .neq("source", "nolio") // a planned Nolio training is never answered by hand
+            .gte("starts_at", new Date(dayStart - DAY_MS).toISOString())
+            .lt("starts_at", new Date(dayStart + 2 * DAY_MS).toISOString())
+            .order("starts_at")
+            .limit(20);
+          if (blocks.error) throw blocks.error;
+          const open = openBlocksOn(blocks.data ?? [], logDay, (iso) => localDay(iso, ctx.tz));
+          if (open.length) {
+            const time = new Intl.DateTimeFormat("de-CH", { timeZone: ctx.tz, hour: "2-digit", minute: "2-digit" });
+            return JSON.stringify({ ok: false, hint: blockOpenThatDay(open.map((b) => ({ id: String(b.id), time: time.format(new Date(b.starts_at)) }))) });
+          }
         }
         const ins = await insert();
         if (ins.error) throw missingGoal(ins.error);
       }
       send({ type: "time_logged", goal_id: goalId, title: goalRes.data.title, minutes });
-      // Without event_id, time on a day with a past, unanswered block of this goal may be that block:
-      // tell the model, so it can answer the block instead of counting twice.
-      let hint: string | undefined;
-      if (!eventId) {
-        try {
-          const blocks = await sb
-            .from("events")
-            .select("id, starts_at, ends_at, goal_time(id)")
-            .eq("goal_id", goalId)
-            .eq("kind", "block")
-            .eq("all_day", false)
-            .neq("source", "nolio") // a planned Nolio training is never answered by hand
-            .gte("starts_at", new Date(Date.now() - 8 * DAY_MS).toISOString())
-            .lte("ends_at", new Date().toISOString());
-          const open = (blocks.data ?? []).filter((b) => localDay(b.starts_at, ctx.tz) === logDay && !(b.goal_time as unknown[] | null)?.length);
-          if (open.length)
-            hint = `Achtung: An diesem Tag gibt es einen geplanten Block ohne Rückmeldung (${open.map((b) => b.id).join(", ")}), der ohne Antwort vorläufig mitzählt. War die Zeit dieser Block, trag sie mit log_time und event_id ein und lösche diesen Eintrag nicht doppelt; war es zusätzlich, ist alles richtig.`;
-        } catch (err) {
-          console.error(err);
-        }
-      }
       // The new totals, so the coach can mention the progress in a word. The time is saved
       // already: a failure here must not look like a failed save (a retry would count twice).
       try {
@@ -1527,11 +1540,11 @@ async function runTool(
           ...(eventId && minutes === 0 ? { naechster_schritt: blockNoNext(goal.kind === "dream" ? null : goal.plan_b) } : {}),
           // a dream without an estimate gets no «Aufwand noch nicht geschätzt» to fill in (as create/update_goal)
           ...(goal.kind !== "dream" || goal.effort_hours ? { aufwand: effortLine(goal, day) } : {}),
-          ...(hint ? { hint } : {}),
+          ...(doneEarly ? { erinnerung: BLOCK_DONE_EARLY } : {}),
         });
       } catch (err) {
         console.error(err);
-        return JSON.stringify({ ok: true, ...(hint ? { hint } : {}), ...(eventId && minutes === 0 ? { naechster_schritt: BLOCK_NO_NEXT } : {}) });
+        return JSON.stringify({ ok: true, ...(eventId && minutes === 0 ? { naechster_schritt: BLOCK_NO_NEXT } : {}), ...(doneEarly ? { erinnerung: BLOCK_DONE_EARLY } : {}) });
       }
     }
     case "wochenblick": {
@@ -2188,6 +2201,8 @@ async function converse({ sb, userId, body, send }: { sb: SupabaseClient; userId
       recentDays,
       review: p ? { week: p.review_week ?? null, declines: Number(p.review_declines) || 0, wanted: typeof p.review_wanted === "boolean" ? p.review_wanted : null } : null,
       hasPlanGoal: hasPlanGoal(goals, blockGoals),
+      // a greeting that opened with it on an earlier day and that she answered: offered, even if no tool noted it (K9)
+      reviewOfferedOn: dailyCtx.openers.filter((r) => r.kind === "wochenblick" && r.day < context.day && (dailyCtx.talkCounts[r.day] ?? 0) > 0).map((r) => r.day),
     });
     if (due) {
       const monday = addDays(reviewWeek(context.day, minutes), -7);

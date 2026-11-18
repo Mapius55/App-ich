@@ -97,7 +97,20 @@ export function sameBlockAnswer(
 
 /** log_time without event_id with the same minutes for this goal on this day already there (D1): nothing saved. */
 export const TIME_ALREADY_LOGGED =
-  "Schon eingetragen: Für dieses Ziel stehen an diesem Tag schon genau so viele Minuten. Nichts gespeichert, sag nichts dazu; nur wenn sie es wirklich zweimal gemacht hat, nochmals mit zusaetzlich: true.";
+  "Schon eingetragen: Für dieses Ziel stehen an diesem Tag schon genau so viele Minuten. Nichts gespeichert; sag höchstens in einem Halbsatz, dass sie schon dastehen. Nur wenn sie es wirklich zweimal gemacht hat, nochmals mit zusaetzlich: true.";
+
+/**
+ * log_time without event_id on a day with a block of this goal that has no answer yet (also one later today, K6):
+ * nothing saved, since the block would count as well. The coach answers the block, or says it was more time.
+ */
+export function blockOpenThatDay(blocks: { id: string; time: string }[]): string {
+  const list = blocks.map((b) => `[${b.id}] um ${b.time}`).join(", ");
+  const one = blocks.length === 1;
+  return `Nichts gespeichert: An diesem Tag ${one ? "steht" : "stehen"} für dieses Ziel ${one ? "ein Block" : "Blöcke"} ohne Rückmeldung (${list}), ${one ? "der sonst auch zählt" : "die sonst auch zählen"}. War ihre Zeit ${one ? "dieser Block" : "einer davon"}, auch wenn er erst noch kommt, ruf log_time mit dessen event_id auf; war es Zeit dazu, nochmals mit zusaetzlich: true.`;
+}
+
+/** log_time with event_id for a block of today that she did before it begins (K6): its alarm is switched off. */
+export const BLOCK_DONE_EARLY = "Der Block bleibt im Kalender und zählt; seine Erinnerung ist aus, weil er schon erledigt ist.";
 
 /** log_time with event_id for a block of today that starts later, with 0 minutes: that is no answer, it is a change of plan. */
 export const BLOCK_LATER_NO =
@@ -107,6 +120,7 @@ export const BLOCK_LATER_NO =
 
 /** Tools that write her data or the calendar: never in a turn without her words (the greeting). */
 const GREETING_REFUSED = new Set([
+  "set_mood",
   "remember",
   "update_profile",
   "set_nature_palette",
@@ -138,7 +152,7 @@ export const GREETING_WRITE_REFUSAL =
 /**
  * Why a tool may not run in the greeting (a turn without her words, K4), or null when it may: nothing she has not
  * said is written, entered, moved, ticked or counted (once a greeting silently counted the same 10 minutes again, once
- * it changed the calendar unasked). What stays: the mood and focus of the day, the marks that a dream or a dated note
+ * it changed the calendar unasked); her mood is hers to say. What stays: the focus of the day, the marks that a dream or a dated note
  * was brought up (with nothing else in the same call), the rare offers (note_offer), and what only shows something in
  * the app (location, connections), or what tidies (forget).
  */

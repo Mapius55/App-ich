@@ -657,6 +657,8 @@ export const ROTATING_OPENERS: readonly OpenerKind[] = ["termin", "gestern", "zi
 const OPENER_KINDS: readonly string[] = [...ROTATING_OPENERS, "neustart", "wochenblick", "abend", "abend_frage", "zurueck"];
 /** «Wie hast du geschlafen?» not again within this many days (at most twice in seven). */
 export const SLEEP_OPENER_GAP_DAYS = 3;
+/** What she asked the coach to come back to opens a greeting from this local time on (05:00, not in the night). */
+export const COME_BACK_FROM = 5 * 60;
 export const isOpenerKind = (v: unknown): v is OpenerKind => typeof v === "string" && OPENER_KINDS.includes(v);
 
 export interface OpenerSituation {
@@ -677,7 +679,8 @@ export interface OpenerSituation {
 /**
  * How today's first greeting opens, chosen in code so it really changes from day to day.
  * A situation comes first: after a pause a small restart, then what she asked the coach to come back to (in the
- * morning or at midday; in the evening it waits for the next morning), then a due Wochenblick, then the first open in
+ * morning or at midday, from COME_BACK_FROM; in the evening or the night it waits for the next morning), then a due
+ * Wochenblick, then the first open in
  * the evening (a look back; with a question at most three evenings in seven and never two in a row).
  * Otherwise the rotating kinds take turns: of those with something to say today, the one used longest ago
  * (never yesterday's while another fits), ties in the order of ROTATING_OPENERS; sleep only in the morning and not
@@ -686,7 +689,7 @@ export interface OpenerSituation {
  */
 export function chooseOpener(s: OpenerSituation, recent: { day: string; kind: string | null }[], today: string): OpenerKind {
   if (s.pause) return "neustart";
-  if (s.comeBack && s.minutes < EVENING_FROM) return "zurueck";
+  if (s.comeBack && s.minutes >= COME_BACK_FROM && s.minutes < EVENING_FROM) return "zurueck";
   if (s.wochenblick) return "wochenblick";
   const ago = (kinds: string[]) =>
     recent
@@ -735,8 +738,9 @@ export type ReviewDue = "anbieten" | "fragen";
 
 /**
  * Whether the Wochenblick is due in this conversation: in its window (Sunday from 16:00 up to Wednesday),
- * not yet done or declined for this week (only the recorded offer, `state.week` from the tool «wochenblick», ends
- * it: a conversation in which it was not offered leaves it due), at least one goal with weekly hours or blocks,
+ * not yet done or declined for this week (only the recorded offer ends it: `state.week` from the tool «wochenblick», or
+ * `offeredOn`, the days whose greeting opened with it and that she answered, in case the tool was not called; a
+ * conversation in which it was not offered leaves it due), at least one goal with weekly hours or blocks,
  * not after a pause (that is a restart) and not in a heavy time. Never when she said she doesn't want it, and never
  * before she ever talked on an earlier day (`lastTalk`: her own last message before today, talkClock; null: there
  * is no week of hers to look back on yet; the Kennenlernen has its own thread and doesn't count).
@@ -749,6 +753,8 @@ export function wochenblickDue(o: {
   hasPlanGoal: boolean;
   heavy: boolean;
   pause: boolean;
+  /** earlier days whose greeting opened with the Wochenblick (days.opener) and on which she then talked */
+  offeredOn?: readonly string[];
 }): ReviewDue | null {
   if (!isDay(o.day) || !o.lastTalk || !o.hasPlanGoal || o.heavy || o.pause || o.state.wanted === false) return null;
   const wd = weekdayIndex(o.day);
@@ -756,6 +762,8 @@ export function wochenblickDue(o: {
   if (!inWindow) return null;
   const week = reviewWeek(o.day, o.minutes);
   if (o.state.week && isDay(o.state.week) && o.state.week >= week) return null;
+  // a greeting on Sunday with the Wochenblick was from 16:00 on (its window), so it belongs to the coming week
+  if ((o.offeredOn ?? []).some((d) => isDay(d) && d < o.day && reviewWeek(d, 24 * 60 - 1) === week)) return null;
   return o.state.declines >= 2 && o.state.wanted !== true ? "fragen" : "anbieten";
 }
 
@@ -799,6 +807,8 @@ export function dailySituation(o: {
   recentDays: { day: string; mood: Mood }[];
   review: ReviewState | null;
   hasPlanGoal: boolean;
+  /** earlier days whose greeting opened with the Wochenblick and on which she then talked (wochenblickDue) */
+  reviewOfferedOn?: readonly string[];
 }): DailySituation {
   const clock = localClock(o.now, o.tz);
   const minutes = clock.day === o.day ? clock.minutes : 12 * 60;
@@ -813,6 +823,7 @@ export function dailySituation(o: {
         hasPlanGoal: o.hasPlanGoal,
         heavy,
         pause,
+        offeredOn: o.reviewOfferedOn,
       })
     : null;
   return { minutes, pause, heavy, review };
@@ -1207,8 +1218,8 @@ export function followUpDue(m: { event_date: string | null; content: string; fol
 }
 
 // Work and shifts: the evening never takes them up («Spätdienst», «Frühschicht», «Arbeit», «Teammeeting», «im Laden»).
-// «Geschichte» is no shift, «Dienstag» no duty, «Gartenarbeit» no work.
-const WORK = /\barbeit|(?<!ge)schicht|dienst(?!ag)|büro|office|meeting|sitzung|besprechung|\bcall\b|kunde|\bjob|\bladen\b|pikett|rapport/i;
+// «Geschichte» is no shift, «Dienstag» no duty, «Gartenarbeit» no work, «erkunden» no customer.
+const WORK = /\barbeit|(?<!ge)schicht|dienst(?!ag)|büro|office|meeting|sitzung|besprechung|\bcall\b|\bkunde|\bjob|\bladen\b|pikett|rapport/i;
 
 /** An entry about her work or a shift (a coarse word check on its title). */
 export function workEntry(text: string): boolean {
@@ -1252,6 +1263,44 @@ export function eveningEntries<E extends DayEntry>(
     )
     .sort((a, b) => (a.kind === "block" ? 1 : 0) - (b.kind === "block" ? 1 : 0) || Date.parse(a.starts_at) - Date.parse(b.starts_at))
     .slice(0, max);
+}
+
+// Words that say how long or when, not what: «10 Minuten dehnen» and «Dehnen am Abend» are the same thing.
+const NOT_WHAT = new Set([
+  "minuten", "minute", "stunde", "stunden", "viertelstunde", "halbe", "zeit", "heute", "morgens", "abends", "mittags", "abend",
+  "morgen", "mittag", "täglich", "jeden", "jede", "jeder", "woche", "kurz", "kurze", "kurzes", "eine", "einen", "einem", "noch",
+  "nach", "mich", "dich", "sich", "etwas", "wieder", "bitte", "fokus", "fokuszeit",
+]);
+const whatWords = (t: string) =>
+  t
+    .toLowerCase()
+    .split(/[^a-zäöüéèà]+/)
+    .filter((w) => w.length >= 4 && !NOT_WHAT.has(w));
+
+/**
+ * Whether a habit and a planned block are the same thing (K7: then her tick answers the block): a word of what is done
+ * (four letters or more) in both titles («10 Minuten dehnen» and «Dehnen»), and no other goal on the habit than the block's. The same goal
+ * alone is not enough: «Dehnen» for the half marathon does not answer its «Intervalle».
+ */
+export function habitMatchesBlock(habit: { title: string; goal_id?: string | null }, block: { title: string; goal_id?: string | null }): boolean {
+  if (habit.goal_id && block.goal_id && habit.goal_id.toLowerCase() !== block.goal_id.toLowerCase()) return false;
+  // the same word, or one the start of the other («Lauf» and «Laufen», «Velo» and «Velofahren»)
+  const words = whatWords(block.title);
+  return whatWords(habit.title).some((h) => words.some((b) => b.startsWith(h) || h.startsWith(b)));
+}
+
+/**
+ * Her own blocks of a goal on that day that have no answer yet (log_time without event_id, D1 with K6): past, running or
+ * later that day; never one from her trainer (Nolio: the completed training counts by itself) and never an all-day one.
+ * `goal_time`: the answer embedded with the block (a list or one row; an empty list or null = none).
+ */
+export function openBlocksOn<B extends { starts_at: string; all_day?: boolean | null; source?: string | null; goal_time?: unknown }>(
+  blocks: B[],
+  day: string,
+  dayOfIso: (iso: string) => string,
+): B[] {
+  const answered = (g: unknown) => (Array.isArray(g) ? g.length > 0 : !!g);
+  return blocks.filter((b) => !b.all_day && b.source !== "nolio" && !answered(b.goal_time) && dayOfIso(b.starts_at) === day);
 }
 
 /**

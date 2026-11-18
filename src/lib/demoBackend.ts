@@ -36,6 +36,7 @@ import {
   goalEffort,
   hoursLabel,
   OBSTACLE_MAX,
+  openBlocksOn,
   parseClock,
   parseWeekdays,
   PLAN_B_MAX,
@@ -1224,7 +1225,9 @@ export class DemoBackend implements Backend {
   }
   /**
    * Time the coach logs for a goal ("heute 1,5 Stunden trainiert"). Like the coach's log_time (D1): the same minutes
-   * for this goal on this day already there (the same sentence again) are not counted twice; false then.
+   * for this goal on this day already there (the same sentence again) are not counted twice; false then. A block of
+   * this goal on that day without an answer (also one later today) is answered with it, as the coach does after its
+   * tool's hint, so the block doesn't count as well.
    */
   private logTime(goalId: string, day: string, minutes: number): boolean {
     if (!Number.isInteger(minutes) || minutes < 0 || minutes > 1440) throw new Error("Bitte zwischen 0 und 1440 Minuten.");
@@ -1232,7 +1235,13 @@ export class DemoBackend implements Backend {
     this.mutate((u) => {
       checkGoal(u, goalId);
       if (sameTimeLogged(u.goal_time, goalId, day, minutes)) return;
-      u.goal_time.push({ id: uuid(), goal_id: goalId, day, minutes, source: "coach", event_id: null, external_id: null, note: null });
+      const answered = new Set(u.goal_time.map((t) => t.event_id).filter(Boolean));
+      const mine = u.events
+        .filter((e) => e.kind === "block" && e.goal_id === goalId)
+        .map((e) => ({ ...e, goal_time: answered.has(e.id) ? [e.id] : [] }))
+        .sort((a, b) => Date.parse(a.starts_at) - Date.parse(b.starts_at));
+      const block = openBlocksOn(mine, day, (iso) => dayOf(new Date(iso)))[0];
+      u.goal_time.push({ id: uuid(), goal_id: goalId, day, minutes, source: block ? "block" : "coach", event_id: block?.id ?? null, external_id: null, note: null });
       saved = true;
     });
     return saved;

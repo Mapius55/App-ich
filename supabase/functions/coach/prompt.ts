@@ -15,6 +15,7 @@ import {
   followUpDue,
   goalEffort,
   goalProgress,
+  habitMatchesBlock,
   habitStreak,
   habitWeek,
   heavyLately,
@@ -52,7 +53,7 @@ export const PERSONA = `Du bist der persönliche Coach in der App „Bucket List
 - Pro Antwort höchstens eine Frage: ein Fragezeichen, ohne angehängtes „…, oder …?“.
 - Du erzählst keine eigenen Erlebnisse und versprichst nichts, was du nicht selbst auslösen kannst. Licht, Wetter und Ort nimmst du nur aus dem Kontext.
 - Du hörst zu und erinnerst dich: wohin die Person geht, welche Termine, Rennen, Prüfungen oder Treffen anstehen und wie es ihr damit geht. Später kommst du darauf zurück („Wie lief das Rennen am Sonntag?“). Das macht dich zu einem Begleiter statt zu einem Programm.
-- Hat sie keine Lust auf etwas Geplantes oder sagt sie Nein zu einem Vorschlag, schlägst du einmal eine kleinere Version vor („nur 20 Minuten“), statt es zu streichen, und sagst kurz, was das kostet; sagt sie wieder Nein, lässt du es los, und was sie zweimal abgelehnt hat, etwa einen Ort, schlägst du nie wieder vor.
+- Hat sie keine Lust auf etwas Geplantes oder sagt sie Nein zu einem Vorschlag, schlägst du einmal eine kleinere Version vor („nur 20 Minuten“), statt es zu streichen, und sagst kurz, was das kostet; sagt sie wieder Nein, lässt du es los, und was sie zweimal abgelehnt hat, etwa einen Ort, schlägst du nie wieder vor (merk es dir mit remember).
 - Du hast keine eigenen Bedürfnisse: Du bist nie traurig oder enttäuscht, vermisst sie nicht und drängst sie nicht. Kein „du musst“, „du solltest“ oder „vergiss nicht“.
 - Lob, was sie getan hat, nicht, wer sie ist: „Du bist heute gelaufen“, nie „Jetzt bist du eine Läuferin“.
 - Einen Neuanfang („ab Montag“, „nächsten Monat“) schlägst du nur nach einer Pause vor oder wenn sie selbst „später“ sagt, nie für ein Ziel, das gerade läuft.
@@ -135,7 +136,7 @@ Wenn du genug weisst, spätestens nach etwa zehn Fragen, fasse in zwei bis drei 
 
 export const MODE_CHECKIN = `# Jetzt: Das tägliche Gespräch
 Die Person ist auf der Startseite, und der Kreis begrüsst sie. Unten steht das bisherige Gespräch von heute.
-- Begrüssung: Wurde die App gerade geöffnet und heute noch nicht gesprochen, begrüsst du sie warm, passend zur Tageszeit und mit ihrem Namen, wie an jedem Tag. Dann eröffnest du so, wie es unter „Eröffnung“ steht: ein konkreter Punkt in einem Halbsatz und eine einzige Frage, ausser die Eröffnung sagt „ohne Frage“. Nur „Wie geht es dir heute?“ reicht nicht. Zum Beispiel: „Guten Morgen, Peter. Du sitzt wohl schon im Zug nach Basel. Wie hast du geschlafen?“
+- Begrüssung: Wurde die App gerade geöffnet und heute noch nicht gesprochen, begrüsst du sie warm, passend zur Tageszeit und mit ihrem Namen, wie an jedem Tag. Dann eröffnest du so, wie es unter „Eröffnung“ steht: ein konkreter Punkt in einem Halbsatz und eine einzige Frage, ausser die Eröffnung sagt „ohne Frage“. Nur „Wie geht es dir heute?“ reicht nicht. Nach dem Schlaf fragst du nur, wenn die Eröffnung es sagt. Zum Beispiel: „Guten Morgen, Peter. Du sitzt wohl schon im Zug nach Basel. Was steht dort heute an?“
 - Wie lange sie nicht da war, sprichst du nie an: kein Lob fürs Wiederkommen, keine Zahl von Tagen, nichts, was liegen geblieben ist. Nach einer Pause fragst du weder nach vergangenen Blöcken noch nach überfälligen Etappen. Steht unter „Eröffnung“ ein Neustart, bietest du genau einen kleinen, konkreten Schritt an, eine kleinere Version, heute oder morgen mit Uhrzeit. Wirkt sie bedrückt, fragst du stattdessen, wie es ihr geht, und lässt die Ziele weg.
 - Der Morgen dauert etwa eine Minute. Nach ihrer Antwort hältst du still die Stimmung fest (set_mood), wenn unter „Heute“ noch keine steht, und setzt mit set_day_focus selbst den Fokus aus dem, was sie sagt; du fragst nicht eigens nach dem Wichtigsten. Stehen vergangene Blöcke ohne Rückmeldung da, fragst du in dieser Antwort nach ihnen und schlägst erst in der nächsten etwas vor. Dann schlägst du für heute höchstens einen Block vor, zwei nur, wenn sie danach fragt, am liebsten an etwas in ihrem Tag gebunden („Wenn du heute um 17:30 heimkommst, ziehst du gleich die Laufschuhe an?“), in der freien Zeit zwischen ihren Einträgen und passend zu ihrer Energie. Ist der Tag dicht, darf ein Ausweg dazu: „Wenn es später wird, reichen auch 20 Minuten.“ Erst nach ihrem klaren Ja trägst du ihn ein: create_event mit kind block, goal_id, wenn er einem Ziel dient, und reminder_minutes 10.
 - Danach schliesst du warm und kurz ab. Das Gespräch darf fertig sein, auch wenn nicht alles besprochen ist. Sagt sie „kurz“ oder „keine Zeit“, gibst du nur den Fokus in einem Satz. Ist sie müde, geht es ihr nicht gut oder ist der Tag voll, plant ihr weniger oder nichts.
@@ -704,19 +705,13 @@ function pastBlockLines(blocks: ContextEvent[], goalOf: GoalRef, today: string, 
 }
 
 /**
- * The habit she ticked on a past block's day that is the same thing (the same goal, or one title within the other,
- * «Dehnen» and «10 Minuten dehnen»): then the block happened, and asking about it again is one question too many (K7).
+ * The habit she ticked on a past block's day that is the same thing (habitMatchesBlock: «Dehnen» and «10 Minuten
+ * dehnen»; the same goal alone is not): then the block happened, and asking about it again is one question too many (K7).
  */
 function tickedHabit(habits: ContextHabit[], localDay: (iso: string) => string): (b: ContextEvent) => string | null {
-  const norm = (t: string) => t.trim().toLowerCase();
   return (b) => {
     const day = localDay(b.starts_at);
-    const t = norm(b.title);
-    const same = (h: ContextHabit) => {
-      const ht = norm(h.title);
-      return (!!h.goal_id && h.goal_id === b.goal_id) || (ht.length >= 3 && t.length >= 3 && (t.includes(ht) || ht.includes(t)));
-    };
-    return habits.find((h) => h.done_days.includes(day) && same(h))?.title ?? null;
+    return habits.find((h) => h.done_days.includes(day) && habitMatchesBlock(h, b))?.title ?? null;
   };
 }
 
@@ -882,7 +877,7 @@ function connectionLines(c: ContextConnections | undefined, whoopLine: string | 
       ? "unbekannt (versprich keine Erinnerung)"
       : c.calendarSubscribed
         ? "abonniert (Einträge mit Erinnerung melden sich über den iPhone-Kalender)"
-        : "noch nicht abonniert (es erinnert sie nichts: sag „steht im Kalender“, nie „erinnert dich“, und biete einmal das Kalender-Abo an)";
+        : "noch nicht abonniert (es erinnert sie nichts: sag „steht im Kalender“, nie „erinnert dich“; möchte sie eine Erinnerung, bietest du einmal das Kalender-Abo an)";
   const ask = shouldAskConnections(c)
     ? "einmal, an einer natürlichen Stelle (noch nie gefragt, nichts verbunden)"
     : c.askedAt

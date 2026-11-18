@@ -8,13 +8,18 @@ import {
   addDays,
   awaitsReply,
   chooseOpener,
+  COME_BACK_FROM,
+  dailySituation,
   dayOf,
   eveningEntries,
   FOLLOW_UP_REPLY_DAYS,
   followUpDue,
+  habitMatchesBlock,
+  openBlocksOn,
   ROTATING_OPENERS,
   sameTimeLogged,
   SLEEP_OPENER_GAP_DAYS,
+  wochenblickDue,
   workEntry,
   type OpenerKind,
 } from "../src/lib/plan";
@@ -33,9 +38,11 @@ import {
   type ContextInput,
 } from "../supabase/functions/coach/prompt";
 import {
+  BLOCK_DONE_EARLY,
   BLOCK_LATER_NO,
   BLOCK_NO_NEXT,
   blockNoNext,
+  blockOpenThatDay,
   COME_BACK_NOTE,
   GREETING_WRITE_REFUSAL,
   greetingWriteRefusal,
@@ -94,8 +101,8 @@ describe("K1: no reminder promise without a channel", () => {
     expect(PERSONA).not.toContain("als kurzen Termin mit Erinnerung einzutragen");
   });
 
-  it("without the calendar subscription: «steht im Kalender», never «erinnert dich», the subscription offered once", () => {
-    expect(line({})).toBe("- iPhone-Kalender: noch nicht abonniert (es erinnert sie nichts: sag „steht im Kalender“, nie „erinnert dich“, und biete einmal das Kalender-Abo an)");
+  it("without the calendar subscription: «steht im Kalender», never «erinnert dich», the subscription offered once when she wants a reminder", () => {
+    expect(line({})).toBe("- iPhone-Kalender: noch nicht abonniert (es erinnert sie nichts: sag „steht im Kalender“, nie „erinnert dich“; möchte sie eine Erinnerung, bietest du einmal das Kalender-Abo an)");
     expect(line({ calendarSubscribed: true })).toBe("- iPhone-Kalender: abonniert (Einträge mit Erinnerung melden sich über den iPhone-Kalender)");
     expect(line({ calendarSubscribed: null })).toBe("- iPhone-Kalender: unbekannt (versprich keine Erinnerung)");
   });
@@ -139,7 +146,8 @@ describe("K3: where progress shows", () => {
 
 describe("K4: the greeting writes nothing", () => {
   it("refuses every write of her data in a turn without her words", () => {
-    for (const name of ["log_time", "log_habit", "create_event", "update_event", "delete_event", "create_series", "update_series", "create_goal", "delete_goal", "add_milestone", "delete_milestone", "create_habit", "update_habit", "remember", "update_profile", "wochenblick", "come_back"])
+    // her mood too: she has not said how she is
+    for (const name of ["log_time", "log_habit", "create_event", "update_event", "delete_event", "create_series", "update_series", "create_goal", "delete_goal", "add_milestone", "delete_milestone", "create_habit", "update_habit", "remember", "update_profile", "wochenblick", "come_back", "set_mood"])
       expect(greetingWriteRefusal(name, { id: "x" })).toBe(GREETING_WRITE_REFUSAL);
     expect(GREETING_WRITE_REFUSAL).toContain("Erst nach ihrer Antwort");
   });
@@ -152,7 +160,7 @@ describe("K4: the greeting writes nothing", () => {
     expect(greetingWriteRefusal("update_memory", { id: "m1", content: "neu" })).toBe(GREETING_WRITE_REFUSAL);
     expect(greetingWriteRefusal("update_milestone", { id: "s1", nachgefragt: true })).toBeNull();
     expect(greetingWriteRefusal("update_milestone", { id: "s1", done: true })).toBe(GREETING_WRITE_REFUSAL);
-    for (const name of ["set_mood", "set_day_focus", "note_offer", "request_location", "request_connections", "forget", "finish_onboarding"]) expect(greetingWriteRefusal(name, {})).toBeNull();
+    for (const name of ["set_day_focus", "note_offer", "request_location", "request_connections", "forget", "finish_onboarding"]) expect(greetingWriteRefusal(name, {})).toBeNull();
   });
 
   it("is checked before any tool runs, only on a turn without her message, never while tidying", () => {
@@ -180,6 +188,13 @@ describe("K6: a done block or step is counted, never deleted", () => {
     expect(BLOCK_LATER_NO).toContain("verschiebst oder löschst du ihn");
     expect(tools).toContain("oder einen von heute, den sie schon erledigt hat");
   });
+
+  it("a block done before it begins keeps its place and counts, but its alarm no longer rings", () => {
+    expect(source).toContain("doneEarly = ev.data.reminder_minutes !== null && ev.data.reminder_minutes !== undefined;");
+    expect(source).toContain('const off = await sb.from("events").update({ reminder_minutes: null }).eq("id", eventId);');
+    expect(source).toContain("...(doneEarly ? { erinnerung: BLOCK_DONE_EARLY } : {}),");
+    expect(BLOCK_DONE_EARLY).toBe("Der Block bleibt im Kalender und zählt; seine Erinnerung ist aus, weil er schon erledigt ist.");
+  });
 });
 
 describe("K7: a habit and its block are asked about once", () => {
@@ -192,16 +207,61 @@ describe("K7: a habit and its block are asked about once", () => {
     expect(asks({ ...morning, habits: [habit] })).toContain(
       "- [b1] Mo., 16. Nov. (heute), 08:00–08:15: Dehnen (Ziel „Halbmarathon Zürich“) · Gewohnheit „Dehnen“ an dem Tag abgehakt: nicht danach fragen, mit der geplanten Länge eintragen",
     );
-    // the same goal is enough; a habit ticked on another day, or another thing, is no answer
-    expect(asks({ ...morning, habits: [{ ...habit, title: "Laufen", goal_id: "g1" }] })).toContain("Gewohnheit „Laufen“ an dem Tag abgehakt");
+    // the same thing in other words counts; a habit ticked on another day, another thing, or only the same goal is no answer
+    expect(asks({ ...morning, habits: [{ ...habit, title: "10 Minuten dehnen am Abend", goal_id: "g1" }] })).toContain("Gewohnheit „10 Minuten dehnen am Abend“ an dem Tag abgehakt");
     expect(asks({ ...morning, habits: [{ ...habit, done_days: ["2026-11-15"] }] })).not.toContain("abgehakt");
     expect(asks({ ...morning, habits: [{ ...habit, title: "Lesen" }] })).not.toContain("abgehakt");
+    expect(asks({ ...morning, habits: [{ ...habit, title: "Laufen", goal_id: "g1" }] })).not.toContain("abgehakt");
+  });
+
+  it("which habit is the same thing as a block: a word of what is done, never the goal alone", () => {
+    expect(habitMatchesBlock({ title: "10 Minuten dehnen" }, { title: "Dehnen" })).toBe(true);
+    expect(habitMatchesBlock({ title: "Laufen", goal_id: "g1" }, { title: "Lauf am See", goal_id: "G1" })).toBe(true);
+    expect(habitMatchesBlock({ title: "Velo", goal_id: null }, { title: "Velofahren zur Arbeit", goal_id: "g1" })).toBe(true);
+    // only the goal, only a word about time, another goal, or a word that only begins alike
+    expect(habitMatchesBlock({ title: "Dehnen", goal_id: "g1" }, { title: "Intervalle", goal_id: "g1" })).toBe(false);
+    expect(habitMatchesBlock({ title: "Zeit draussen" }, { title: "Zeit fürs Exposé" })).toBe(false);
+    expect(habitMatchesBlock({ title: "15 Minuten Italienisch", goal_id: "g2" }, { title: "15 Minuten Joggen", goal_id: "g1" })).toBe(false);
+    expect(habitMatchesBlock({ title: "Dehnen", goal_id: "g2" }, { title: "Dehnen", goal_id: "g1" })).toBe(false);
+    expect(habitMatchesBlock({ title: "Stretching" }, { title: "Streit klären" })).toBe(false);
   });
 });
 
 describe("K8: «kurz» in the Wochenblick", () => {
   it("one good thing and one proposal, never single days or habits", () => {
     expect(MODE_CHECKIN).toContain("Sagt sie „kurz“, nennst du eine gelungene Sache und machst einen Vorschlag für die neue Woche; nach einzelnen Tagen oder Gewohnheiten fragst du im Wochenblick nie.");
+  });
+});
+
+describe("K9: the Wochenblick stays due until it was offered", () => {
+  const state = { week: null, declines: 0, wanted: null };
+  const due = { day: "2026-11-16", minutes: 8 * 60, lastTalk: { day: "2026-11-15", minutes: 21 * 60 }, state, hasPlanGoal: true, heavy: false, pause: false };
+
+  it("a talk without it leaves it due; a greeting that opened with it and that she answered counts as offered", () => {
+    expect(wochenblickDue(due)).toBe("anbieten");
+    // Sunday's greeting opened with it (from 16:00, so for the coming week) and she talked: not again on Monday
+    expect(wochenblickDue({ ...due, offeredOn: ["2026-11-15"] })).toBeNull();
+    expect(wochenblickDue({ ...due, day: "2026-11-18", offeredOn: ["2026-11-16"] })).toBeNull();
+    // last week's offer, or one of today (the greeting of this very conversation), leaves this week's due
+    expect(wochenblickDue({ ...due, offeredOn: ["2026-11-10", "2026-11-08"] })).toBe("anbieten");
+    expect(wochenblickDue({ ...due, offeredOn: ["2026-11-16"] })).toBe("anbieten");
+  });
+
+  it("from the stored openers and her messages (coach index)", () => {
+    const base = {
+      day: "2026-11-16",
+      now: new Date("2026-11-16T07:00:00Z"),
+      tz: "Europe/Zurich",
+      lastSeenDay: "2026-11-15",
+      lastSpoke: { thread: "2026-11-15", created_at: "2026-11-15T17:05:00Z" },
+      todayMood: undefined,
+      recentDays: [],
+      review: state,
+      hasPlanGoal: true,
+    };
+    expect(dailySituation(base).review).toBe("anbieten");
+    expect(dailySituation({ ...base, reviewOfferedOn: ["2026-11-15"] }).review).toBeNull();
+    expect(source).toContain('reviewOfferedOn: dailyCtx.openers.filter((r) => r.kind === "wochenblick" && r.day < context.day && (dailyCtx.talkCounts[r.day] ?? 0) > 0).map((r) => r.day),');
   });
 });
 
@@ -232,6 +292,12 @@ describe("K10: follow-ups", () => {
 });
 
 describe("K11: the sleep opener at most twice in seven days", () => {
+  it("the greeting asks about sleep only when the opener says so (the example no longer ends with it)", () => {
+    expect(MODE_CHECKIN).toContain("Nur „Wie geht es dir heute?“ reicht nicht. Nach dem Schlaf fragst du nur, wenn die Eröffnung es sagt. Zum Beispiel");
+    expect(MODE_CHECKIN).toContain("„Guten Morgen, Peter. Du sitzt wohl schon im Zug nach Basel. Was steht dort heute an?“");
+    expect(prompts).not.toContain("Basel. Wie hast du geschlafen?");
+  });
+
   const today = "2026-11-16";
   const morning = { minutes: 7 * 60 + 30, pause: false, wochenblick: false, available: ["schlaf", "jahreszeit"] as OpenerKind[] };
 
@@ -259,7 +325,7 @@ describe("K11: the sleep opener at most twice in seven days", () => {
 describe("K12: after a «Nein», one smaller variant, then let go", () => {
   it("the rules", () => {
     expect(PERSONA).toContain(
-      "Hat sie keine Lust auf etwas Geplantes oder sagt sie Nein zu einem Vorschlag, schlägst du einmal eine kleinere Version vor („nur 20 Minuten“), statt es zu streichen, und sagst kurz, was das kostet; sagt sie wieder Nein, lässt du es los, und was sie zweimal abgelehnt hat, etwa einen Ort, schlägst du nie wieder vor.",
+      "Hat sie keine Lust auf etwas Geplantes oder sagt sie Nein zu einem Vorschlag, schlägst du einmal eine kleinere Version vor („nur 20 Minuten“), statt es zu streichen, und sagst kurz, was das kostet; sagt sie wieder Nein, lässt du es los, und was sie zweimal abgelehnt hat, etwa einen Ort, schlägst du nie wieder vor (merk es dir mit remember).",
     );
     expect(MODE_CHECKIN).toContain("und bietest erst danach einmal einen kleineren oder verschobenen Block an;");
     for (const t of [BLOCK_NO_NEXT, blockNoNext("Wenn es regnet, laufe ich auf dem Laufband.")]) expect(t).toContain("biete erst danach einmal einen kleineren oder verschobenen Block an, sagt sie auch dazu Nein, lässt du es.");
@@ -300,7 +366,8 @@ describe("D1: no double count for log_time without event_id", () => {
 
   it("the coach saves nothing then and says so; zusaetzlich: true counts it again", () => {
     expect(TIME_ALREADY_LOGGED).toContain("Schon eingetragen");
-    expect(TIME_ALREADY_LOGGED).toContain("nur wenn sie es wirklich zweimal gemacht hat, nochmals mit zusaetzlich: true");
+    expect(TIME_ALREADY_LOGGED).toContain("sag höchstens in einem Halbsatz, dass sie schon dastehen");
+    expect(TIME_ALREADY_LOGGED).toContain("Nur wenn sie es wirklich zweimal gemacht hat, nochmals mit zusaetzlich: true.");
     expect(tools).toContain('zusaetzlich: { type: "boolean"');
     expect(source).toContain("if (sameTimeLogged(same.data ?? [], goalId, logDay, minutes)) return JSON.stringify({ ok: true, hint: TIME_ALREADY_LOGGED });");
     expect(source).toContain('const extra = input.zusaetzlich === undefined ? false : bool(input.zusaetzlich, "zusaetzlich");');
@@ -323,6 +390,43 @@ class MemoryStorage {
   }
 }
 
+describe("D1 with K6: time on a day with an unanswered block of the goal", () => {
+  const zurich = (iso: string) => new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Zurich" }).format(new Date(iso));
+
+  it("finds her blocks of that day without an answer: past, running or later; never Nolio, all-day or answered", () => {
+    const blocks = [
+      { id: "b1", starts_at: "2026-11-16T06:00:00Z", all_day: false, source: "person", goal_time: [] },
+      { id: "b2", starts_at: "2026-11-16T19:30:00Z", all_day: false, source: "coach", goal_time: null }, // later today
+      { id: "b3", starts_at: "2026-11-16T10:00:00Z", all_day: false, source: "person", goal_time: [{ id: "t" }] },
+      { id: "b4", starts_at: "2026-11-16T10:00:00Z", all_day: false, source: "person", goal_time: { id: "t" } },
+      { id: "n1", starts_at: "2026-11-16T12:00:00Z", all_day: false, source: "nolio", goal_time: [] },
+      { id: "a1", starts_at: "2026-11-16T00:00:00Z", all_day: true, source: "person", goal_time: [] },
+      // 23:30 UTC on the 16th is the 17th in Zurich; 23:30 UTC on the 15th is the 16th there
+      { id: "x1", starts_at: "2026-11-16T23:30:00Z", all_day: false, source: "person", goal_time: [] },
+      { id: "x2", starts_at: "2026-11-15T23:30:00Z", all_day: false, source: "person", goal_time: [] },
+    ];
+    expect(openBlocksOn(blocks, "2026-11-16", zurich).map((b) => b.id)).toEqual(["b1", "b2", "x2"]);
+    // summer time: 22:30 UTC on 30 June is 00:30 on 1 July in Zurich
+    expect(openBlocksOn([{ id: "s", starts_at: "2026-06-30T22:30:00Z" }], "2026-07-01", zurich)).toHaveLength(1);
+  });
+
+  it("saves nothing then: the coach answers the block, or says it was more time", () => {
+    const hint = blockOpenThatDay([{ id: "b2", time: "20:30" }]);
+    expect(hint).toBe(
+      "Nichts gespeichert: An diesem Tag steht für dieses Ziel ein Block ohne Rückmeldung ([b2] um 20:30), der sonst auch zählt. War ihre Zeit dieser Block, auch wenn er erst noch kommt, ruf log_time mit dessen event_id auf; war es Zeit dazu, nochmals mit zusaetzlich: true.",
+    );
+    expect(hint).not.toContain("ß");
+    expect(blockOpenThatDay([{ id: "b1", time: "07:00" }, { id: "b2", time: "20:30" }])).toContain("stehen für dieses Ziel Blöcke ohne Rückmeldung ([b1] um 07:00, [b2] um 20:30), die sonst auch zählen. War ihre Zeit einer davon,");
+    // checked before the insert (no row that the block would double), the old after-the-fact hint is gone
+    const at = source.indexOf("const open = openBlocksOn(blocks.data ?? [], logDay");
+    expect(at).toBeGreaterThan(0);
+    expect(at).toBeLessThan(source.indexOf("const ins = await insert();\n        if (ins.error) throw missingGoal(ins.error);"));
+    expect(source).toContain("return JSON.stringify({ ok: false, hint: blockOpenThatDay(");
+    expect(source).not.toContain("lösche diesen Eintrag nicht doppelt");
+    expect(tools).toContain("true, wenn es wirklich Zeit dazu war, neben einem Block dieses Tages oder dieselbe Zeit ein zweites Mal.");
+  });
+});
+
 describe("D1 in the demo: the same sentence twice counts once", () => {
   beforeEach(() => {
     (globalThis as { localStorage?: unknown }).localStorage = new MemoryStorage();
@@ -342,6 +446,25 @@ describe("D1 in the demo: the same sentence twice counts once", () => {
     expect(again.events.some((e) => e.type === "time_logged")).toBe(false);
     expect(again.text).toContain("Die 1.5 Std für „Halbmarathon“ stehen schon da.");
     expect((await b.exportData()).goal_time).toHaveLength(1);
+  }, 20000);
+
+  it("answers her block of the day with the time she names, also one later today (no second count)", async () => {
+    const ctx: CoachRequest["context"] = { day: dayOf(), localTime: "", timezone: "Europe/Zurich", season: "Herbst", phase: "Tag", hasLocation: false };
+    const b = new DemoBackend();
+    await b.signUp("demo.block", "geheim1234");
+    const goal = await b.addGoal({ title: "Halbmarathon" });
+    // a block of today that starts in two minutes (today in the demo's clock, also just before midnight)
+    const start = new Date(Math.min(Date.now() + 2 * 60_000, new Date(`${dayOf()}T23:57:00`).getTime()));
+    const block = await b.addEvent(
+      { title: "Lauf", starts_at: start.toISOString(), ends_at: new Date(start.getTime() + 60 * 60_000).toISOString(), all_day: false, location: null, notes: null, reminder_minutes: 10, kind: "block", goal_id: goal.id },
+      "coach",
+    );
+    const events: CoachEvent[] = [];
+    await b.coach({ mode: "checkin", thread: ctx.day, message: "Heute 45 Minuten gelaufen", context: ctx }, (e) => events.push(e));
+    expect(events.some((e) => e.type === "time_logged")).toBe(true);
+    const rows = (await b.exportData()).goal_time;
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ event_id: block.id, minutes: 45, source: "block" });
   }, 20000);
 });
 
@@ -371,7 +494,7 @@ describe("#4: the evening takes up the day", () => {
     expect(eveningEntries([entry("x", "Znacht bei Oma", "2026-11-16T17:30:00Z", null)], { now, today: "2026-11-16", dayOfIso: zurich })).toEqual([]);
     expect(eveningEntries([entry("x", "Znacht bei Oma", "2026-11-16T17:00:00Z", null)], { now, today: "2026-11-16", dayOfIso: zurich })).toHaveLength(1);
     for (const w of ["Frühschicht", "Nachtdienst", "Arbeit", "Büro", "im Laden", "Kundentermin"]) expect(workEntry(w)).toBe(true);
-    for (const t of ["Geschichte lernen", "Dienstagsrunde", "Gartenarbeit", "Malen mit Lina", "Training"]) expect(workEntry(t)).toBe(false);
+    for (const t of ["Geschichte lernen", "Dienstagsrunde", "Gartenarbeit", "Malen mit Lina", "Training", "Wald erkunden"]) expect(workEntry(t)).toBe(false);
   });
 
   it("the order: a step done, then one of her entries, then goal time, then a habit", () => {
@@ -418,6 +541,10 @@ describe("#4: the evening takes up the day", () => {
     expect(chooseOpener({ ...morning, minutes: 18 * 60 }, [], "2026-11-17")).toBe("wochenblick");
     expect(chooseOpener({ ...morning, comeBack: false }, [], "2026-11-17")).toBe("wochenblick");
     expect(chooseOpener({ ...morning, pause: true }, [], "2026-11-17")).toBe("neustart");
+    // not in the night: an open at 00:40 waits for the morning
+    expect(COME_BACK_FROM).toBe(5 * 60);
+    expect(chooseOpener({ ...morning, minutes: 40 }, [], "2026-11-17")).toBe("wochenblick");
+    expect(chooseOpener({ ...morning, minutes: COME_BACK_FROM }, [], "2026-11-17")).toBe("zurueck");
     // marked when the greeting opens with it; a later open the same day finds it again for the stored opener
     expect(source).toContain('if (kind === "zurueck" && pendingBack && !raisedBack) {');
     expect(source).toContain('.update({ come_back_at: iso(now) }).eq("user_id", userId).eq("day", pendingBack.day)');
@@ -448,7 +575,7 @@ describe("round 3 texts", () => {
   it("no sharp s, no dates in the cached texts, and the tool notes in Swiss spelling", () => {
     expect(prompts.replace("statt „ß“", "")).not.toContain("ß");
     expect(prompts).not.toMatch(/\d{4}-\d{2}-\d{2}/);
-    for (const t of [GREETING_WRITE_REFUSAL, TIME_ALREADY_LOGGED, BLOCK_LATER_NO, COME_BACK_NOTE, BLOCK_NO_NEXT]) expect(t).not.toContain("ß");
+    for (const t of [GREETING_WRITE_REFUSAL, TIME_ALREADY_LOGGED, BLOCK_LATER_NO, BLOCK_DONE_EARLY, COME_BACK_NOTE, BLOCK_NO_NEXT]) expect(t).not.toContain("ß");
     expect(migration).not.toContain("ß");
   });
 });
