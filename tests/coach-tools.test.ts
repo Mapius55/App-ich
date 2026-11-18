@@ -88,15 +88,15 @@ describe("coach tools", () => {
     expect(tool("note_offer")).toContain("what: { type: \"string\", enum: [...OFFERS] },");
     expect(source).toContain('const OFFERS = ["experiment", "begleitung", "blockmuster", "plan_b", "rhythmus", "flaute"] as const;');
     expect(source).toContain('const what = oneOf(input.what, OFFERS, "what");');
-    expect(source.match(/if \(ctx\.mode !== "checkin"\) throw new ToolInputError\("nur im täglichen Gespräch"\);/g)).toHaveLength(4);
+    expect(source.match(/if \(ctx\.mode !== "checkin"\) throw new ToolInputError\("nur im täglichen Gespräch"\);/g)).toHaveLength(5);
     expect(source).toContain('TOOLS.filter((t) => ["remember", "update_memory", "forget"].includes(t.name))');
   });
 
   it("getting to know her, the tools only the daily conversation runs are not offered (no call that can only fail)", () => {
-    expect(source).toContain('const CHECKIN_ONLY = new Set(["create_series", "update_series", "note_offer", "wochenblick"]);');
+    expect(source).toContain('const CHECKIN_ONLY = new Set(["create_series", "update_series", "note_offer", "wochenblick", "come_back"]);');
     expect(source).toContain('mode === "onboarding"\n      ? TOOLS.filter((t) => !CHECKIN_ONLY.has(t.name))');
-    // exactly the four whose runTool case refuses outside the daily conversation
-    for (const name of ["create_series", "update_series", "note_offer", "wochenblick"]) {
+    // exactly the five whose runTool case refuses outside the daily conversation
+    for (const name of ["create_series", "update_series", "note_offer", "wochenblick", "come_back"]) {
       const at = source.indexOf(`case "${name}": {`);
       expect(at).toBeGreaterThan(0);
       expect(source.slice(at, at + 200)).toContain('if (ctx.mode !== "checkin") throw new ToolInputError("nur im täglichen Gespräch");');

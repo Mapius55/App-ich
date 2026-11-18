@@ -66,7 +66,7 @@ export const NOLIO_TIME_REFUSAL =
 
 /** log_time with 0 minutes for a block (her «Nein»): the Nein protocol, at the moment it happens. */
 export const BLOCK_NO_NEXT =
-  "Danke ihr, dass sie es sagt. Frag höchstens einmal, was dazwischenkam; biete erst danach einen kleineren oder verschobenen Block an. Zähl nie auf, was sonst nicht geklappt hat.";
+  "Danke ihr, dass sie es sagt. Frag höchstens einmal, was dazwischenkam; biete erst danach einmal einen kleineren oder verschobenen Block an, sagt sie auch dazu Nein, lässt du es. Zähl nie auf, was sonst nicht geklappt hat.";
 
 /**
  * The same when the goal has her Plan B: instead of the question, a quiet reminder of her own plan for next time,
@@ -75,7 +75,7 @@ export const BLOCK_NO_NEXT =
 export function blockNoNext(planB: string | null | undefined): string {
   const plan = typeof planB === "string" ? planB.replace(/\s+/g, " ").trim().slice(0, 200) : "";
   if (!plan) return BLOCK_NO_NEXT;
-  return `Danke ihr, dass sie es sagt. Statt nach dem Grund zu fragen, erinnerst du sie leise an ihren Plan B („${plan}“), als Angebot fürs nächste Mal, nie als Vorwurf; biete erst danach einen kleineren oder verschobenen Block an. Zähl nie auf, was sonst nicht geklappt hat.`;
+  return `Danke ihr, dass sie es sagt. Statt nach dem Grund zu fragen, erinnerst du sie leise an ihren Plan B („${plan}“), als Angebot fürs nächste Mal, nie als Vorwurf; biete erst danach einmal einen kleineren oder verschobenen Block an, sagt sie auch dazu Nein, lässt du es. Zähl nie auf, was sonst nicht geklappt hat.`;
 }
 
 /** log_time again for a block with the answer it already has (a later turn repeating her «Nein»): nothing changes. */
@@ -94,6 +94,64 @@ export function sameBlockAnswer(
   if (stored.goal_id && String(stored.goal_id).toLowerCase() !== next.goalId.toLowerCase()) return false;
   return next.note === undefined || (next.note ?? null) === (stored.note ?? null);
 }
+
+/** log_time without event_id with the same minutes for this goal on this day already there (D1): nothing saved. */
+export const TIME_ALREADY_LOGGED =
+  "Schon eingetragen: Für dieses Ziel stehen an diesem Tag schon genau so viele Minuten. Nichts gespeichert, sag nichts dazu; nur wenn sie es wirklich zweimal gemacht hat, nochmals mit zusaetzlich: true.";
+
+/** log_time with event_id for a block of today that starts later, with 0 minutes: that is no answer, it is a change of plan. */
+export const BLOCK_LATER_NO =
+  "Der Block kommt erst noch: 0 Minuten gibt es nur für einen vergangenen Block. Klappt er heute nicht, verschiebst oder löschst du ihn nach ihrem Wunsch.";
+
+// ---------- the greeting writes nothing (K4) ----------
+
+/** Tools that write her data or the calendar: never in a turn without her words (the greeting). */
+const GREETING_REFUSED = new Set([
+  "remember",
+  "update_profile",
+  "set_nature_palette",
+  "create_event",
+  "update_event",
+  "delete_event",
+  "create_series",
+  "update_series",
+  "create_goal",
+  "delete_goal",
+  "add_milestone",
+  "delete_milestone",
+  "create_habit",
+  "update_habit",
+  "log_habit",
+  "log_time",
+  "wochenblick",
+  "come_back",
+]);
+/** Tools that may only note in the greeting that something was brought up, nothing else: tool → the fields allowed. */
+const GREETING_MARKS: Record<string, readonly string[]> = {
+  update_goal: ["id", "reminded"],
+  update_milestone: ["id", "nachgefragt"],
+  update_memory: ["id", "nachgefragt"],
+};
+export const GREETING_WRITE_REFUSAL =
+  "Erst nach ihrer Antwort: In der Begrüssung trägst du nichts ein und änderst nichts (sie hat noch nichts gesagt). Sag auch nicht, dass du etwas eingetragen hast.";
+
+/**
+ * Why a tool may not run in the greeting (a turn without her words, K4), or null when it may: nothing she has not
+ * said is written, entered, moved, ticked or counted (once a greeting silently counted the same 10 minutes again, once
+ * it changed the calendar unasked). What stays: the mood and focus of the day, the marks that a dream or a dated note
+ * was brought up (with nothing else in the same call), the rare offers (note_offer), and what only shows something in
+ * the app (location, connections), or what tidies (forget).
+ */
+export function greetingWriteRefusal(name: string, input: Record<string, unknown>): string | null {
+  if (GREETING_REFUSED.has(name)) return GREETING_WRITE_REFUSAL;
+  const marks = GREETING_MARKS[name];
+  if (marks && Object.keys(input).some((k) => !marks.includes(k))) return GREETING_WRITE_REFUSAL;
+  return null;
+}
+
+/** What the coach hears back from come_back. */
+export const COME_BACK_NOTE =
+  "Notiert. Wenn sie morgen hereinschaut, kommst du in der Begrüssung einmal darauf zurück. Sag es ihr in einem Halbsatz, ohne Uhrzeit und ohne mehr zu versprechen.";
 
 /** update_event on a Nolio entry: allowed only when nothing but the reminder changes. */
 export function nolioEditAllowed(input: Record<string, unknown>): boolean {

@@ -651,10 +651,12 @@ export function heavyLately(todayMood: Mood, recent: { day: string; mood: Mood }
   return last3.filter((d) => heavy(d.mood)).length >= 2;
 }
 
-export type OpenerKind = "termin" | "gestern" | "ziel" | "schlaf" | "jahreszeit" | "neustart" | "wochenblick" | "abend" | "abend_frage";
+export type OpenerKind = "termin" | "gestern" | "ziel" | "schlaf" | "jahreszeit" | "neustart" | "wochenblick" | "abend" | "abend_frage" | "zurueck";
 /** The kinds that take turns from day to day, in the order that wins a tie. */
 export const ROTATING_OPENERS: readonly OpenerKind[] = ["termin", "gestern", "ziel", "schlaf", "jahreszeit"];
-const OPENER_KINDS: readonly string[] = [...ROTATING_OPENERS, "neustart", "wochenblick", "abend", "abend_frage"];
+const OPENER_KINDS: readonly string[] = [...ROTATING_OPENERS, "neustart", "wochenblick", "abend", "abend_frage", "zurueck"];
+/** «Wie hast du geschlafen?» not again within this many days (at most twice in seven). */
+export const SLEEP_OPENER_GAP_DAYS = 3;
 export const isOpenerKind = (v: unknown): v is OpenerKind => typeof v === "string" && OPENER_KINDS.includes(v);
 
 export interface OpenerSituation {
@@ -668,19 +670,23 @@ export interface OpenerSituation {
   available: readonly OpenerKind[];
   /** heavy lately (heavyLately): only the gentle kinds, sleep or the season */
   quiet?: boolean;
+  /** she said yes to «soll ich morgen darauf zurückkommen?» and it was not brought up yet (days.come_back) */
+  comeBack?: boolean;
 }
 
 /**
  * How today's first greeting opens, chosen in code so it really changes from day to day.
- * A situation comes first: after a pause a small restart, then a due Wochenblick, then the first open in
+ * A situation comes first: after a pause a small restart, then what she asked the coach to come back to (in the
+ * morning or at midday; in the evening it waits for the next morning), then a due Wochenblick, then the first open in
  * the evening (a look back; with a question at most three evenings in seven and never two in a row).
  * Otherwise the rotating kinds take turns: of those with something to say today, the one used longest ago
- * (never yesterday's while another fits), ties in the order of ROTATING_OPENERS; in a heavy time only sleep or
- * the season. Without any: the season.
+ * (never yesterday's while another fits), ties in the order of ROTATING_OPENERS; sleep only in the morning and not
+ * within SLEEP_OPENER_GAP_DAYS of the last time; in a heavy time only sleep or the season. Without any: the season.
  * `recent`: the openers of the days before today.
  */
 export function chooseOpener(s: OpenerSituation, recent: { day: string; kind: string | null }[], today: string): OpenerKind {
   if (s.pause) return "neustart";
+  if (s.comeBack && s.minutes < EVENING_FROM) return "zurueck";
   if (s.wochenblick) return "wochenblick";
   const ago = (kinds: string[]) =>
     recent
@@ -692,8 +698,9 @@ export function chooseOpener(s: OpenerSituation, recent: { day: string; kind: st
     const yesterday = asked.includes(1);
     return !yesterday && asked.filter((d) => d <= 6).length < EVENING_QUESTIONS_PER_WEEK ? "abend_frage" : "abend";
   }
+  const sleptLately = ago(["schlaf"]).some((d) => d <= SLEEP_OPENER_GAP_DAYS);
   const kinds = ROTATING_OPENERS.filter(
-    (k) => s.available.includes(k) && (k !== "schlaf" || s.minutes < MORNING_UNTIL) && (!s.quiet || k === "schlaf" || k === "jahreszeit"),
+    (k) => s.available.includes(k) && (k !== "schlaf" || (s.minutes < MORNING_UNTIL && !sleptLately)) && (!s.quiet || k === "schlaf" || k === "jahreszeit"),
   );
   if (!kinds.length) return "jahreszeit";
   const since = (k: OpenerKind) => {
@@ -728,11 +735,11 @@ export type ReviewDue = "anbieten" | "fragen";
 
 /**
  * Whether the Wochenblick is due in this conversation: in its window (Sunday from 16:00 up to Wednesday),
- * not yet done or declined for this week, no earlier conversation since Sunday 16:00 (`lastTalk`: her own last
- * message before today, its day and local time, talkClock; a greeting she never answered is no conversation),
- * at least one goal with weekly hours or blocks, not after a pause (that is a restart) and not in a heavy time.
- * Never when she said she doesn't want it, and never before she ever talked on an earlier day (`lastTalk` null:
- * there is no week of hers to look back on yet; the Kennenlernen has its own thread and doesn't count).
+ * not yet done or declined for this week (only the recorded offer, `state.week` from the tool «wochenblick», ends
+ * it: a conversation in which it was not offered leaves it due), at least one goal with weekly hours or blocks,
+ * not after a pause (that is a restart) and not in a heavy time. Never when she said she doesn't want it, and never
+ * before she ever talked on an earlier day (`lastTalk`: her own last message before today, talkClock; null: there
+ * is no week of hers to look back on yet; the Kennenlernen has its own thread and doesn't count).
  */
 export function wochenblickDue(o: {
   day: string;
@@ -749,9 +756,6 @@ export function wochenblickDue(o: {
   if (!inWindow) return null;
   const week = reviewWeek(o.day, o.minutes);
   if (o.state.week && isDay(o.state.week) && o.state.week >= week) return null;
-  const sunday = addDays(week, -1);
-  const t = o.lastTalk;
-  if (isDay(t.day) && t.day < o.day && (t.day > sunday || (t.day === sunday && t.minutes >= REVIEW_FROM))) return null;
   return o.state.declines >= 2 && o.state.wanted !== true ? "fragen" : "anbieten";
 }
 
@@ -1180,11 +1184,83 @@ export function sensitiveTopic(text: string): boolean {
   return SENSITIVE.test(text) || SENSITIVE_PLACE.test(text.replace(JOB_PLACE, " "));
 }
 
-/** A dated memory to ask about once: its day lies one to three days back, not asked yet, and nothing sensitive. */
+// A note that waits for someone else's answer: a mail, a request, a message to someone, an application, an offer.
+// «Mailand» is no mail, a «Bewerbungsgespräch» is her own appointment (asked about the next day).
+const AWAITS_REPLY = /\b(?:e-?)?mails?\b|gemailt|anfrage|angefragt|nachricht an|beworben|bewerbung(?!sgespr)|offerte|\bantwort|rückmeldung|rückruf|zurückrufen|\bwartet auf/i;
+/** Whether someone else has answered is asked at the earliest this many days after the note's day. */
+export const FOLLOW_UP_REPLY_DAYS = 7;
+
+/** A note that waits for someone else's answer («Mail an die Stationsleitung», «Ferienanfrage», «beworben»). */
+export function awaitsReply(text: string): boolean {
+  return AWAITS_REPLY.test(text);
+}
+
+/**
+ * A dated memory to ask about once: its day lies one to three days back (one that waits for someone else's answer:
+ * seven to nine, earlier it feels like control), not asked yet, and nothing sensitive.
+ */
 export function followUpDue(m: { event_date: string | null; content: string; followed_up_at?: string | null }, today: string): boolean {
   if (!m.event_date || !isDay(m.event_date) || m.followed_up_at) return false;
   const d = daysBetween(m.event_date, today);
-  return d >= 1 && d <= 3 && !sensitiveTopic(m.content);
+  const from = awaitsReply(m.content) ? FOLLOW_UP_REPLY_DAYS : 1;
+  return d >= from && d <= from + 2 && !sensitiveTopic(m.content);
+}
+
+// Work and shifts: the evening never takes them up («Spätdienst», «Frühschicht», «Arbeit», «Teammeeting», «im Laden»).
+// «Geschichte» is no shift, «Dienstag» no duty, «Gartenarbeit» no work.
+const WORK = /\barbeit|(?<!ge)schicht|dienst(?!ag)|büro|office|meeting|sitzung|besprechung|\bcall\b|kunde|\bjob|\bladen\b|pikett|rapport/i;
+
+/** An entry about her work or a shift (a coarse word check on its title). */
+export function workEntry(text: string): boolean {
+  return WORK.test(text);
+}
+
+export interface DayEntry {
+  id: string;
+  title: string;
+  starts_at: string;
+  ends_at: string | null;
+  all_day: boolean;
+  location?: string | null;
+  kind?: string;
+  source?: string | null;
+}
+
+/**
+ * Her own entries of today that are over, for the evening look back (NEXT #4): a Termin or a block, with a time,
+ * ended by `now` (one without an end an hour after it began), not from her trainer (Nolio), nothing sensitive
+ * (sensitiveTopic, also its place), no work or shift (workEntry), no block she said no to (`declined`: its id).
+ * Termine first (her own life), then blocks, each in the order of the day; at most `max`.
+ */
+export function eveningEntries<E extends DayEntry>(
+  events: E[],
+  o: { now: number; today: string; dayOfIso: (iso: string) => string; declined?: Set<string> },
+  max = 2,
+): E[] {
+  const over = (e: E) => (e.ends_at ? Date.parse(e.ends_at) : Date.parse(e.starts_at) + 3600_000) <= o.now;
+  return events
+    .filter(
+      (e) =>
+        !e.all_day &&
+        e.source !== "nolio" &&
+        (!e.kind || e.kind === "termin" || e.kind === "block") &&
+        o.dayOfIso(e.starts_at) === o.today &&
+        over(e) &&
+        !o.declined?.has(e.id) &&
+        !sensitiveTopic(`${e.title} ${e.location ?? ""}`) &&
+        !workEntry(e.title),
+    )
+    .sort((a, b) => (a.kind === "block" ? 1 : 0) - (b.kind === "block" ? 1 : 0) || Date.parse(a.starts_at) - Date.parse(b.starts_at))
+    .slice(0, max);
+}
+
+/**
+ * Time without a block (log_time without event_id) that already stands for this goal on this day with the same
+ * minutes, from any source (her coach, a block she answered, a training, a habit): the same report said again, so no
+ * second row unless she really did it twice (D1).
+ */
+export function sameTimeLogged(rows: { goal_id: string; day: string; minutes: number | string | null }[], goalId: string, day: string, minutes: number): boolean {
+  return minutes > 0 && rows.some((r) => String(r.goal_id).toLowerCase() === goalId.toLowerCase() && r.day === day && Number(r.minutes) === minutes);
 }
 
 /** People without goals or dreams get one small experiment at most every this many days. */

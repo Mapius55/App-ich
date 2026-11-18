@@ -39,6 +39,7 @@ import {
   parseClock,
   parseWeekdays,
   PLAN_B_MAX,
+  sameTimeLogged,
   seriesDayFollows,
   seriesDays,
   seriesKeepsDay,
@@ -1221,13 +1222,20 @@ export class DemoBackend implements Backend {
       .map((t) => ({ ...t }))
       .sort((a, b) => a.day.localeCompare(b.day));
   }
-  /** Time the coach logs for a goal ("heute 1,5 Stunden trainiert"). */
-  private logTime(goalId: string, day: string, minutes: number) {
+  /**
+   * Time the coach logs for a goal ("heute 1,5 Stunden trainiert"). Like the coach's log_time (D1): the same minutes
+   * for this goal on this day already there (the same sentence again) are not counted twice; false then.
+   */
+  private logTime(goalId: string, day: string, minutes: number): boolean {
     if (!Number.isInteger(minutes) || minutes < 0 || minutes > 1440) throw new Error("Bitte zwischen 0 und 1440 Minuten.");
+    let saved = false;
     this.mutate((u) => {
       checkGoal(u, goalId);
+      if (sameTimeLogged(u.goal_time, goalId, day, minutes)) return;
       u.goal_time.push({ id: uuid(), goal_id: goalId, day, minutes, source: "coach", event_id: null, external_id: null, note: null });
+      saved = true;
     });
+    return saved;
   }
 
   async listHabits() {
@@ -1669,8 +1677,9 @@ export class DemoBackend implements Backend {
       const names = habitsDone.map((h) => `„${h.title}“`).join(" und ");
       habitNote = `Stark, ${names} ${habitsDone.length > 1 ? "sind" : "ist"} für heute abgehakt. `;
     }
-    if (spent) {
-      this.logTime(spent.goal.id, addDays(req.context.day, -spent.daysAgo), spent.minutes);
+    if (spent && !this.logTime(spent.goal.id, addDays(req.context.day, -spent.daysAgo), spent.minutes)) {
+      timeNote = `Die ${minutesLabel(spent.minutes)} für „${spent.goal.title}“ stehen schon da. `;
+    } else if (spent) {
       onEvent({ type: "time_logged", goal_id: spent.goal.id, title: spent.goal.title, minutes: spent.minutes });
       const amount = `${minutesLabel(spent.minutes)} für „${spent.goal.title}“`;
       timeNote = habitNote ? `Und ${amount} sind notiert. ` : `Stark, ${amount}. `;

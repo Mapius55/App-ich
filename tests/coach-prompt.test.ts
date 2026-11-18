@@ -318,9 +318,11 @@ describe("what the app shows (CoachContext.view)", () => {
   });
 
   it("names the place of the goals by app: the space sends a view, the classic screens don't", () => {
-    expect(contextBlock({ ...base, view: "Jetzt (Startseite mit dem Kreis)" })).toContain("## App\nBucket List und Ziele: in der App rechts vom Kreis, die Träume zuoberst. Leben in Wochen: unter dem Jahr, ganz unten.");
+    expect(contextBlock({ ...base, view: "Jetzt (Startseite mit dem Kreis)" })).toContain(
+      "## App\nBucket List und Ziele: in der App rechts vom Kreis, die Träume zuoberst. Was sie geschafft hat: heute auf Jetzt beim Kreis, die Woche weiter unten unter Woche, pro Ziel auf der Bucket List. Leben in Wochen: unter dem Jahr, ganz unten. Was ich über dich weiss, Verbindungen mit dem Kalender-Abo und Benachrichtigungen: links vom Kreis unter Du.",
+    );
     const classic = contextBlock(base);
-    expect(classic).toContain("## App\nZiele und Träume: im Menü unter „Plan“.");
+    expect(classic).toContain("## App\nZiele und Träume, auch was sie pro Ziel geschafft hat: im Menü unter „Plan“. Das Kalender-Abo steht dort ganz unten.");
     expect(classic).not.toContain("rechts vom Kreis");
   });
 
@@ -395,7 +397,7 @@ describe("contextBlock: connections", () => {
   it("asks once while nothing is connected and the coach never asked", () => {
     expect(shouldAskConnections(conn())).toBe(true);
     expect(section(conn())).toBe(
-      "## Verbindungen\n- WHOOP: nicht verbunden\n- Nolio: für dieses Konto nicht verfügbar\n- iPhone-Kalender: noch nicht abonniert\n- Polar, Garmin, Strava: kommen später\n- Nach Apps und Geräten fragen: einmal, an einer natürlichen Stelle (noch nie gefragt, nichts verbunden)\n\n",
+      "## Verbindungen\n- WHOOP: nicht verbunden\n- Nolio: für dieses Konto nicht verfügbar\n- iPhone-Kalender: noch nicht abonniert (es erinnert sie nichts: sag „steht im Kalender“, nie „erinnert dich“, und biete einmal das Kalender-Abo an)\n- Polar, Garmin, Strava: kommen später\n- Nach Apps und Geräten fragen: einmal, an einer natürlichen Stelle (noch nie gefragt, nichts verbunden)\n\n",
     );
   });
 

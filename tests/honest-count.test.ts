@@ -338,7 +338,7 @@ describe("the coach: one batched question, a «Nein» protocol, the pattern at m
 
   it("asks once and in one question, thanks for a «Nein», offers one smaller block after, never lists misses", () => {
     expect(MODE_CHECKIN).toContain("bei mehreren in einer einzigen Frage, z.B. „Hat das Schreiben gestern geklappt?“");
-    expect(MODE_CHECKIN).toContain("Bei einem Nein dankst du ihr, dass sie es sagt, fragst höchstens einmal, was dazwischenkam, und bietest erst danach einen kleineren oder verschobenen Block an; was sonst nicht geklappt hat, zählst du nie auf.");
+    expect(MODE_CHECKIN).toContain("Bei einem Nein dankst du ihr, dass sie es sagt, fragst höchstens einmal, was dazwischenkam, und bietest erst danach einmal einen kleineren oder verschobenen Block an; was sonst nicht geklappt hat, zählst du nie auf.");
     expect(MODE_CHECKIN).toContain("Ohne Antwort zählen die Blöcke eine Woche lang vorläufig, danach nicht mehr.");
     expect(MODE_CHECKIN).not.toContain("Die Blöcke zählen dann von selbst");
     expect(MODE_CHECKIN).toContain("rufst im selben Zug note_offer mit blockmuster und der goal_id auf");

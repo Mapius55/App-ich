@@ -181,18 +181,20 @@ describe("the Wochenblick", () => {
     expect(reviewWeek("2026-11-18", 7 * 60)).toBe("2026-11-16");
   });
 
-  it("is due in the first conversation from Sunday 16:00, else in the first one of the new week", () => {
+  it("is due from Sunday 16:00 up to Wednesday, until it was offered and noted", () => {
     expect(wochenblickDue(base)).toBe("anbieten");
     expect(wochenblickDue({ ...base, minutes: 15 * 60 })).toBeNull();
     // Monday: nothing since Sunday 16:00 yet
     expect(wochenblickDue({ ...base, day: "2026-11-16", minutes: 7 * 60, lastTalk: { day: "2026-11-15", minutes: 10 * 60 } })).toBe("anbieten");
-    // Monday after a conversation on Sunday evening: that one was the first
-    expect(wochenblickDue({ ...base, day: "2026-11-16", minutes: 7 * 60, lastTalk: { day: "2026-11-15", minutes: 18 * 60 } })).toBeNull();
+    // Monday after a conversation on Sunday evening in which it was not offered (nothing noted): still due (K9;
+    // Peter on Sunday at 21:10 was not offered it, and that talk alone closed the week)
+    expect(wochenblickDue({ ...base, day: "2026-11-16", minutes: 7 * 60, lastTalk: { day: "2026-11-15", minutes: 21 * 60 + 10 } })).toBe("anbieten");
     // up to Wednesday; on Thursday the week has gone on
     expect(wochenblickDue({ ...base, day: "2026-11-18", minutes: 9 * 60 })).toBe("anbieten");
     expect(wochenblickDue({ ...base, day: "2026-11-19", minutes: 9 * 60 })).toBeNull();
-    // Tuesday after a conversation on Monday
-    expect(wochenblickDue({ ...base, day: "2026-11-17", minutes: 9 * 60, lastTalk: { day: "2026-11-16", minutes: 8 * 60 } })).toBeNull();
+    // Tuesday after a conversation on Monday without it: still due; once noted (done or declined) not again
+    expect(wochenblickDue({ ...base, day: "2026-11-17", minutes: 9 * 60, lastTalk: { day: "2026-11-16", minutes: 8 * 60 } })).toBe("anbieten");
+    expect(wochenblickDue({ ...base, day: "2026-11-17", minutes: 9 * 60, lastTalk: { day: "2026-11-16", minutes: 8 * 60 }, state: { ...state, week: "2026-11-16" } })).toBeNull();
   });
 
   it("not after it was done or declined for that week (Sunday evening covers Monday)", () => {
@@ -349,13 +351,14 @@ describe("the daily situation, from what was stored", () => {
     expect(dailySituation({ ...base, lastSeenDay: null, lastSpoke: null })).toEqual({ minutes: 7 * 60 + 40, pause: false, heavy: false, review: null });
   });
 
-  it("a greeting on Sunday evening she never answered doesn't use up the Wochenblick", () => {
+  it("neither a greeting she never answered nor a talk without it uses up the Wochenblick: only the noted offer does", () => {
     // the app opened on Sunday at 18:00 (a hidden opener and the greeting), her own last words on Friday
     expect(dailySituation({ ...base, lastSeenDay: "2026-11-15" }).review).toBe("anbieten");
-    // she did talk on Sunday evening: that was the first conversation of the new week
-    expect(dailySituation({ ...base, lastSeenDay: "2026-11-15", lastSpoke: { thread: "2026-11-15", created_at: "2026-11-15T17:05:00Z" } }).review).toBeNull();
-    // a Sunday conversation that ran past midnight counts as Sunday evening
-    expect(dailySituation({ ...base, lastSeenDay: "2026-11-15", lastSpoke: { thread: "2026-11-15", created_at: "2026-11-15T23:10:00Z" } }).review).toBeNull();
+    // she did talk on Sunday evening, but nothing was noted (K9): still due on Monday
+    expect(dailySituation({ ...base, lastSeenDay: "2026-11-15", lastSpoke: { thread: "2026-11-15", created_at: "2026-11-15T17:05:00Z" } }).review).toBe("anbieten");
+    expect(dailySituation({ ...base, lastSeenDay: "2026-11-15", lastSpoke: { thread: "2026-11-15", created_at: "2026-11-15T23:10:00Z" } }).review).toBe("anbieten");
+    // offered on Sunday evening and noted for the coming week (the tool «wochenblick»): not on Monday
+    expect(dailySituation({ ...base, lastSeenDay: "2026-11-15", lastSpoke: { thread: "2026-11-15", created_at: "2026-11-15T17:05:00Z" }, review: { ...state, week: "2026-11-16" } }).review).toBeNull();
     // Sunday morning is not the new week yet
     expect(dailySituation({ ...base, lastSeenDay: "2026-11-15", lastSpoke: { thread: "2026-11-15", created_at: "2026-11-15T09:00:00Z" } }).review).toBe("anbieten");
   });

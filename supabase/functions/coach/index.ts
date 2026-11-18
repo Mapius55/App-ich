@@ -26,12 +26,15 @@ import {
 import {
   birthYearProblem,
   BLOCK_ALREADY_LOGGED,
+  BLOCK_LATER_NO,
   BLOCK_NO_NEXT,
   blockNoNext,
+  COME_BACK_NOTE,
   doneDateProblem,
   draftStream,
   finalVersion,
   goalHints,
+  greetingWriteRefusal,
   nextStepHint,
   NOLIO_EDIT_REFUSAL,
   NOLIO_TIME_REFUSAL,
@@ -43,6 +46,7 @@ import {
   REVIEW_RESULTS,
   reviewPatch,
   sameBlockAnswer,
+  TIME_ALREADY_LOGGED,
   WHOOP_HIDDEN_REPLY,
   WHOOP_MEMORY_REFUSAL,
   whoopInMemory,
@@ -68,6 +72,7 @@ import {
   PATTERN_DAYS,
   PLAN_B_MAX,
   reviewWeek,
+  sameTimeLogged,
   streakLabel,
   SUPPORT_EVERY_DAYS,
   weekGoalSummary,
@@ -531,15 +536,16 @@ const TOOLS: Anthropic.Beta.BetaTool[] = [
   {
     name: "log_time",
     description:
-      "Hält Zeit fest, die die Person in ein Ziel gesteckt hat, z.B. „heute 1,5 Stunden trainiert“ (minutes 90). Mit event_id beantwortest du einen vergangenen Block dieses Ziels: die tatsächlichen Minuten oder 0, wenn er nicht stattgefunden hat. Eine neue Antwort zum selben Block ersetzt die frühere.",
+      "Hält Zeit fest, die die Person in ein Ziel gesteckt hat, z.B. „heute 1,5 Stunden trainiert“ (minutes 90). Mit event_id beantwortest du einen Block dieses Ziels: einen vergangenen mit den tatsächlichen Minuten oder 0, wenn er nicht stattgefunden hat, oder einen von heute, den sie schon erledigt hat. Eine neue Antwort zum selben Block ersetzt die frühere.",
     input_schema: {
       type: "object",
       properties: {
         goal_id: { type: "string" },
         minutes: { type: "integer", minimum: 0, maximum: 1440, description: "1 bis 1440; 0 nur mit event_id (der Block hat nicht stattgefunden)." },
         day: { type: "string", description: "YYYY-MM-DD, Standard heute (mit event_id der Tag des Blocks). Nicht in der Zukunft." },
-        event_id: { type: "string", description: "Optional: der vergangene Block (id aus dem Kontext), den das bestätigt oder korrigiert." },
+        event_id: { type: "string", description: "Optional: der Block (id aus dem Kontext), den das bestätigt oder korrigiert, ein vergangener oder einer von heute." },
         note: { type: "string", description: "Optional, kurz, z.B. „Intervalle“." },
+        zusaetzlich: { type: "boolean", description: "Nur ohne event_id: true, wenn sie dieselbe Zeit am selben Tag wirklich ein zweites Mal gemacht hat." },
       },
       required: ["goal_id", "minutes"],
       additionalProperties: false,
@@ -554,6 +560,17 @@ const TOOLS: Anthropic.Beta.BetaTool[] = [
       type: "object",
       properties: { ergebnis: { type: "string", enum: [...REVIEW_RESULTS] } },
       required: ["ergebnis"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "come_back",
+    description:
+      "Nach ihrem Ja, dass du darauf zurückkommen sollst: hält fest, was sie am Abend Wichtiges über ihr Leben gesagt hat, kurz und in ihren Worten. In der nächsten Begrüssung am Morgen kommst du genau einmal darauf zurück.",
+    input_schema: {
+      type: "object",
+      properties: { thema: { type: "string", description: "Kurz, in ihren Worten, z.B. „dass sie für alle die Jacken hält“." } },
+      required: ["thema"],
       additionalProperties: false,
     },
   },
@@ -839,7 +856,7 @@ async function doneDays(sb: SupabaseClient, habitId: string, today: string): Pro
  * rhythms, the Wochenblick and the «once» marks they belong to. Getting to know her, they are not offered at all, so
  * the coach never plans a call that can only fail (a rhythm she asks for then goes in as single blocks).
  */
-const CHECKIN_ONLY = new Set(["create_series", "update_series", "note_offer", "wochenblick"]);
+const CHECKIN_ONLY = new Set(["create_series", "update_series", "note_offer", "wochenblick", "come_back"]);
 
 // Changes to goals and habits run one after another within a round (see converse()).
 const PLAN_TOOLS = new Set([
@@ -1420,6 +1437,7 @@ async function runTool(
       const minutes = Math.round(input.minutes);
       if (minutes > 1440 || minutes < (eventId ? 0 : 1)) throw new ToolInputError(eventId ? "minutes: 0 bis 1440" : "minutes: 1 bis 1440 (0 nur mit event_id)");
       const note = optText(input.note, 300, "note");
+      const extra = input.zusaetzlich === undefined ? false : bool(input.zusaetzlich, "zusaetzlich");
       const goalRes = await sb.from("goals").select("id, title").eq("id", goalId).maybeSingle();
       if (goalRes.error) throw goalRes.error;
       if (!goalRes.data) throw new ToolInputError("Ziel nicht gefunden");
@@ -1431,8 +1449,12 @@ async function runTool(
         if (ev.data.source === "nolio") throw new ToolInputError(NOLIO_TIME_REFUSAL);
         if (ev.data.kind !== "block") throw new ToolInputError("event_id muss ein geplanter Block sein");
         if (String(ev.data.goal_id).toLowerCase() !== goalId.toLowerCase()) throw new ToolInputError("Der Block gehört nicht zu diesem Ziel; ohne event_id eintragen");
-        if (Date.parse(ev.data.starts_at) > Date.now()) throw new ToolInputError("Der Block liegt noch in der Zukunft");
         blockDay = localDay(ev.data.starts_at, ctx.tz);
+        // a block of today that starts later counts when she says it is done already (K6); a later day never
+        if (Date.parse(ev.data.starts_at) > Date.now()) {
+          if (blockDay > day) throw new ToolInputError("Der Block liegt an einem späteren Tag");
+          if (minutes === 0) throw new ToolInputError(BLOCK_LATER_NO);
+        }
       }
       const logDay = optDate(input.day, "day") ?? blockDay ?? day;
       if (logDay > day) throw new ToolInputError("day liegt in der Zukunft");
@@ -1455,6 +1477,13 @@ async function runTool(
           if (res.error) throw res.error;
         }
       } else {
+        // the same minutes for this goal on this day already there (said again, or a block or a habit that has them):
+        // no second row unless she really did it twice (D1)
+        if (!extra) {
+          const same = await sb.from("goal_time").select("goal_id, day, minutes").eq("goal_id", goalId).eq("day", logDay).eq("minutes", minutes).limit(1);
+          if (same.error) throw same.error;
+          if (sameTimeLogged(same.data ?? [], goalId, logDay, minutes)) return JSON.stringify({ ok: true, hint: TIME_ALREADY_LOGGED });
+        }
         const ins = await insert();
         if (ins.error) throw missingGoal(ins.error);
       }
@@ -1519,6 +1548,16 @@ async function runTool(
       const { error } = await sb.from("profiles").update(patch).eq("id", userId);
       if (error) throw error;
       return JSON.stringify({ ok: true, notiert: REVIEW_NOTES[result] });
+    }
+    case "come_back": {
+      if (ctx.mode !== "checkin") throw new ToolInputError("nur im täglichen Gespräch");
+      // her yes of an evening (NEXT #4): the next morning's greeting comes back to it once (days.come_back)
+      const topic = str(input.thema, 300, "thema");
+      const { error } = await sb
+        .from("days")
+        .upsert({ user_id: userId, day, come_back: topic, come_back_at: null, updated_at: new Date().toISOString() }, { onConflict: "user_id,day" });
+      if (error) throw error;
+      return JSON.stringify({ ok: true, notiert: COME_BACK_NOTE });
     }
     case "note_offer": {
       if (ctx.mode !== "checkin") throw new ToolInputError("nur im täglichen Gespräch");
@@ -1691,7 +1730,7 @@ const planBOf = (rows: Map<string, PlanBRow> | null | undefined, id: string): Pi
  * `day`: her today (the thread).
  */
 async function loadDaily(sb: SupabaseClient, userId: string, day: string, now: number) {
-  const [lastSeen, lastSpoke, lastTalk, talk, profile, openers, todayLog, followed, asked, resting, patternAsked, planB, , series, seriesDays, rhythmAsked] = await Promise.all([
+  const [lastSeen, lastSpoke, lastTalk, talk, profile, openers, todayLog, followed, asked, resting, patternAsked, planB, , series, seriesDays, rhythmAsked, comeBack] = await Promise.all([
     // the last day before today with a conversation, however long ago (a pause)
     soft<{ thread: string }[]>(sb.from("messages").select("thread").lt("thread", day).order("id", { ascending: false }).limit(1), [], "last seen"),
     // her own last message before today and when (the Wochenblick: a greeting she never answered is no conversation);
@@ -1766,6 +1805,12 @@ async function loadDaily(sb: SupabaseClient, userId: string, day: string, now: n
       null,
       "rhythm asked",
     ),
+    // what she asked the coach to come back to on one of the last three days (come_back), and whether it came
+    soft<{ day: string; come_back: string; come_back_at: string | null }[]>(
+      sb.from("days").select("day, come_back, come_back_at").not("come_back", "is", null).gte("day", addDays(day, -3)).lt("day", day).order("day", { ascending: false }).limit(3),
+      [],
+      "come back",
+    ),
   ]);
   const talkCounts: Record<string, number> = {};
   for (const r of talk) talkCounts[String(r.thread)] = (talkCounts[String(r.thread)] ?? 0) + 1;
@@ -1788,6 +1833,7 @@ async function loadDaily(sb: SupabaseClient, userId: string, day: string, now: n
     series,
     seriesOf: new Map(seriesDays.map((r) => [String(r.id), String(r.series_id)])),
     rhythmAsked: rhythmAsked ? new Map(rhythmAsked.map((r) => [String(r.id), String(r.rhythm_asked_at)])) : null,
+    comeBack: comeBack.map((r) => ({ day: String(r.day), text: String(r.come_back ?? ""), at: r.come_back_at ? String(r.come_back_at) : null })).filter((r) => r.text.trim()),
   };
 }
 
@@ -1875,6 +1921,7 @@ async function converse({ sb, userId, body, send }: { sb: SupabaseClient; userId
     goalsRes,
     habitsRes,
     extraProfile,
+    pushDevice,
     whoopConn,
     nolioSync,
     nolioRows,
@@ -1941,11 +1988,13 @@ async function converse({ sb, userId, body, send }: { sb: SupabaseClient; userId
       .order("created_at")
       .limit(30),
     // Columns from later migrations, apart so that a missing one never breaks the coach.
-    soft<{ connections_asked_at?: string | null; calendar_fetched_at?: string | null } | null>(
-      sb.from("profiles").select("connections_asked_at, calendar_fetched_at").eq("id", userId).maybeSingle(),
+    soft<{ connections_asked_at?: string | null; calendar_fetched_at?: string | null; notify_morning?: string | null; notify_evening?: string | null } | null>(
+      sb.from("profiles").select("connections_asked_at, calendar_fetched_at, notify_morning, notify_evening").eq("id", userId).maybeSingle(),
       null,
       "profile",
     ),
+    // a device that allowed notifications (null: unknown)
+    mode === "tidy" ? Promise.resolve(null) : soft<{ id: string }[] | null>(sb.from("push_subscriptions").select("id").limit(1), null, "push subscriptions"),
     mode === "tidy"
       ? Promise.resolve(null)
       : soft<{ status: string; consent_ai: boolean } | null>(
@@ -2073,6 +2122,10 @@ async function converse({ sb, userId, body, send }: { sb: SupabaseClient; userId
           askedAt: extraProfile ? (extraProfile.connections_asked_at ?? null) : undefined,
           // the classic screens have no Verbindungen outside onboarding (only the space sends a view)
           offerable: mode === "onboarding" || !!context.view,
+          // when the notifications come and where she changes them (unknown profile: no line)
+          notify: extraProfile
+            ? { morning: extraProfile.notify_morning ?? null, evening: extraProfile.notify_evening ?? null, device: pushDevice ? pushDevice.length > 0 : null }
+            : undefined,
         };
 
   const opener =
@@ -2152,17 +2205,26 @@ async function converse({ sb, userId, body, send }: { sb: SupabaseClient; userId
     // (chooseOpener), and noted on the day (days.opener).
     if (!message && !(historyRes.data ?? []).length) {
       const stored = dailyCtx.openers.find((r) => r.day === context.day)?.kind;
+      // her yes of an evening (come_back): not brought up yet, or brought up in today's greeting (a second open today)
+      const pendingBack = dailyCtx.comeBack.find((r) => !r.at) ?? null;
+      const raisedBack = dailyCtx.comeBack.find((r) => r.at && localDay(r.at, tz) === context.day) ?? null;
       const kind: OpenerKind = isOpenerKind(stored)
         ? stored
         : chooseOpener(
-            { minutes, pause, wochenblick: !!input.review, available: openerCandidates(input), quiet: heavy },
+            { minutes, pause, wochenblick: !!input.review, available: openerCandidates(input), quiet: heavy, comeBack: !!pendingBack },
             dailyCtx.openers.filter((r) => r.day !== context.day),
             context.day,
           );
       input.opener = kind;
+      if (kind === "zurueck") input.comeBack = (raisedBack ?? pendingBack)?.text;
       if (kind !== stored) {
         const { error } = await sb.from("days").upsert({ user_id: userId, day: context.day, opener: kind }, { onConflict: "user_id,day" });
         if (error) console.error("days.opener:", error.code ?? "error");
+      }
+      // exactly once: from now on it is brought up (a later open today still finds it for the stored opener)
+      if (kind === "zurueck" && pendingBack && !raisedBack) {
+        const { error } = await sb.from("days").update({ come_back_at: iso(now) }).eq("user_id", userId).eq("day", pendingBack.day);
+        if (error) console.error("days.come_back_at:", error.code ?? "error");
       }
     }
   }
@@ -2239,6 +2301,9 @@ async function converse({ sb, userId, body, send }: { sb: SupabaseClient; userId
     const call = async (tu: Anthropic.Beta.BetaToolUseBlock): Promise<Anthropic.Beta.BetaToolResultBlockParam> => {
       try {
         const input = tu.input && typeof tu.input === "object" ? (tu.input as Record<string, unknown>) : {};
+        // a turn without her words (the greeting) writes nothing of hers (K4); tidying is no conversation
+        const refused = mode !== "tidy" && !message ? greetingWriteRefusal(tu.name, input) : null;
+        if (refused) return { type: "tool_result" as const, tool_use_id: tu.id, content: refused, is_error: true };
         const out = await runTool(tu.name, input, { sb, userId, day: context.day, tz, mode, send, whoop: whoopInContext });
         return { type: "tool_result" as const, tool_use_id: tu.id, content: out };
       } catch (e) {
