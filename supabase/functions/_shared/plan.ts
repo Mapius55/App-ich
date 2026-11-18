@@ -727,6 +727,15 @@ export function reviewWeek(day: string, minutes: number): string {
   return weekdayIndex(day) === 6 && minutes >= REVIEW_FROM ? addDays(day, 1) : weekStart(day);
 }
 
+/**
+ * The week the tool «wochenblick» notes (profiles.review_week): the one reviewWeek names, and on Saturday and Sunday
+ * always the coming one. She may plan the week herself before the window opens («plan mir die Woche» on Sunday
+ * morning): then no second Wochenblick comes that evening or on Monday.
+ */
+export function reviewNoteWeek(day: string, minutes: number): string {
+  return weekdayIndex(day) >= 5 ? addDays(weekStart(day), 7) : reviewWeek(day, minutes);
+}
+
 export interface ReviewState {
   /** the Monday of the last week whose Wochenblick she did or declined */
   week: string | null;
@@ -1425,6 +1434,9 @@ export interface DailyNudgeGoal {
    *  unknown (then never asked: nothing could be noted) */
   hours_asked_at?: string | null;
   steps_asked_at?: string | null;
+  /** her local day it was created: its weekly hours and steps are asked then (create_goal), not again as that
+   *  day's Anstoss */
+  createdDay?: string | null;
   /** a Plan B may be asked (planBDue) … */
   planB?: boolean;
   /** … and it had a setback lately (goalSetback) */
@@ -1473,7 +1485,8 @@ export interface DailyNudge {
  * today (`lastDay`). By priority: a due Wochenblick; weekly hours for the nearest dated goal without them (they unlock
  * the feasibility and the Wochenblick's plan); its Plan B after a setback; steps for a goal more than six weeks away
  * without any; a weekly rhythm; a dream with a flag (first on a day without entries and on Saturday and Sunday); for
- * people without an active goal one small experiment. A goal's item comes once (its asked mark); a kind she said «Nein»
+ * people without an active goal one small experiment. A goal's item comes once (its asked mark; weekly hours and
+ * steps not on the day the goal was made, when they were asked already); a kind she said «Nein»
  * to rests NUDGE_NO_DAYS. It goes into the greeting only for the Wochenblick or after NUDGE_GREETING_DAYS without one;
  * otherwise its moment is right after her next yes, tick or something done in the conversation.
  */
@@ -1496,11 +1509,13 @@ export function dailyNudge(o: DailyNudgeInput): DailyNudge | null {
   const ahead = (g: DailyNudgeGoal) => (g.target_date && isDay(g.target_date) ? daysBetween(o.today, g.target_date) : null);
   // the nearest target date first, undated ones last (in their order)
   const goals = [...o.goals].sort((a, b) => (ahead(a) ?? Infinity) - (ahead(b) ?? Infinity));
-  const hours = free("stunden") && goals.find((g) => g.hours_asked_at === null && !((g.weekly_hours ?? 0) > 0) && (ahead(g) ?? 0) > 0);
+  // a goal made today: its weekly hours and steps were asked when it was made (create_goal), not again today
+  const older = (g: DailyNudgeGoal) => g.createdDay !== o.today;
+  const hours = free("stunden") && goals.find((g) => older(g) && g.hours_asked_at === null && !((g.weekly_hours ?? 0) > 0) && (ahead(g) ?? 0) > 0);
   if (hours) return pick("stunden", hours.id);
   const planB = free("plan_b") && goals.find((g) => g.planB && g.setback);
   if (planB) return pick("plan_b", planB.id);
-  const steps = free("etappen") && goals.find((g) => g.steps_asked_at === null && g.steps === 0 && (ahead(g) ?? 0) > NUDGE_STEPS_AHEAD_DAYS);
+  const steps = free("etappen") && goals.find((g) => older(g) && g.steps_asked_at === null && g.steps === 0 && (ahead(g) ?? 0) > NUDGE_STEPS_AHEAD_DAYS);
   if (steps) return pick("etappen", steps.id);
   const rhythm = free("rhythmus") && goals.find((g) => g.rhythm);
   if (rhythm) return pick("rhythmus", rhythm.id);

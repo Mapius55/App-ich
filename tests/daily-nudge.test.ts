@@ -19,6 +19,7 @@ import {
   NUDGE_NO_DAYS,
   NUDGE_STEPS_AHEAD_DAYS,
   nudgeResting,
+  reviewNoteWeek,
   reviewWeek,
   wochenblickDue,
   type DailyNudge,
@@ -181,6 +182,42 @@ describe("dailyNudge: at most one item a day, by priority", () => {
     expect(kind({ dreams: [{ id: "d1", flag: "lange" }], no: { traum: "2026-11-15" }, experiment: true })).toBe("experiment");
     expect(kind({ experiment: true, no: { experiment: "2026-11-15" } })).toBeNull();
   });
+
+  it("a goal made today: its weekly hours and steps were asked when it was made, the Anstoss asks them from tomorrow", () => {
+    const made = goal({ weekly_hours: null, steps: 0, createdDay: TODAY });
+    expect(kind({ goals: [made] })).toBeNull();
+    // another item for it may still come (a rhythm, a Plan B after a setback), and an older goal's hours do
+    expect(kind({ goals: [{ ...made, planB: true, setback: true }] })).toBe("plan_b");
+    expect(dailyNudge(input({ goals: [made, goal({ id: "old", weekly_hours: null, createdDay: "2026-10-01" })] }))?.id).toBe("old");
+    expect(kind({ today: "2026-11-18", lastDay: "2026-11-17", goals: [made] })).toBe("stunden");
+    expect(kind({ today: "2026-11-18", lastDay: "2026-11-17", goals: [{ ...made, hours_asked_at: "2026-11-18T07:00:00Z" }] })).toBe("etappen");
+  });
+});
+
+describe("the Wochenblick she asks for herself on the weekend counts for the coming week", () => {
+  // Sunday 22 November 2026: «plan mir die Woche» at 10:00, before the window opens at 16:00
+  const state = (week: string): ReviewState => ({ week, declines: 0, wanted: null });
+  const due = (day: string, minutes: number, week: string) =>
+    wochenblickDue({ day, minutes, lastTalk: { day: addDays(day, -1), minutes: 20 * 60 }, state: state(week), hasPlanGoal: true, heavy: false, pause: false });
+  it("Saturday and Sunday note the coming Monday; on weekdays the week reviewWeek names", () => {
+    expect(reviewNoteWeek("2026-11-22", 10 * 60)).toBe("2026-11-23");
+    expect(reviewNoteWeek("2026-11-22", 18 * 60)).toBe("2026-11-23");
+    expect(reviewNoteWeek("2026-11-21", 11 * 60)).toBe("2026-11-23");
+    expect(reviewNoteWeek("2026-11-23", 8 * 60)).toBe("2026-11-23");
+    expect(reviewNoteWeek("2026-11-25", 8 * 60)).toBe("2026-11-23");
+    expect(reviewNoteWeek("2026-11-19", 8 * 60)).toBe(reviewWeek("2026-11-19", 8 * 60));
+    // before: the ending week was noted, and the Wochenblick came again that evening and on Monday morning
+    expect(due("2026-11-22", 18 * 60, reviewWeek("2026-11-22", 10 * 60))).toBe("anbieten");
+    expect(due("2026-11-23", 8 * 60, reviewWeek("2026-11-22", 10 * 60))).toBe("anbieten");
+    // now: planned on Sunday morning, nothing more this week
+    const noted = reviewNoteWeek("2026-11-22", 10 * 60);
+    expect(due("2026-11-22", 18 * 60, noted)).toBeNull();
+    expect(due("2026-11-23", 8 * 60, noted)).toBeNull();
+    expect(due("2026-11-25", 8 * 60, noted)).toBeNull();
+    // and the week after, it is due again
+    expect(due("2026-11-30", 8 * 60, noted)).toBe("anbieten");
+    expect(source).toContain("const week = reviewNoteWeek(day, clock.day === day ? clock.minutes : 12 * 60);");
+  });
 });
 
 describe("a setback for Plan B, and the size of a proposal", () => {
@@ -272,6 +309,29 @@ describe("the context: «## Anstoss heute (höchstens einer)»", () => {
     expect(ctx({ lastSeen: "2026-11-05" })).not.toContain("## Anstoss heute");
   });
 
+  it("a goal she made today (her day, in Zurich): its hours were asked then, so not again as today's Anstoss", () => {
+    // 23:30 UTC on 16 November is 00:30 on 17 November in Zurich: today
+    expect(todayNudge({ ...base, goals: [{ ...exam, created_at: "2026-11-16T23:30:00Z" }], events: [shop], series: [] })).toBeNull();
+    expect(todayNudge({ ...base, goals: [{ ...exam, created_at: "2026-11-16T22:30:00Z" }], events: [shop], series: [] })?.kind).toBe("stunden");
+  });
+
+  it("zuletzt geschafft from her answered blocks (newest first in the context): the latest eight, not the oldest", () => {
+    // nine answered blocks, the oldest 3 hours long; without sessions the size comes from these blocks
+    const blocks = Array.from({ length: 9 }, (_, i) => ({
+      id: `b${i}`,
+      title: "Lernen",
+      starts_at: `2026-11-${String(16 - i).padStart(2, "0")}T17:00:00Z`,
+      ends_at: `2026-11-${String(16 - i).padStart(2, "0")}T18:00:00Z`,
+      all_day: false,
+      location: null,
+      kind: "block",
+      goal_id: "g1",
+      minutes: i === 8 ? 180 : i === 0 ? 50 : 25,
+    }));
+    const goals = [{ ...exam, weekly_hours: 2, hours_asked_at: "2026-11-02T08:00:00Z" }];
+    expect(section(ctx({ goals, recentBlocks: blocks }), "Ziele")).toContain("zuletzt geschafft: 25 bis 50 Min, Vorschläge höchstens 1 Std 40 Min");
+  });
+
   it("each kind in her words: steps, Plan B after a «Nein», rhythm (sized from what she did), a dream, the experiment", () => {
     const asked = { ...exam, hours_asked_at: "2026-11-02T08:00:00Z", weekly_hours: 2 };
     expect(section(ctx({ goals: [asked] }), "Anstoss heute")).toContain(
@@ -279,7 +339,7 @@ describe("the context: «## Anstoss heute (höchstens einer)»", () => {
     );
     const no = { id: "b1", title: "Lernen", starts_at: "2026-11-16T17:00:00Z", ends_at: "2026-11-16T18:00:00Z", all_day: false, location: null, kind: "block", goal_id: "g1", minutes: 0 };
     expect(section(ctx({ goals: [asked], recentBlocks: [no] }), "Anstoss heute")).toContain(
-      "- Plan B für [g1] „Lehrabschlussprüfung“ (nach einem Nein zu einem Block oder einem schweren Tag damit): frag, was ihr dazwischenkommen könnte · note_offer plan_b",
+      "- Plan B für [g1] „Lehrabschlussprüfung“ (nach einem Nein zu einem Block oder einem schweren Tag damit; das sprichst du nicht an): frag, was ihr dazwischenkommen könnte · note_offer plan_b",
     );
     const stepped = { ...asked, steps_asked_at: "2026-11-03T08:00:00Z", weekly_hours: 4 };
     // 4 hours a week would make 2 × 1 Std 15 Min; she did 25 to 50 minutes: at most 1 Std 40 Min → 1 Std 30 Min
@@ -627,11 +687,20 @@ describe("the demo coach: the Anstoss right after a tick, its «Nein», once a d
     return text;
   };
 
+  // the demo's stored data, changed like days going by
+  const stored = (change: (u: { goals: { created_at: string }[]; nudge?: { since: string }; messages: Record<string, unknown> }) => void) => {
+    const users = JSON.parse(localStorage.getItem("ich.demo.users")!);
+    change(users["demo.anstoss"]);
+    localStorage.setItem("ich.demo.users", JSON.stringify(users));
+  };
+  const madeDaysAgo = (n: number) => stored((u) => u.goals.forEach((g) => (g.created_at = `${addDays(today, -n)}T09:00:00.000Z`)));
+
   it("asks once for the weekly hours of a dated goal after a tick, and a «Nein» lets that kind rest", async () => {
     // only her goal (none of the demo's dreams): the demo's own data
     for (const d of await b.listGoals()) await b.deleteGoal(d.id);
     await b.addGoal({ title: "Lehrabschlussprüfung", target_date: addDays(today, 200) });
     await b.addHabit({ title: "Lernen", per_week: 5 });
+    madeDaysAgo(5);
     const reply = await say("Lernen erledigt");
     expect(reply).toContain("Wie viele Stunden pro Woche hast du für „Lehrabschlussprüfung“ realistisch? Sonst schauen wir ein andermal.");
     expect(await say("Nein, lieber nicht")).toBe("Gut, dann lassen wir das.");
@@ -639,15 +708,26 @@ describe("the demo coach: the Anstoss right after a tick, its «Nein», once a d
     expect(await say("Lernen erledigt")).not.toContain("Sonst schauen wir ein andermal.");
   });
 
+  it("«Nö.» is a «Nein» too; a goal made today gets no question for its hours (asked when it was made)", async () => {
+    for (const d of await b.listGoals()) await b.deleteGoal(d.id);
+    await b.addGoal({ title: "Lehrabschlussprüfung", target_date: addDays(today, 200) });
+    await b.addHabit({ title: "Lernen", per_week: 5 });
+    expect(await say("Lernen erledigt")).not.toContain("Sonst schauen wir ein andermal.");
+    madeDaysAgo(2);
+    expect(await say("Lernen erledigt")).toContain("Sonst schauen wir ein andermal.");
+    expect(await say("Nö.")).toBe("Gut, dann lassen wir das.");
+  });
+
   it("the greeting carries it only after three days without one", async () => {
     for (const d of await b.listGoals()) await b.deleteGoal(d.id);
     await b.addGoal({ title: "Lehrabschlussprüfung", target_date: addDays(today, 200) });
     // the first greeting: the demo starts counting today
     expect(await say()).not.toContain("Sonst schauen wir ein andermal.");
-    const users = JSON.parse(localStorage.getItem("ich.demo.users")!);
-    users["demo.anstoss"].nudge.since = addDays(today, -3);
-    users["demo.anstoss"].messages = {};
-    localStorage.setItem("ich.demo.users", JSON.stringify(users));
+    stored((u) => {
+      u.nudge!.since = addDays(today, -3);
+      u.messages = {};
+      u.goals.forEach((g) => (g.created_at = `${addDays(today, -3)}T09:00:00.000Z`));
+    });
     expect(await say()).toContain("Wie viele Stunden pro Woche hast du für „Lehrabschlussprüfung“ realistisch? Sonst schauen wir ein andermal.");
   });
 });

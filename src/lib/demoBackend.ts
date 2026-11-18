@@ -42,6 +42,7 @@ import {
   hoursLabel,
   NUDGE_NOT_NOW_DAYS,
   OBSTACLE_MAX,
+  irregularWeeks,
   planBDue,
   rhythmOfferDue,
   openBlocksOn,
@@ -106,7 +107,7 @@ interface DemoNudge {
 }
 /** The way out every Anstoss ends with (and how the demo knows its last reply was one). */
 const NUDGE_WAY_OUT = "Sonst schauen wir ein andermal.";
-const DEMO_NO = /^\s*(?:nein|nö|lieber nicht|nicht jetzt|lass(?: es| mal)?|jetzt nicht)\b/i;
+const DEMO_NO = /^\s*(?:nein|nö|lieber nicht|nicht jetzt|lass(?: es| mal)?|jetzt nicht)(?=$|[\s,.!?])/i;
 interface DemoWhoop {
   status: "connected" | "pending";
   consent_ai: boolean;
@@ -1651,6 +1652,11 @@ export class DemoBackend implements Backend {
     const now = Date.now();
     const goals = u.goals.filter((g) => g.kind !== "dream" && g.status === "active");
     const blocks = u.events.filter((e) => e.kind === "block" && e.goal_id);
+    // like the coach: her trainer's plan in Nolio is no block of hers (never answered by hand), and no rhythm next to it
+    const own = blocks.filter((b) => b.source !== "nolio");
+    const trainer = new Set(u.events.filter((e) => e.source === "nolio" && e.goal_id).map((e) => e.goal_id!));
+    // shift work or irregular weeks: no fixed weekly times offered (like the coach's rhythmDue)
+    const irregular = irregularWeeks(u.memories, u.events);
     const answered = new Map(u.goal_time.filter((t) => t.event_id).map((t) => [t.event_id!, t.minutes]));
     const days = Object.values(u.days).map((d) => ({ day: d.day, mood: d.mood, focus: d.focus }));
     const recent = days.filter((d) => d.day !== day);
@@ -1671,15 +1677,16 @@ export class DemoBackend implements Backend {
         steps: g.milestones.length,
         hours_asked_at: state.hours[g.id] ?? null,
         steps_asked_at: state.steps[g.id] ?? null,
+        createdDay: dayOf(new Date(g.created_at)),
         planB: planBDue(g, blocks.some((b) => b.goal_id === g.id), day),
         setback: goalSetback(
           g,
-          blocks.map((b) => ({ goal_id: b.goal_id, ends_at: b.ends_at, minutes: answered.get(b.id) ?? null })),
+          own.map((b) => ({ goal_id: b.goal_id, ends_at: b.ends_at, minutes: answered.get(b.id) ?? null })),
           days,
           day,
           now,
         ),
-        rhythm: rhythmOfferDue(g, { hasRhythm: live.some((r) => r.goal_id === g.id), activeRhythms: live.length, irregular: false, today: day }),
+        rhythm: rhythmOfferDue(g, { hasRhythm: live.some((r) => r.goal_id === g.id), activeRhythms: live.length, irregular, today: day, trainer: trainer.has(g.id) }),
       })),
       dreams: u.goals
         .filter((g) => g.kind === "dream" && g.status === "active")

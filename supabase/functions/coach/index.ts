@@ -78,6 +78,7 @@ import {
   openWeekBlocks,
   PATTERN_DAYS,
   PLAN_B_MAX,
+  reviewNoteWeek,
   reviewWeek,
   sameTimeLogged,
   streakLabel,
@@ -1557,9 +1558,10 @@ async function runTool(
     case "wochenblick": {
       if (ctx.mode !== "checkin") throw new ToolInputError("nur im täglichen Gespräch");
       const result = oneOf(input.ergebnis, REVIEW_RESULTS, "ergebnis");
-      // the week it is about, by her clock (from Sunday 16:00 the coming one)
+      // the week it is about, by her clock (from Sunday 16:00 the coming one; on the weekend always the coming one:
+      // she may plan it herself before the window opens, and then no second one comes that evening or on Monday)
       const clock = localClock(new Date(), ctx.tz);
-      const week = reviewWeek(day, clock.day === day ? clock.minutes : 12 * 60);
+      const week = reviewNoteWeek(day, clock.day === day ? clock.minutes : 12 * 60);
       const cur = await sb.from("profiles").select("review_declines, review_week").eq("id", userId).maybeSingle();
       if (cur.error) throw cur.error;
       // the same week declined again (a later turn): already noted, no second decline

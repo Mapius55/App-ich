@@ -493,7 +493,11 @@ export function patternLine(p: BlockPattern, offer: "anbieten" | "angeboten" | n
 /** Her latest times for a goal (oldest first): ContextGoal.sessions, else the minutes of her answered blocks. */
 function sessionsOf(c: ContextInput, g: ContextGoal): number[] {
   if (g.sessions) return g.sessions;
-  return (c.recentBlocks ?? []).filter((b) => b.goal_id === g.id && (b.minutes ?? 0) > 0).map((b) => b.minutes!);
+  // the blocks come newest first; doneRange wants the latest last
+  return (c.recentBlocks ?? [])
+    .filter((b) => b.goal_id === g.id && (b.minutes ?? 0) > 0)
+    .sort((a, b) => Date.parse(a.starts_at) - Date.parse(b.starts_at))
+    .map((b) => b.minutes!);
 }
 
 /**
@@ -1075,6 +1079,7 @@ export function todayNudge(c: ContextInput): DailyNudge | null {
       steps: g.milestones.length,
       hours_asked_at: g.hours_asked_at,
       steps_asked_at: g.steps_asked_at,
+      createdDay: isoDay(localDay)(g.created_at),
       planB: planBDue(g, withBlocks.has(g.id), c.day),
       setback: goalSetback(g, c.recentBlocks ?? [], days, c.day, now),
       rhythm: rhythm?.id === g.id,
@@ -1116,7 +1121,7 @@ function nudgeLines(c: ContextInput, n: DailyNudge | null): string | null {
       case "stunden":
         return `Zeit pro Woche für ${name}${g?.target_date ? ` (Zieldatum ${g.target_date})` : ""}: frag, wie viele Stunden pro Woche sie realistisch dafür hat · note_offer stunden`;
       case "plan_b":
-        return `Plan B für ${name} (nach einem Nein zu einem Block oder einem schweren Tag damit): frag, was ihr dazwischenkommen könnte · note_offer plan_b`;
+        return `Plan B für ${name} (nach einem Nein zu einem Block oder einem schweren Tag damit; das sprichst du nicht an): frag, was ihr dazwischenkommen könnte · note_offer plan_b`;
       case "etappen":
         return `Etappen für ${name}${g?.target_date ? ` (Zieldatum ${g.target_date})` : ""}: zwei bis vier mit Monat vorschlagen, gespeichert nach ihrem Ja · note_offer etappen`;
       case "rhythmus": {
