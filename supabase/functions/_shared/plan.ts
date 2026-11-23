@@ -1326,6 +1326,64 @@ export function sameTimeLogged(rows: { goal_id: string; day: string; minutes: nu
   return minutes > 0 && rows.some((r) => String(r.goal_id).toLowerCase() === goalId.toLowerCase() && r.day === day && Number(r.minutes) === minutes);
 }
 
+// ---------- D2: a habit that serves a goal counts its minutes ----------
+
+/** The longest length a habit can count per tick (habits.minutes, as its check). */
+export const HABIT_MINUTES_MAX = 720;
+
+/** goal_time.external_id of a habit's tick on a day: one row per habit and day (the unique index on it). */
+export const habitTimeKey = (habitId: string, day: string) => `${habitId.toLowerCase()}:${day}`;
+
+/** The row a habit's tick writes into goal_time (source «habit»). */
+export interface HabitTimeRow {
+  goal_id: string;
+  day: string;
+  minutes: number;
+  source: "habit";
+  external_id: string;
+  /** the block of that day it answers (the same thing, habitMatchesBlock), or null */
+  event_id: string | null;
+}
+
+/**
+ * What a habit's tick counts for its goal (D2): a habit with a goal and a length («10 Minuten dehnen», habits.minutes)
+ * writes one goal_time row for the day. Counted once, whichever comes first:
+ * - a block of the goal that day that is the same thing (habitMatchesBlock) and has no answer yet: the tick answers it
+ *   (event_id), so the block and the habit are one row (K7);
+ * - that block already answered, or the same minutes for the goal that day already there (said in conversation, D1, a
+ *   training): nothing more (null).
+ * Never a block from her trainer (Nolio) or an all-day one. `blocks[].answered`: the block has a goal_time row.
+ */
+export function habitTimeRow(
+  habit: { id: string; title: string; goal_id?: string | null; minutes?: number | null },
+  day: string,
+  o: {
+    blocks: { id: string; title: string; goal_id?: string | null; starts_at: string; all_day?: boolean | null; kind?: string | null; source?: string | null; answered: boolean }[];
+    times: { goal_id: string; day: string; minutes: number | string | null; source?: string | null; external_id?: string | null }[];
+    dayOfIso: (iso: string) => string;
+  },
+): HabitTimeRow | null {
+  const goalId = habit.goal_id;
+  const minutes = habit.minutes == null ? NaN : Math.round(Number(habit.minutes));
+  if (!goalId || !(minutes >= 1 && minutes <= HABIT_MINUTES_MAX)) return null;
+  const key = habitTimeKey(habit.id, day);
+  const same = o.blocks
+    .filter(
+      (b) =>
+        (!b.kind || b.kind === "block") &&
+        !b.all_day &&
+        b.source !== "nolio" &&
+        String(b.goal_id ?? "").toLowerCase() === goalId.toLowerCase() &&
+        o.dayOfIso(b.starts_at) === day &&
+        habitMatchesBlock(habit, b),
+    )
+    .sort((a, b) => Date.parse(a.starts_at) - Date.parse(b.starts_at));
+  if (same.some((b) => b.answered)) return null;
+  const others = o.times.filter((t) => !(t.source === "habit" && t.external_id === key));
+  if (!same.length && sameTimeLogged(others, goalId, day, minutes)) return null;
+  return { goal_id: goalId, day, minutes, source: "habit", external_id: key, event_id: same[0]?.id ?? null };
+}
+
 /** People without an active goal get one small experiment at most every this many days. */
 export const EXPERIMENT_EVERY_DAYS = 7;
 

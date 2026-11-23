@@ -1,29 +1,46 @@
 // The dispatch of the Edge Function "push": for everyone whose morning or evening time has come, decide
-// once (push log), then send a body from her data or leave it out. The decisions themselves are pure
-// (_shared/push_text.ts); this file reads the data, keeps the log and calls `send`. Without Deno APIs,
-// so the tests can run it against a fake client.
+// once (push log), then send a body from her own data or leave it out; and the reminders whose moment falls
+// in the next 15 minutes. The decisions themselves are pure (_shared/push_text.ts); this file reads the data,
+// keeps the log and calls `send`. Without Deno APIs, so the tests can run it against a fake client.
 
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2.119.0";
 import {
   addDays,
+  busyDecision,
+  calendarSubscribed,
   chooseBody,
+  dueReminders,
   dueSlot,
+  endedLate,
   eveningCandidates,
   fingerprint,
   localParts,
   morningCandidates,
+  namedCounts,
   NO_REPEAT_DAYS,
+  PAUSE_AFTER_DAYS,
+  PAUSE_LOOKAHEAD_DAYS,
+  pauseCandidates,
+  pauseLineSent,
+  pauseState,
   pushTitle,
+  REMINDER_GRACE_MIN,
+  REMINDER_MAX_LEAD_MIN,
+  REMINDER_WINDOW_MIN,
+  reminderAt,
+  reminderMessage,
   skipReason,
-  slotMinutes,
+  slotDueAt,
   zoneOr,
   type Activity,
   type Candidate,
   type EveningFacts,
   type MorningFacts,
+  type PauseFacts,
   type PushEvent,
   type PushGoal,
   type PushProfile,
+  type ReminderEvent,
   type SentBefore,
   type SkipReason,
 } from "../_shared/push_text.ts";
@@ -57,12 +74,32 @@ async function rows<T>(q: PromiseLike<Db>, what: string): Promise<T[] | null> {
 
 // no such table yet (the push_log migration has not run): work as before, without the log
 const missingTable = (e: { code?: string } | null) => e?.code === "42P01" || e?.code === "PGRST205";
+// no such column yet (this round's migration has not run): the older columns still work
+const missingColumn = (e: { code?: string } | null) => e?.code === "42703" || e?.code === "PGRST204";
 
 interface Person extends PushProfile {
   id: string;
   display_name: string | null;
   timezone: string | null;
   created_at: string | null;
+  /** Du › Benachrichtigungen › «Erinnerungen an Einträge» (undefined: column not there yet, then none) */
+  notify_reminders?: boolean | null;
+  /** the last time her iPhone calendar fetched the feed (subscribed: no reminder as a notification) */
+  calendar_fetched_at?: string | null;
+}
+
+const PEOPLE_COLS = "id, display_name, timezone, notify_morning, notify_evening, last_morning_push, last_evening_push, created_at";
+
+/** everyone with a time or the reminders on; before this round's migration only those with a time */
+async function people(sb: SupabaseClient): Promise<Person[]> {
+  const res = await sb
+    .from("profiles")
+    .select(`${PEOPLE_COLS}, notify_reminders, calendar_fetched_at`)
+    .or("notify_morning.not.is.null,notify_evening.not.is.null,notify_reminders.is.true");
+  if (!res.error) return (res.data ?? []) as Person[];
+  if (!missingColumn(res.error)) console.warn("push: people", res.error.message ?? res.error);
+  const { data } = await sb.from("profiles").select(PEOPLE_COLS).or("notify_morning.not.is.null,notify_evening.not.is.null");
+  return (data ?? []) as Person[];
 }
 
 /** when she last opened the app (any message row) and last said something herself */
@@ -78,12 +115,16 @@ async function activityOf(sb: SupabaseClient, userId: string): Promise<Activity 
   return { lastOpen: open[0]?.created_at ?? null, lastTalk: talk[0]?.created_at ?? null };
 }
 
-const EVENT_COLS = "title, starts_at, ends_at, all_day, kind, goal_id";
+const EVENT_COLS = "id, title, starts_at, ends_at, all_day, kind, goal_id, source, location";
 
-async function morningFacts(sb: SupabaseClient, userId: string, at: Date, today: string): Promise<MorningFacts> {
+/**
+ * Her entries around now: three days back (an entry of every day, an all-day entry over a few days, the late entry of
+ * last night) to a day and a half ahead, and all-day entries that began before and still run. Null when they could
+ * not be read: then nothing about her day, no wait for a running entry and no later morning.
+ */
+async function nearEvents(sb: SupabaseClient, userId: string, at: Date): Promise<PushEvent[] | null> {
   const from = new Date(at.getTime() - 3 * 86400e3).toISOString();
-  const [near, longer, goals, steps] = await Promise.all([
-    // a few days back too, so an all-day entry over a few days is still seen
+  const [near, longer] = await Promise.all([
     rows<PushEvent>(
       sb
         .from("events")
@@ -92,7 +133,7 @@ async function morningFacts(sb: SupabaseClient, userId: string, at: Date, today:
         .gte("starts_at", from)
         .lte("starts_at", new Date(at.getTime() + 36 * 3600e3).toISOString())
         .order("starts_at")
-        .limit(80),
+        .limit(120),
       "events",
     ),
     // all-day entries that began before that and still run (two weeks of holidays): ends_at is the local
@@ -109,7 +150,16 @@ async function morningFacts(sb: SupabaseClient, userId: string, at: Date, today:
         .limit(20),
       "long events",
     ),
-    rows<PushGoal>(sb.from("goals").select("id, title, kind, status, done_at").eq("user_id", userId).limit(500), "goals"),
+  ]);
+  return near ? [...near, ...(longer ?? [])] : null;
+}
+
+const goalsOf = (sb: SupabaseClient, userId: string) =>
+  rows<PushGoal>(sb.from("goals").select("id, title, kind, status, done_at").eq("user_id", userId).limit(500), "goals");
+
+async function morningFacts(sb: SupabaseClient, userId: string, today: string, events: PushEvent[] | null): Promise<MorningFacts> {
+  const [goals, steps] = await Promise.all([
+    goalsOf(sb, userId),
     // the open steps due today: known before she opens the app (unlike the day's focus, set in conversation)
     rows<MorningFacts["dueSteps"][number]>(
       sb.from("milestones").select("title, goal_id").eq("user_id", userId).eq("due_date", today).is("done_at", null).limit(20),
@@ -117,13 +167,13 @@ async function morningFacts(sb: SupabaseClient, userId: string, at: Date, today:
     ),
   ]);
   // an entry list that could not be read is treated as empty: the morning then says nothing about the day
-  return { events: [...(near ?? []), ...(longer ?? [])], dueSteps: steps ?? [], goals };
+  return { events: events ?? [], dueSteps: steps ?? [], goals };
 }
 
-async function eveningFacts(sb: SupabaseClient, userId: string, at: Date, today: string): Promise<EveningFacts> {
+async function eveningFacts(sb: SupabaseClient, userId: string, at: Date, today: string, events: PushEvent[] | null): Promise<EveningFacts> {
   const [goals, goalTime, milestones, logs] = await Promise.all([
-    rows<PushGoal>(sb.from("goals").select("id, title, kind, status, done_at").eq("user_id", userId).limit(500), "goals"),
-    rows<EveningFacts["goalTime"][number]>(sb.from("goal_time").select("goal_id, minutes, source").eq("user_id", userId).eq("day", today).limit(200), "goal_time"),
+    goalsOf(sb, userId),
+    rows<EveningFacts["goalTime"][number]>(sb.from("goal_time").select("goal_id, minutes, source, event_id").eq("user_id", userId).eq("day", today).limit(200), "goal_time"),
     rows<EveningFacts["milestones"][number]>(
       sb
         .from("milestones")
@@ -139,59 +189,154 @@ async function eveningFacts(sb: SupabaseClient, userId: string, at: Date, today:
   const habits = ids.length
     ? ((await rows<{ title: string; goal_id: string | null; active: boolean }>(sb.from("habits").select("title, goal_id, active").in("id", ids), "habits")) ?? [])
     : [];
-  return { goals, goalTime: goalTime ?? [], milestones: milestones ?? [], habits: habits.filter((h) => h.active !== false) };
+  // without her answers (the query failed) no entry of the day either: a block she said no to must not be named
+  return {
+    goals,
+    goalTime: goalTime ?? [],
+    milestones: milestones ?? [],
+    habits: habits.filter((h) => h.active !== false),
+    events: goalTime ? (events ?? []) : [],
+  };
+}
+
+/** for the pause line: her next entries (a week ahead) and open steps with a day */
+async function pauseFacts(sb: SupabaseClient, userId: string, at: Date, today: string): Promise<PauseFacts> {
+  const [events, steps, goals] = await Promise.all([
+    rows<PushEvent>(
+      sb
+        .from("events")
+        .select(EVENT_COLS)
+        .eq("user_id", userId)
+        .eq("all_day", false)
+        .gte("starts_at", at.toISOString())
+        .lte("starts_at", new Date(at.getTime() + (PAUSE_LOOKAHEAD_DAYS + 1) * 86400e3).toISOString())
+        .order("starts_at")
+        .limit(40),
+      "next events",
+    ),
+    rows<PauseFacts["steps"][number]>(
+      sb
+        .from("milestones")
+        .select("title, goal_id, due_date")
+        .eq("user_id", userId)
+        .gte("due_date", today)
+        .lte("due_date", addDays(today, PAUSE_LOOKAHEAD_DAYS))
+        .is("done_at", null)
+        .order("due_date")
+        .limit(20),
+      "next steps",
+    ),
+    goalsOf(sb, userId),
+  ]);
+  return { events: events ?? [], steps: steps ?? [], goals };
+}
+
+/** what went out lately (rotation, the pause line, how often an entry was named); before this round without `named` */
+async function historyOf(sb: SupabaseClient, userId: string, today: string): Promise<SentBefore[]> {
+  const q = (cols: string) =>
+    sb
+      .from("push_log")
+      .select(cols)
+      .eq("user_id", userId)
+      .in("slot", ["morning", "evening"])
+      .gte("day", addDays(today, -PAUSE_AFTER_DAYS));
+  const res = await q("day, slot, status, template, fingerprint, named, created_at");
+  if (!res.error) return (res.data ?? []) as unknown as SentBefore[];
+  if (!missingColumn(res.error)) {
+    if (!missingTable(res.error)) console.warn("push: history", res.error.message ?? res.error);
+    return [];
+  }
+  return ((await rows<SentBefore>(q("day, slot, status, template, fingerprint, created_at"), "history")) ?? []);
 }
 
 /**
- * Claims the slot for today in the push log (one row per person, day and slot), so that of two runs at
- * the same time (pg_cron and the GitHub workflow both call "dispatch") only one decides and sends.
- * False when another run was first. Without the log table (migration not run) or on another error: true,
- * so notifications keep working as before (profiles.last_*_push still guards the day).
+ * Claims the slot for today in the push log (one row per person, day, slot and entry), so that of two runs at the
+ * same time (pg_cron and the GitHub workflow both call "dispatch") only one decides and sends. False when another
+ * run was first. Without the log table (migration not run) or on another error: true for the morning and the
+ * evening, so notifications keep working as before (profiles.last_*_push still guards the day); false for a
+ * reminder (without the log it could come twice).
  */
-async function claim(sb: SupabaseClient, row: Record<string, unknown>): Promise<boolean> {
-  const { data, error } = await sb.from("push_log").upsert(row, { onConflict: "user_id,day,slot", ignoreDuplicates: true }).select("id");
+async function claim(sb: SupabaseClient, row: Record<string, unknown>, onError: boolean): Promise<boolean> {
+  const { data, error } = await sb.from("push_log").upsert(row, { onConflict: "user_id,day,slot,event_id", ignoreDuplicates: true }).select("id");
   if (error) {
     if (!missingTable(error)) console.warn("push: log", error.message ?? error);
-    return true;
+    return onError;
   }
   return (data ?? []).length > 0;
 }
 
-/** the slot that is due for this person, decided once: sent with a body from her data, or left out */
-async function forPerson(sb: SupabaseClient, p: Person, at: Date, send: Send): Promise<number> {
-  const tz = zoneOr(p.timezone);
-  const now = localParts(at, tz);
-  const slot = dueSlot(p, now);
-  if (!slot) return 0;
-  const { data: subs } = await sb.from("push_subscriptions").select("id, endpoint, p256dh, auth, app_url").eq("user_id", p.id);
-  if (!subs?.length) return 0;
+/** fingerprints of the labels a body named (the log keeps no text), null for none */
+const namedPrints = (c: Candidate | null) => (c?.named?.length ? [...new Set(c.named.map(fingerprint))].slice(0, 4) : null);
 
+interface PersonRun {
+  sb: SupabaseClient;
+  p: Person;
+  at: Date;
+  tz: string;
+  send: Send;
+  subs(): Promise<Sub[]>;
+  activity(): Promise<Activity | null>;
+}
+
+/** the slot that is due for this person, decided once: sent with a body from her own data, or left out */
+async function slotFor(r: PersonRun): Promise<number> {
+  const { sb, p, at, tz } = r;
+  const now = localParts(at, tz);
+  // due at its usual time, or two hours later after a late entry: which one, her entries tell
+  if (!dueSlot(p, now) && !dueSlot(p, now, true)) return 0;
+  const subs = await r.subs();
+  if (!subs.length) return 0;
+  const events = await nearEvents(sb, p.id, at);
+  const late = events ? endedLate(events, at, tz) : false;
+  const slot = dueSlot(p, now, late);
+  if (!slot) return 0; // the usual morning time after a late night: it comes later
   const time = (slot === "morning" ? p.notify_morning : p.notify_evening)!;
-  const activity = await activityOf(sb, p.id);
+  const due = slotDueAt(slot, time, now.weekday, late);
+
+  const activity = await r.activity();
+  const history = await historyOf(sb, p.id, now.date);
+  const a = activity ? { ...activity, since: p.created_at } : null;
+  const lineSent = a ? pauseLineSent(history, a) : false;
   // unknown activity (the query failed): no pause and no skip, as before
-  let reason: SkipReason | null = activity ? skipReason(slot, at, tz, slotMinutes(slot, time, now.weekday), { ...activity, since: p.created_at }) : null;
+  let reason: SkipReason | null = a ? skipReason(slot, at, tz, due.minutes, a, lineSent) : null;
+  const pauseLine = !reason && !!a && pauseState(at, a, lineSent) === "line";
+  if (!reason && due.skip) reason = "late_night";
+  if (!reason && events) {
+    // none while one of her entries runs: a later run in the slot's hour decides, or it stays out
+    const busy = busyDecision(events, at, now, due.minutes);
+    if (busy === "wait") return 0;
+    if (busy === "skip") reason = "busy";
+  }
   let choice: Candidate | null = null;
   if (!reason) {
-    const history =
-      (await rows<SentBefore>(
-        sb.from("push_log").select("day, slot, status, template, fingerprint").eq("user_id", p.id).gte("day", addDays(now.date, -NO_REPEAT_DAYS)),
-        "history",
-      )) ?? [];
-    const groups =
-      slot === "morning" ? morningCandidates(await morningFacts(sb, p.id, at, now.date), at, tz) : eveningCandidates(await eveningFacts(sb, p.id, at, now.date), at, tz);
-    choice = chooseBody(groups, history, now.date, slot);
-    if (!choice) reason = "repeat";
+    const recent = history.filter((h) => h.day >= addDays(now.date, -NO_REPEAT_DAYS));
+    const named = namedCounts(recent, now.date);
+    const groups = pauseLine
+      ? pauseCandidates(await pauseFacts(sb, p.id, at, now.date), at, tz)
+      : slot === "morning"
+        ? morningCandidates({ ...(await morningFacts(sb, p.id, now.date, events)), named }, at, tz)
+        : eveningCandidates({ ...(await eveningFacts(sb, p.id, at, now.date, events)), named }, at, tz);
+    choice = chooseBody(groups, recent, now.date, slot);
+    // nothing of her own to say: no message (round 3, no filler)
+    if (!choice) reason = groups.length ? "repeat" : pauseLine ? "paused" : "empty";
   }
 
-  const claimed = await claim(sb, {
-    user_id: p.id,
-    day: now.date,
-    slot,
-    status: reason ? "skipped" : "sent",
-    reason,
-    template: choice?.template ?? null,
-    fingerprint: choice ? fingerprint(choice.body) : null,
-  });
+  const named = namedPrints(choice);
+  const claimed = await claim(
+    sb,
+    {
+      user_id: p.id,
+      day: now.date,
+      slot,
+      event_id: null,
+      status: reason ? "skipped" : "sent",
+      reason,
+      template: choice?.template ?? null,
+      fingerprint: choice ? fingerprint(choice.body) : null,
+      ...(named ? { named } : {}),
+    },
+    true,
+  );
   if (!claimed) return 0;
   // decided for today, sent or not: later runs in the window leave it alone
   await sb
@@ -200,28 +345,122 @@ async function forPerson(sb: SupabaseClient, p: Person, at: Date, send: Send): P
     .eq("id", p.id);
   if (reason || !choice) return 0;
 
-  const sent = await send(subs as Sub[], { title: pushTitle(slot, p.display_name), body: choice.body });
-  const { error } = await sb.from("push_log").update({ devices: Math.min(sent, 100) }).eq("user_id", p.id).eq("day", now.date).eq("slot", slot);
+  const sent = await r.send(subs, { title: pushTitle(slot, p.display_name), body: choice.body });
+  const { error } = await sb.from("push_log").update({ devices: Math.min(sent, 100) }).eq("user_id", p.id).eq("day", now.date).eq("slot", slot).is("event_id", null);
   if (error && !missingTable(error)) console.warn("push: log devices", error.message ?? error);
   return sent;
 }
 
 /**
- * Morning and evening messages for everyone whose time has come. `send` delivers one message to a
- * person's devices and says how many it reached. Returns the number of devices reached.
+ * Her reminders of this run (owner decision 2): only with the switch on, a device, and her iPhone calendar not
+ * subscribed (its own alarm reminds her); at most three a day; each entry once a day (the push log).
+ */
+async function remindersFor(r: PersonRun, candidates: ReminderEvent[], answered: Set<string>): Promise<number> {
+  const { sb, p, at, tz } = r;
+  if (!candidates.length || p.notify_reminders !== true || calendarSubscribed(p.calendar_fetched_at, at)) return 0;
+  const subs = await r.subs();
+  if (!subs.length) return 0;
+  const today = localParts(at, tz).date;
+  const sentToday = await rows<{ id: number }>(
+    sb.from("push_log").select("id").eq("user_id", p.id).eq("day", today).eq("slot", "reminder").eq("status", "sent"),
+    "reminders today",
+  );
+  if (!sentToday) return 0; // unknown how many went out: none rather than a fourth
+  const activity = await r.activity();
+  const due = dueReminders({ events: candidates, answered, sentToday: sentToday.length, activity: activity ? { ...activity, since: p.created_at } : null }, at);
+  if (!due.length) return 0;
+  const goals = await goalsOf(sb, p.id);
+  let total = 0;
+  for (const e of due) {
+    const m = reminderMessage(e, goals, at, tz);
+    const claimed = await claim(
+      sb,
+      { user_id: p.id, day: today, slot: "reminder", event_id: e.id, status: "sent", reason: null, template: m.template, fingerprint: fingerprint(m.body) },
+      false,
+    );
+    if (!claimed) continue;
+    const sent = await r.send(subs, { title: m.title, body: m.body });
+    const { error } = await sb.from("push_log").update({ devices: Math.min(sent, 100) }).eq("user_id", p.id).eq("day", today).eq("slot", "reminder").eq("event_id", e.id);
+    if (error) console.warn("push: log devices", error.message ?? error);
+    total += sent;
+  }
+  return total;
+}
+
+const REMINDER_COLS = "id, user_id, title, starts_at, ends_at, all_day, kind, goal_id, source, reminder_minutes, reminder_asked";
+
+/**
+ * The entries whose reminder falls in this run (for everyone, one query), per person, and the blocks among them that
+ * have an answer already. Empty before this round's migration (no reminder_asked yet) or when the query fails.
+ */
+async function reminderCandidates(sb: SupabaseClient, at: Date): Promise<{ byUser: Map<string, ReminderEvent[]>; answered: Set<string> }> {
+  const byUser = new Map<string, ReminderEvent[]>();
+  const answered = new Set<string>();
+  const list = await rows<ReminderEvent & { user_id: string }>(
+    sb
+      .from("events")
+      .select(REMINDER_COLS)
+      .eq("all_day", false)
+      .gte("starts_at", at.toISOString())
+      .lte("starts_at", new Date(at.getTime() + (REMINDER_MAX_LEAD_MIN + REMINDER_WINDOW_MIN) * 60000).toISOString())
+      .or("kind.eq.block,reminder_asked.is.true")
+      .order("starts_at")
+      .limit(2000),
+    "reminder entries",
+  );
+  // only what falls in this run's span (the pure check again per person, with her own facts)
+  const now = at.getTime();
+  const near = (list ?? []).filter((e) => {
+    const m = reminderAt(e);
+    return m !== null && m < now + REMINDER_WINDOW_MIN * 60000 && now - m <= REMINDER_GRACE_MIN * 60000;
+  });
+  for (const e of near) {
+    if (!byUser.has(e.user_id)) byUser.set(e.user_id, []);
+    byUser.get(e.user_id)!.push(e);
+  }
+  const blocks = near.filter((e) => e.kind === "block").map((e) => e.id);
+  if (blocks.length) {
+    const done = await rows<{ event_id: string }>(sb.from("goal_time").select("event_id").in("event_id", blocks), "answered blocks");
+    // unknown answers: no block reminder (one for something she did already would be worse than none)
+    if (!done) for (const id of blocks) answered.add(id);
+    for (const d of done ?? []) answered.add(d.event_id);
+  }
+  return { byUser, answered };
+}
+
+/**
+ * Morning and evening messages for everyone whose time has come, and the reminders of this run. `send`
+ * delivers one message to a person's devices and says how many it reached. Returns the number of devices reached.
  */
 export async function dispatch(sb: SupabaseClient, send: Send, at: Date = new Date()): Promise<number> {
-  const { data: people } = await sb
-    .from("profiles")
-    .select("id, display_name, timezone, notify_morning, notify_evening, last_morning_push, last_evening_push, created_at")
-    .or("notify_morning.not.is.null,notify_evening.not.is.null");
+  const persons = await people(sb);
+  const reminders = await reminderCandidates(sb, at);
   let total = 0;
-  for (const p of (people ?? []) as Person[]) {
+  for (const p of persons) {
+    let subs: Promise<Sub[]> | null = null;
+    let activity: Promise<Activity | null> | null = null;
+    const run: PersonRun = {
+      sb,
+      p,
+      at,
+      tz: zoneOr(p.timezone),
+      send,
+      subs: () =>
+        (subs ??= Promise.resolve(sb.from("push_subscriptions").select("id, endpoint, p256dh, auth, app_url").eq("user_id", p.id)).then(
+          ({ data }) => (data ?? []) as Sub[],
+        )),
+      activity: () => (activity ??= activityOf(sb, p.id)),
+    };
     try {
-      total += await forPerson(sb, p, at, send);
+      total += await slotFor(run);
     } catch (e) {
       // one person's trouble never stops the others' messages
       console.error("push: person", p.id, e);
+    }
+    try {
+      total += await remindersFor(run, reminders.byUser.get(p.id) ?? [], reminders.answered);
+    } catch (e) {
+      console.error("push: reminders", p.id, e);
     }
   }
   // the log is only needed for a while (rotation, «already decided today»): older rows go
