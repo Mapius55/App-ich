@@ -18,7 +18,8 @@
 //   until she opens it again; never a word about the pause. After 14 days: nothing at all. Her switches stay.
 // - Reminders (a third kind): at starts_at − reminder_minutes, for her blocks and the entries she asked a
 //   reminder for, only when her iPhone calendar is not subscribed (no double alarm), never for Nolio entries,
-//   at most 3 a day, never late, once per entry and day.
+//   a dream's block only when she asked for it, at most 3 a day, never late, once per entry (and the day of its
+//   moment).
 // - Lock-screen safe: short, no health words (also not the title of something that serves a goal with
 //   one), no WHOOP values, never a dream (a reminder she asked for may show her own title). Goals unknown
 //   (the query failed): times and counts only.
@@ -812,11 +813,51 @@ export interface ReminderFacts {
   sentToday: number;
   /** her activity (null: unknown): in a pause only the reminders she asked for, after 14 days none */
   activity: Activity | null;
+  /** her goals and dreams (null: unknown): a block of a dream (or of a goal not known) only when she asked for it */
+  goals: PushGoal[] | null;
+  /** reminders she asked for that ring later today (laterAskedToday): the blocks leave room for them */
+  laterAsked?: number;
+}
+
+/**
+ * Whether a reminder's moment falls in the run at `now` (ms): within the next run's span, the end included (a run that
+ * starts on the minute still has the moment at its end), or a few minutes behind; never once the entry began.
+ */
+export function reminderInRun(e: ReminderEvent, now: number): boolean {
+  const m = reminderAt(e);
+  return m !== null && now < Date.parse(e.starts_at) && m <= now + REMINDER_WINDOW_MIN * 60000 && now - m <= REMINDER_GRACE_MIN * 60000;
+}
+
+/**
+ * The day a reminder belongs to (her local day of its moment): the push log keeps it once per entry and that day, so
+ * the run before midnight and the one after it never both send it.
+ */
+export function reminderDay(e: ReminderEvent, tz: string): string | null {
+  const m = reminderAt(e);
+  return m === null ? null : localParts(new Date(m), tz).date;
+}
+
+/**
+ * How many reminders she asked for ring later today, after this run's span (her local day of their moment): the
+ * reminders of her blocks leave room for them, so the three a day never crowd out one she asked for.
+ */
+export function laterAskedToday(events: ReminderEvent[], at: Date, tz: string): number {
+  const now = at.getTime();
+  const today = localParts(at, tz).date;
+  const ids = new Set<string>();
+  for (const e of events) {
+    const m = reminderAt(e);
+    if (e.reminder_asked !== true || m === null || m <= now + REMINDER_WINDOW_MIN * 60000 || reminderDay(e, tz) !== today) continue;
+    ids.add(e.id);
+  }
+  return ids.size;
 }
 
 /**
  * The reminders this run sends, earliest first: their moment lies within the next run's span (or a few minutes
- * behind, never once the entry began), at most what is left of the day's three.
+ * behind, never once the entry began), at most what is left of the day's three. Those she asked for come first: a
+ * block's reminder only while the day still has room after hers (also those still to come today, `laterAsked`). A
+ * block of a dream comes only when she asked for the reminder herself (dreams are never pushed; her own alarm is hers).
  */
 export function dueReminders(f: ReminderFacts, at: Date): ReminderEvent[] {
   const now = at.getTime();
@@ -824,24 +865,27 @@ export function dueReminders(f: ReminderFacts, at: Date): ReminderEvent[] {
   const ref = Date.parse(f.activity?.lastOpen ?? f.activity?.since ?? "");
   if (Number.isFinite(ref) && now - ref >= PAUSE_AFTER_DAYS * DAY_MS) return [];
   const seen = new Set<string>();
-  return f.events
+  const due = f.events
     .filter((e) => {
-      const m = reminderAt(e);
-      if (m === null || seen.has(e.id) || f.answered.has(e.id)) return false;
-      if (!(now < Date.parse(e.starts_at) && m < now + REMINDER_WINDOW_MIN * 60000 && now - m <= REMINDER_GRACE_MIN * 60000)) return false;
+      if (!reminderInRun(e, now) || seen.has(e.id) || f.answered.has(e.id)) return false;
+      if (e.reminder_asked !== true && servesDream(e.goal_id, f.goals)) return false;
       // away for a few days: her blocks rest (no pressure), what she asked for still comes
       if (pause && e.reminder_asked !== true) return false;
       seen.add(e.id);
       return true;
     })
-    .sort((a, b) => reminderAt(a)! - reminderAt(b)!)
-    .slice(0, Math.max(0, REMINDERS_PER_DAY - f.sentToday));
+    .sort((a, b) => reminderAt(a)! - reminderAt(b)!);
+  const room = Math.max(0, REMINDERS_PER_DAY - f.sentToday);
+  const asked = due.filter((e) => e.reminder_asked === true).slice(0, room);
+  const blocks = due.filter((e) => e.reminder_asked !== true).slice(0, Math.max(0, room - asked.length - (f.laterAsked ?? 0)));
+  const keep = new Set([...asked, ...blocks]);
+  return due.filter((e) => keep.has(e));
 }
 
 /**
  * The reminder itself: «Um 10:00» and her title («Nachricht an die Stationsleitung.»). A reminder she asked for
- * shows her own title, also of a dream step (it is her own alarm); a block of a dream or with a sensitive title only
- * its length («Deine halbe Stunde.»), a termin «Dein Termin.».
+ * shows her own title, also of a dream step (it is her own alarm); a block with a sensitive title only its length
+ * («Deine halbe Stunde.»), a termin «Dein Termin.» (a dream's block she did not ask for never gets here, dueReminders).
  */
 export function reminderMessage(e: ReminderEvent, goals: PushGoal[] | null, at: Date, tz: string): Candidate & { title: string } {
   const start = localParts(new Date(e.starts_at), tz);

@@ -103,8 +103,10 @@ describe("Erinnerungen (owner decision 2, replaces the interim rule K1): the coa
 
   it("the prompt: a wake-up call or a reminder she asks for is an entry with erinnern: true; promised only as the line says", () => {
     expect(PERSONA).toContain(
-      "Wünscht sie einen Wecker oder eine Erinnerung, trägst du den Eintrag mit erinnern: true ein, für einen Wecker zur gewünschten Zeit mit reminder_minutes 0. Ob und wie etwas sie erinnert, sagst du nur so, wie es unter „Erinnerungen“ steht.",
+      "Wünscht sie einen Wecker oder eine Erinnerung, trägst du den Eintrag mit erinnern: true ein, für einen Wecker zur gewünschten Zeit mit reminder_minutes 0. Ob und wie etwas sie erinnert, sagst du nur so, wie es unter „Verbindungen“ bei „Erinnerungen“ steht.",
     );
+    // the line under «Verbindungen», never the memories («Deine Erinnerungen»)
+    expect(PERSONA).not.toContain("wie es unter „Erinnerungen“ steht");
     expect(PERSONA).not.toContain("Ein Wecker ist nicht möglich");
     // the old promise is gone
     expect(PERSONA).not.toContain("und sagst ihr das.");
@@ -114,7 +116,8 @@ describe("Erinnerungen (owner decision 2, replaces the interim rule K1): the coa
   });
 
   it("kommen als Mitteilung: a device, the switch on, no calendar subscription", () => {
-    expect(line({})).toBe("- Erinnerungen: kommen als Mitteilung, kurz vor jedem Block und vor Einträgen mit erinnern: true, höchstens drei am Tag, nie für Nolio");
+    // a dream's block only with erinnern: true (dreams are never pushed otherwise), so the coach promises no more
+    expect(line({})).toBe("- Erinnerungen: kommen als Mitteilung, kurz vor jedem Block und vor Einträgen mit erinnern: true (für einen Traum nur damit), höchstens drei am Tag, nie für Nolio");
     expect(reminderChannel(conn())).toBe("mitteilung");
   });
 
@@ -172,6 +175,11 @@ describe("D2 and «erinnern» in the coach and the app (wiring; the rules themse
     expect(backendSrc).toContain("await this.habitTime(habitId, day, done);");
     expect(backendSrc).toContain("const row = habitTimeRow(habit, day, {");
     expect(backendSrc).toContain('.delete().eq("source", "habit").eq("external_id", habitTimeKey(habitId, day))');
+  });
+  it("log_time on a block a habit's tick answered makes it her answer (source block, as the app does): unticking keeps it", () => {
+    const logTime = source.slice(source.indexOf('case "log_time": {'));
+    expect(logTime).toContain('sb.from("goal_time").update({ ...fields, source: "block" }).eq("event_id", eventId)');
+    expect(backendSrc).toContain('source: "block" as GoalTime["source"]');
   });
   it("create_event and update_event keep «erinnern» in events.reminder_asked, never on a Nolio entry", () => {
     expect(source).toContain('const asked = input.erinnern === undefined ? undefined : bool(input.erinnern, "erinnern");');

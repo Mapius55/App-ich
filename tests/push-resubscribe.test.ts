@@ -28,6 +28,15 @@ describe("shouldResubscribe", () => {
     expect(shouldResubscribe({ ...wants, notifyMorning: null, notifyEvening: null })).toBe(false);
     expect(shouldResubscribe({ ...wants, notifyMorning: undefined, notifyEvening: undefined })).toBe(false);
     expect(shouldResubscribe({ ...wants, notifyMorning: "", notifyEvening: "" })).toBe(false);
+    // the reminders switch off (or unknown before its migration) does not count either
+    expect(shouldResubscribe({ ...wants, notifyMorning: null, notifyEvening: null, notifyReminders: false })).toBe(false);
+    expect(shouldResubscribe({ ...wants, notifyMorning: null, notifyEvening: null, notifyReminders: null })).toBe(false);
+  });
+  it("the reminders of her entries are a kind of notification too: with no time set but the reminders on, it subscribes again", () => {
+    expect(shouldResubscribe({ ...wants, notifyMorning: null, notifyEvening: null, notifyReminders: true })).toBe(true);
+    // still never on someone else's consent or after switching it off here
+    expect(shouldResubscribe({ ...wants, notifyMorning: null, notifyEvening: null, notifyReminders: true, choice: null })).toBe(false);
+    expect(shouldResubscribe({ ...wants, notifyMorning: null, notifyEvening: null, notifyReminders: true, choice: "off" })).toBe(false);
   });
   it("not when this device still has its subscription", () => {
     expect(shouldResubscribe({ ...wants, hasSubscription: true })).toBe(false);
@@ -128,6 +137,16 @@ describe("resubscribePushIfNeeded", () => {
       expect(await resubscribePushIfNeeded(p, deps)).toBe("skipped");
       expect(log).toEqual([]);
     }
+  });
+
+  it("only the reminders on (no morning or evening time): subscribes again too, with the switch off it stays", async () => {
+    const { deps, log } = fakes();
+    expect(await resubscribePushIfNeeded({ id: "A", notify_morning: null, notify_evening: null, notify_reminders: true }, deps)).toBe("resubscribed");
+    expect(log).toEqual(["registration", "key", "subscribe:true:65", "save:A:https://push.example/new"]);
+    resetResubscribeForTests();
+    const off = fakes();
+    expect(await resubscribePushIfNeeded({ id: "A", notify_morning: null, notify_evening: null, notify_reminders: false }, off.deps)).toBe("skipped");
+    expect(off.log).toEqual([]);
   });
 
   it("a device switched off before this release (no choice stored) is left alone", async () => {

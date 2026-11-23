@@ -581,11 +581,43 @@ describe("dispatch", () => {
       const { db, sent, send, sb } = reminderSetup();
       event(db, `${MON}T10:00:00`, "Nachricht an die Stationsleitung", { id: "e-1", kind: "termin", goal_id: "g-island", reminder_minutes: 0, reminder_asked: true, source: "coach" });
       event(db, `${MON}T12:00:00`, "Physio Knie", { id: "e-2", kind: "termin", reminder_minutes: 15, reminder_asked: true, source: "coach" });
+      // a dream's block she did not ask for: no reminder at all (dreams are never pushed); one she asked for: her title
       block(db, `${MON}T14:00:00`, "Island: Flüge vergleichen", { goal_id: "g-island" });
+      block(db, `${MON}T16:00:00`, "Island: Flüge buchen", { goal_id: "g-island", reminder_asked: true });
       await dispatch(sb, send, at(`${MON}T09:46:00`));
       await dispatch(sb, send, at(`${MON}T11:31:00`));
       await dispatch(sb, send, at(`${MON}T13:46:00`));
-      expect(sent.map((x) => `${x.title} · ${x.body}`)).toEqual(["Um 10:00 · Nachricht an die Stationsleitung.", "Um 12:00 · Dein Termin.", "Um 14:00 · Deine halbe Stunde."]);
+      await dispatch(sb, send, at(`${MON}T15:46:00`));
+      expect(sent.map((x) => `${x.title} · ${x.body}`)).toEqual(["Um 10:00 · Nachricht an die Stationsleitung.", "Um 12:00 · Dein Termin.", "Um 16:00 · Island: Flüge buchen."]);
+      expect(db.rows("push_log").map((r) => r.event_id)).toEqual(["e-1", "e-2", "e-Island: Flüge buchen"]);
+    });
+
+    it("once per entry also across midnight: the run before and the one after it share the day of its moment", async () => {
+      const { db, sent, send, sb } = reminderSetup();
+      event(db, "2026-11-17T00:05:00", "Nachtzug nach Wien", { id: "e-n", kind: "termin", reminder_minutes: 10, reminder_asked: true, source: "coach" });
+      expect(await dispatch(sb, send, at(`${MON}T23:45:00`))).toBe(1);
+      expect(await dispatch(sb, send, at("2026-11-17T00:00:00"))).toBe(0);
+      expect(sent.map((x) => `${x.title} · ${x.body}`)).toEqual(["Morgen um 00:05 · Nachtzug nach Wien."]);
+      expect(db.rows("push_log")).toMatchObject([{ day: MON, slot: "reminder", event_id: "e-n", devices: 1 }]);
+    });
+
+    it("her blocks leave room for what she asked for later today (the three a day never crowd hers out)", async () => {
+      const { db, sent, send, sb } = reminderSetup();
+      block(db, `${MON}T08:00:00`, "Intervalle");
+      block(db, `${MON}T09:00:00`, "Kraft");
+      event(db, `${MON}T15:00:00`, "Bank anrufen", { id: "e-bank", kind: "termin", reminder_minutes: 10, reminder_asked: true, source: "coach" });
+      event(db, `${MON}T18:00:00`, "Paket holen", { id: "e-paket", kind: "termin", reminder_minutes: 10, reminder_asked: true, source: "coach" });
+      for (const h of ["07:46", "08:46", "14:46", "17:46"]) await dispatch(sb, send, at(`${MON}T${h}:00`));
+      expect(sent.map((x) => x.body)).toEqual(["Intervalle.", "Bank anrufen.", "Paket holen."]);
+    });
+
+    it("someone with a time and a reminder is asked once (one reminder, not two)", async () => {
+      const { db, sent, send, said, sb } = setup();
+      said("2026-11-15T20:00:00");
+      Object.assign(db.rows("profiles")[0], { notify_reminders: true, calendar_fetched_at: null });
+      block(db, `${MON}T10:00:00`, "Intervalle");
+      expect(await dispatch(sb, send, at(`${MON}T09:46:00`))).toBe(1);
+      expect(sent.map((x) => x.body)).toEqual(["Intervalle."]);
     });
 
     it("away for a few days: her blocks rest, what she asked for still comes; after 14 days nothing", async () => {

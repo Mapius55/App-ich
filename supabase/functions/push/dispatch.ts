@@ -14,6 +14,7 @@ import {
   endedLate,
   eveningCandidates,
   fingerprint,
+  laterAskedToday,
   localParts,
   morningCandidates,
   namedCounts,
@@ -24,10 +25,11 @@ import {
   pauseLineSent,
   pauseState,
   pushTitle,
-  REMINDER_GRACE_MIN,
   REMINDER_MAX_LEAD_MIN,
   REMINDER_WINDOW_MIN,
-  reminderAt,
+  REMINDERS_PER_DAY,
+  reminderDay,
+  reminderInRun,
   reminderMessage,
   skipReason,
   slotDueAt,
@@ -90,16 +92,30 @@ interface Person extends PushProfile {
 
 const PEOPLE_COLS = "id, display_name, timezone, notify_morning, notify_evening, last_morning_push, last_evening_push, created_at";
 
-/** everyone with a time or the reminders on; before this round's migration only those with a time */
-async function people(sb: SupabaseClient): Promise<Person[]> {
-  const res = await sb
-    .from("profiles")
-    .select(`${PEOPLE_COLS}, notify_reminders, calendar_fetched_at`)
-    .or("notify_morning.not.is.null,notify_evening.not.is.null,notify_reminders.is.true");
-  if (!res.error) return (res.data ?? []) as Person[];
-  if (!missingColumn(res.error)) console.warn("push: people", res.error.message ?? res.error);
-  const { data } = await sb.from("profiles").select(PEOPLE_COLS).or("notify_morning.not.is.null,notify_evening.not.is.null");
-  return (data ?? []) as Person[];
+/** ids per query in an `in` filter (the request line stays short) */
+const IN_CHUNK = 100;
+const chunks = <T>(xs: T[]): T[][] => Array.from({ length: Math.ceil(xs.length / IN_CHUNK) }, (_, i) => xs.slice(i * IN_CHUNK, (i + 1) * IN_CHUNK));
+
+/**
+ * Everyone with a time, and those with a reminder in this run (`reminderUsers`) whose switch is on: the switch is on
+ * for everyone by default, so asking for it alone would read every profile each run. Before this round's migration
+ * only those with a time.
+ */
+async function people(sb: SupabaseClient, reminderUsers: string[]): Promise<Person[]> {
+  const cols = `${PEOPLE_COLS}, notify_reminders, calendar_fetched_at`;
+  const res = await sb.from("profiles").select(cols).or("notify_morning.not.is.null,notify_evening.not.is.null");
+  if (res.error) {
+    if (!missingColumn(res.error)) console.warn("push: people", res.error.message ?? res.error);
+    const { data } = await sb.from("profiles").select(PEOPLE_COLS).or("notify_morning.not.is.null,notify_evening.not.is.null");
+    return (data ?? []) as Person[];
+  }
+  const out = (res.data ?? []) as Person[];
+  const known = new Set(out.map((p) => p.id));
+  for (const ids of chunks(reminderUsers.filter((id) => !known.has(id)))) {
+    const more = await rows<Person>(sb.from("profiles").select(cols).in("id", ids).eq("notify_reminders", true), "reminder people");
+    out.push(...(more ?? []));
+  }
+  return out;
 }
 
 /** when she last opened the app (any message row) and last said something herself */
@@ -355,7 +371,8 @@ async function slotFor(r: PersonRun): Promise<number> {
 
 /**
  * Her reminders of this run (owner decision 2): only with the switch on, a device, and her iPhone calendar not
- * subscribed (its own alarm reminds her); at most three a day; each entry once a day (the push log).
+ * subscribed (its own alarm reminds her); a dream's block only when she asked for it; at most three a day; each entry
+ * once (the push log, keyed by the day of its moment).
  */
 async function remindersFor(r: PersonRun, candidates: ReminderEvent[], answered: Set<string>): Promise<number> {
   const { sb, p, at, tz } = r;
@@ -369,20 +386,27 @@ async function remindersFor(r: PersonRun, candidates: ReminderEvent[], answered:
   );
   if (!sentToday) return 0; // unknown how many went out: none rather than a fourth
   const activity = await r.activity();
-  const due = dueReminders({ events: candidates, answered, sentToday: sentToday.length, activity: activity ? { ...activity, since: p.created_at } : null }, at);
-  if (!due.length) return 0;
+  // a dream's block only when she asked for the reminder (goals unknown: only those she asked for)
   const goals = await goalsOf(sb, p.id);
+  // a block's reminder leaves room for those she asked for later today (unknown: no block reminder rather than hers lost)
+  const later = candidates.some((e) => e.reminder_asked !== true) ? await askedLater(sb, p.id, at, tz) : 0;
+  const due = dueReminders(
+    { events: candidates, answered, sentToday: sentToday.length, activity: activity ? { ...activity, since: p.created_at } : null, goals, laterAsked: later },
+    at,
+  );
   let total = 0;
   for (const e of due) {
     const m = reminderMessage(e, goals, at, tz);
+    // the day of its moment, not of this run: the run before midnight and the one after it share the key
+    const day = reminderDay(e, tz) ?? today;
     const claimed = await claim(
       sb,
-      { user_id: p.id, day: today, slot: "reminder", event_id: e.id, status: "sent", reason: null, template: m.template, fingerprint: fingerprint(m.body), created_at: at.toISOString() },
+      { user_id: p.id, day, slot: "reminder", event_id: e.id, status: "sent", reason: null, template: m.template, fingerprint: fingerprint(m.body), created_at: at.toISOString() },
       false,
     );
     if (!claimed) continue;
     const sent = await r.send(subs, { title: m.title, body: m.body });
-    const { error } = await sb.from("push_log").update({ devices: Math.min(sent, 100) }).eq("user_id", p.id).eq("day", today).eq("slot", "reminder").eq("event_id", e.id);
+    const { error } = await sb.from("push_log").update({ devices: Math.min(sent, 100) }).eq("user_id", p.id).eq("day", day).eq("slot", "reminder").eq("event_id", e.id);
     if (error) console.warn("push: log devices", error.message ?? error);
     total += sent;
   }
@@ -390,6 +414,25 @@ async function remindersFor(r: PersonRun, candidates: ReminderEvent[], answered:
 }
 
 const REMINDER_COLS = "id, user_id, title, starts_at, ends_at, all_day, kind, goal_id, source, reminder_minutes, reminder_asked";
+
+/** how many reminders she asked for ring later today (laterAskedToday); on a failed query the whole day's three */
+async function askedLater(sb: SupabaseClient, userId: string, at: Date, tz: string): Promise<number> {
+  const list = await rows<ReminderEvent>(
+    sb
+      .from("events")
+      .select(REMINDER_COLS)
+      .eq("user_id", userId)
+      .eq("reminder_asked", true)
+      .eq("all_day", false)
+      .not("reminder_minutes", "is", null)
+      .neq("source", "nolio")
+      .gte("starts_at", at.toISOString())
+      .lte("starts_at", new Date(at.getTime() + (REMINDER_MAX_LEAD_MIN + 24 * 60) * 60000).toISOString())
+      .limit(50),
+    "asked reminders later",
+  );
+  return list ? laterAskedToday(list, at, tz) : REMINDERS_PER_DAY;
+}
 
 /**
  * The entries whose reminder falls in this run (for everyone, one query), per person, and the blocks among them that
@@ -413,20 +456,15 @@ async function reminderCandidates(sb: SupabaseClient, at: Date): Promise<{ byUse
     "reminder entries",
   );
   // only what falls in this run's span (the pure check again per person, with her own facts)
-  const now = at.getTime();
-  const near = (list ?? []).filter((e) => {
-    const m = reminderAt(e);
-    return m !== null && m < now + REMINDER_WINDOW_MIN * 60000 && now - m <= REMINDER_GRACE_MIN * 60000;
-  });
+  const near = (list ?? []).filter((e) => reminderInRun(e, at.getTime()));
   for (const e of near) {
     if (!byUser.has(e.user_id)) byUser.set(e.user_id, []);
     byUser.get(e.user_id)!.push(e);
   }
-  const blocks = near.filter((e) => e.kind === "block").map((e) => e.id);
-  if (blocks.length) {
-    const done = await rows<{ event_id: string }>(sb.from("goal_time").select("event_id").in("event_id", blocks), "answered blocks");
+  for (const part of chunks(near.filter((e) => e.kind === "block").map((e) => e.id))) {
+    const done = await rows<{ event_id: string }>(sb.from("goal_time").select("event_id").in("event_id", part), "answered blocks");
     // unknown answers: no block reminder (one for something she did already would be worse than none)
-    if (!done) for (const id of blocks) answered.add(id);
+    if (!done) for (const id of part) answered.add(id);
     for (const d of done ?? []) answered.add(d.event_id);
   }
   return { byUser, answered };
@@ -437,8 +475,8 @@ async function reminderCandidates(sb: SupabaseClient, at: Date): Promise<{ byUse
  * delivers one message to a person's devices and says how many it reached. Returns the number of devices reached.
  */
 export async function dispatch(sb: SupabaseClient, send: Send, at: Date = new Date()): Promise<number> {
-  const persons = await people(sb);
   const reminders = await reminderCandidates(sb, at);
+  const persons = await people(sb, [...reminders.byUser.keys()]);
   let total = 0;
   for (const p of persons) {
     let subs: Promise<Sub[]> | null = null;

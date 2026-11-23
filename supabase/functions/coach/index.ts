@@ -278,7 +278,7 @@ const TOOLS: Anthropic.Beta.BetaTool[] = [
           description: "termin (Standard): ein Termin der Person. block: Zeit, die ihr gemeinsam geplant habt, z.B. Fokuszeit oder ein Training für ein Ziel.",
         },
         goal_id: { type: "string", description: "Optional: das Ziel oder der Traum, dem der Eintrag dient (id aus dem Kontext)." },
-        erinnern: { type: "boolean", description: "true, wenn sie selbst um eine Erinnerung gebeten hat (siehe „Erinnerungen“); Blöcke brauchen es nicht." },
+        erinnern: { type: "boolean", description: "true, wenn sie selbst um eine Erinnerung gebeten hat (siehe „Verbindungen“); Blöcke brauchen es nur für einen Traum." },
       },
       required: ["title", "start"],
       additionalProperties: false,
@@ -1575,8 +1575,9 @@ async function runTool(
         const stored = await sb.from("goal_time").select("goal_id, day, minutes, note").eq("event_id", eventId).maybeSingle();
         if (stored.error) throw stored.error;
         if (sameBlockAnswer(stored.data, { goalId, minutes, day: logDay, note })) return JSON.stringify({ ok: true, hint: BLOCK_ALREADY_LOGGED });
-        // One answer per block; a new one replaces it (update, else insert; a race ends in an update).
-        const update = () => sb.from("goal_time").update(fields).eq("event_id", eventId).select("id");
+        // One answer per block; a new one replaces it (update, else insert; a race ends in an update). A habit's tick
+        // that answered the block becomes her answer (source block, as in the app): unticking the habit keeps it.
+        const update = () => sb.from("goal_time").update({ ...fields, source: "block" }).eq("event_id", eventId).select("id");
         let res = await update();
         if (res.error) throw res.error;
         if (!res.data?.length) {

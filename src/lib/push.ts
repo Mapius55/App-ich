@@ -92,7 +92,7 @@ function setDeviceChoice(v: "off" | `on:${string}`): void {
 // allowed would silently stop. On app start (logged in) the app subscribes again, without asking, and
 // stores it (which also updates app_url), but only when all of this holds:
 //   - notifications are allowed (Notification.permission === "granted": no prompt, ever),
-//   - the person wants them (notify_morning or notify_evening set),
+//   - the person wants them (notify_morning or notify_evening set, or «Erinnerungen an Einträge» on),
 //   - this device has no subscription,
 //   - and this device's choice is "on" for the person logged in now (see DEVICE_KEY): never on someone
 //     else's consent, never after "Auf diesem Gerät ausschalten", never on a device whose choice is unknown.
@@ -104,14 +104,19 @@ export interface ResubscribeFacts {
   permission: NotificationPermission | "unsupported";
   notifyMorning: string | null | undefined;
   notifyEvening: string | null | undefined;
+  /** «Erinnerungen an Einträge» (profiles.notify_reminders; undefined before its migration: not counted) */
+  notifyReminders?: boolean | null;
   hasSubscription: boolean;
   /** this device's choice for the person logged in now: "on" (hers), "off" (switched off here), null (unknown) */
   choice: "on" | "off" | null;
 }
 
+/** She wants notifications: a morning or an evening time, or the reminders of her entries (a third kind). */
+const wantsPush = (morning: string | null | undefined, evening: string | null | undefined, reminders: boolean | null | undefined) => !!morning || !!evening || reminders === true;
+
 /** Whether to subscribe again silently (pure; the conditions above). */
 export function shouldResubscribe(f: ResubscribeFacts): boolean {
-  return f.supported && f.permission === "granted" && (!!f.notifyMorning || !!f.notifyEvening) && !f.hasSubscription && f.choice === "on";
+  return f.supported && f.permission === "granted" && wantsPush(f.notifyMorning, f.notifyEvening, f.notifyReminders) && !f.hasSubscription && f.choice === "on";
 }
 
 /** What resubscribePushIfNeeded uses from the browser and the server (replaceable in tests). */
@@ -154,10 +159,12 @@ export type ResubscribeResult = "resubscribed" | "marked" | "skipped" | "failed"
 
 /** "resubscribed": subscribed again and stored; "marked": still subscribed, now remembered as hers;
  *  "skipped": nothing to do; "failed": tried, it didn't work. */
-async function resubscribe(profile: Pick<Profile, "id" | "notify_morning" | "notify_evening">, deps: ResubscribeDeps): Promise<ResubscribeResult> {
+type PushProfileFacts = Pick<Profile, "id" | "notify_morning" | "notify_evening" | "notify_reminders">;
+
+async function resubscribe(profile: PushProfileFacts, deps: ResubscribeDeps): Promise<ResubscribeResult> {
   const uid = profile.id;
   const raw = deps.choice();
-  const wants = !!profile.notify_morning || !!profile.notify_evening;
+  const wants = wantsPush(profile.notify_morning, profile.notify_evening, profile.notify_reminders);
   // the cheap checks first: no service worker wait, no server call when notifications are off anyway
   if (!uid || !deps.supported() || deps.permission() !== "granted" || !wants || raw === "off") return "skipped";
   try {
@@ -172,7 +179,18 @@ async function resubscribe(profile: Pick<Profile, "id" | "notify_morning" | "not
       }
       return "skipped";
     }
-    if (!shouldResubscribe({ supported: true, permission: deps.permission(), notifyMorning: profile.notify_morning, notifyEvening: profile.notify_evening, hasSubscription: false, choice: choiceFor(raw, uid) })) return "skipped";
+    if (
+      !shouldResubscribe({
+        supported: true,
+        permission: deps.permission(),
+        notifyMorning: profile.notify_morning,
+        notifyEvening: profile.notify_evening,
+        notifyReminders: profile.notify_reminders,
+        hasSubscription: false,
+        choice: choiceFor(raw, uid),
+      })
+    )
+      return "skipped";
     const key = await deps.publicKey();
     if (!key) return "skipped"; // no server (demo)
     const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes(key) });
@@ -193,7 +211,7 @@ const started = new Map<string, Promise<ResubscribeResult>>();
 /** Once per app start (and sign-in) and account, when logged in: subscribes this device again if this person allowed and
  *  wants notifications here but the subscription is gone (a new address means a new service worker, signing
  *  out removes it). Never asks, never throws. */
-export function resubscribePushIfNeeded(profile: Pick<Profile, "id" | "notify_morning" | "notify_evening">, deps: ResubscribeDeps = browserDeps): Promise<ResubscribeResult> {
+export function resubscribePushIfNeeded(profile: PushProfileFacts, deps: ResubscribeDeps = browserDeps): Promise<ResubscribeResult> {
   let run = started.get(profile.id);
   if (!run) {
     run = resubscribe(profile, deps);

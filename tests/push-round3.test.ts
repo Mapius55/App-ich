@@ -14,6 +14,7 @@ import {
   endedLate,
   eveningCandidates,
   fingerprint,
+  laterAskedToday,
   lengthLabel,
   localParts,
   mentionsDream,
@@ -23,6 +24,8 @@ import {
   pauseLineSent,
   pauseState,
   reminderAt,
+  reminderDay,
+  reminderInRun,
   reminderMessage,
   REMINDERS_PER_DAY,
   runningUntil,
@@ -263,10 +266,10 @@ describe("reminders (owner decision 2 «Blöcke und Wunsch»)", () => {
 
   it("the window: its moment within the next 15 minutes (or up to 5 behind), never once the entry began", () => {
     const due = (local: string, events: ReminderEvent[], extra: { sentToday?: number; answered?: string[] } = {}) =>
-      dueReminders({ events, answered: new Set(extra.answered ?? []), sentToday: extra.sentToday ?? 0, activity: recent }, at(local)).map((e) => e.title);
+      dueReminders({ events, answered: new Set(extra.answered ?? []), sentToday: extra.sentToday ?? 0, activity: recent, goals }, at(local)).map((e) => e.title);
     const lauf = [r(`${MON}T10:00:00`, "Lauf")];
-    expect(due(`${MON}T09:35:00`, lauf)).toEqual([]);
-    expect(due(`${MON}T09:36:00`, lauf)).toEqual(["Lauf"]);
+    expect(due(`${MON}T09:34:59`, lauf)).toEqual([]);
+    expect(due(`${MON}T09:35:00`, lauf)).toEqual(["Lauf"]);
     expect(due(`${MON}T09:50:00`, lauf)).toEqual(["Lauf"]);
     expect(due(`${MON}T09:55:00`, lauf)).toEqual(["Lauf"]);
     expect(due(`${MON}T09:56:00`, lauf)).toEqual([]);
@@ -277,18 +280,100 @@ describe("reminders (owner decision 2 «Blöcke und Wunsch»)", () => {
     expect(due(`${MON}T09:46:00`, lauf, { answered: ["id-Lauf"] })).toEqual([]);
   });
 
+  it("a run that starts on the minute still has a moment at the end of its span (a wake-up call at 07:00 sharp)", () => {
+    const wake = r(`${MON}T07:00:00`, "Aufstehen", { kind: "termin", reminder_minutes: 0, reminder_asked: true });
+    // runs at 06:45:00.000 and 07:00:00.000: the first one sends it, the second is too late (it began)
+    expect(reminderInRun(wake, at(`${MON}T06:45:00`).getTime())).toBe(true);
+    expect(reminderInRun(wake, at(`${MON}T07:00:00`).getTime())).toBe(false);
+    expect(reminderInRun(wake, at(`${MON}T06:44:59`).getTime())).toBe(false);
+    // a block at 10:00 with 10 minutes: the runs at 09:45 and 09:50 (the overlap: the push log keeps it once)
+    const lauf = r(`${MON}T10:00:00`, "Lauf");
+    expect([`${MON}T09:30:00`, `${MON}T09:35:00`, `${MON}T09:45:00`, `${MON}T09:50:00`, `${MON}T09:55:00`, `${MON}T09:55:01`].map((t) => reminderInRun(lauf, at(t).getTime()))).toEqual([
+      false,
+      true,
+      true,
+      true,
+      true,
+      false,
+    ]);
+  });
+
+  it("the day it belongs to is the day of its moment: the runs before and after midnight share it (once per entry)", () => {
+    // an entry at 00:05 with 10 minutes: its moment is 23:55; the run at 23:45 and the one at 00:00 both see it
+    const late = r("2026-11-17T00:05:00", "Nachtzug", { kind: "termin", reminder_asked: true });
+    expect(reminderInRun(late, at(`${MON}T23:45:00`).getTime())).toBe(true);
+    expect(reminderInRun(late, at("2026-11-17T00:00:00").getTime())).toBe(true);
+    expect(reminderDay(late, TZ)).toBe(MON);
+    // a reminder a day ahead belongs to the day it rings, not to the entry's
+    expect(reminderDay(r("2026-11-17T10:00:00", "Lauf", { reminder_minutes: 1440 }), TZ)).toBe(MON);
+    // across the switch to summer time (Zurich, 29 March 2026): starts_at − 30 minutes, her local day
+    const spring = { ...r("2026-03-29T03:10:00", "Früh", { reminder_minutes: 30 }), starts_at: "2026-03-29T01:10:00.000Z" };
+    expect(new Date(reminderAt(spring)!).toISOString()).toBe("2026-03-29T00:40:00.000Z");
+    expect(reminderDay(spring, TZ)).toBe("2026-03-29");
+    expect(reminderDay(r(`${MON}T10:00:00`, "Ferien", { all_day: true }), TZ)).toBeNull();
+  });
+
+  it("a dream's block only when she asked for the reminder (dreams are never pushed otherwise); goals unknown: only what she asked for", () => {
+    const events = [
+      r(`${MON}T10:00:00`, "Jakobsweg: Etappen planen", { goal_id: "g-camino" }),
+      r(`${MON}T10:00:00`, "Nachricht an die Stationsleitung", { goal_id: "g-camino", reminder_asked: true }),
+      r(`${MON}T10:00:00`, "Intervalle"),
+      r(`${MON}T10:00:00`, "Fokuszeit", { goal_id: null }),
+      r(`${MON}T10:00:00`, "Unbekannt", { goal_id: "g-gone" }),
+    ];
+    const due = (g: PushGoal[] | null) => dueReminders({ events, answered: new Set(), sentToday: 0, activity: recent, goals: g }, at(`${MON}T09:46:00`)).map((e) => e.title);
+    expect(due(goals)).toEqual(["Nachricht an die Stationsleitung", "Intervalle", "Fokuszeit"]);
+    expect(due(null)).toEqual(["Nachricht an die Stationsleitung", "Fokuszeit"]);
+    // a dream's block does not take one of the three
+    const four = [...events.slice(0, 1), ...[0, 1, 2].map((i) => r(`${MON}T10:0${i}:00`, `B${i}`))];
+    expect(dueReminders({ events: four, answered: new Set(), sentToday: 0, activity: recent, goals }, at(`${MON}T09:50:00`)).map((e) => e.title)).toEqual(["B0", "B1", "B2"]);
+  });
+
   it("at most three a day, the earliest first", () => {
     const near = [0, 1, 2, 3].map((i) => r(`${MON}T09:0${i}:00`, `N${i}`));
-    const due = (sentToday: number) => dueReminders({ events: near, answered: new Set(), sentToday, activity: recent }, at(`${MON}T08:50:00`)).map((e) => e.title);
+    const due = (sentToday: number) => dueReminders({ events: near, answered: new Set(), sentToday, activity: recent, goals }, at(`${MON}T08:50:00`)).map((e) => e.title);
     expect(REMINDERS_PER_DAY).toBe(3);
     expect(due(0)).toEqual(["N0", "N1", "N2"]);
     expect(due(2)).toEqual(["N0"]);
     expect(due(3)).toEqual([]);
   });
 
+  it("what she asked for is never crowded out by her blocks: hers first, and the blocks leave room for hers later today", () => {
+    const run = (events: ReminderEvent[], sentToday: number, laterAsked: number) =>
+      dueReminders({ events, answered: new Set(), sentToday, activity: recent, goals, laterAsked }, at(`${MON}T08:50:00`)).map((e) => e.title);
+    const blocks = [0, 1, 2].map((i) => r(`${MON}T09:0${i}:00`, `B${i}`));
+    const mine = r(`${MON}T09:03:00`, "Anruf Bank", { kind: "termin", reminder_asked: true });
+    // in the same run: hers comes, the earliest blocks fill what is left (in the order of the day)
+    expect(run([...blocks, mine], 0, 0)).toEqual(["B0", "B1", "Anruf Bank"]);
+    expect(run([...blocks, mine], 2, 0)).toEqual(["Anruf Bank"]);
+    // two of hers still to come today: one block now, then hers
+    expect(run(blocks, 0, 2)).toEqual(["B0"]);
+    expect(run(blocks, 1, 2)).toEqual([]);
+    expect(run([mine], 2, 1)).toEqual(["Anruf Bank"]);
+    // the three a day stay three, also for hers
+    expect(run([mine], 3, 0)).toEqual([]);
+  });
+
+  it("laterAskedToday: hers that ring later today, after this run (not today's that rang already, not tomorrow's)", () => {
+    const now = at(`${MON}T08:50:00`);
+    const events = [
+      r(`${MON}T15:00:00`, "Anruf", { kind: "termin", reminder_asked: true }),
+      r(`${MON}T23:58:00`, "Spät", { kind: "termin", reminder_asked: true, reminder_minutes: 0 }),
+      r(`${MON}T09:00:00`, "Jetzt gleich", { kind: "termin", reminder_asked: true }),
+      r("2026-11-17T00:20:00", "Nach Mitternacht", { kind: "termin", reminder_asked: true }),
+      r("2026-11-17T09:00:00", "Morgen, einen Tag vorher", { kind: "termin", reminder_asked: true, reminder_minutes: 1440 }),
+      r(`${MON}T16:00:00`, "Block", {}),
+      r(`${MON}T17:00:00`, "Ganztag", { reminder_asked: true, all_day: true }),
+    ];
+    // «Anruf» (14:50) and «Spät» (23:58); «Jetzt gleich» (08:50) rings in this run, «Nach Mitternacht» (00:10) and
+    // «Morgen, einen Tag vorher» (09:00) tomorrow; a block and an all-day entry never count
+    expect(laterAskedToday(events, now, TZ)).toBe(2);
+  });
+
   it("away a few days: only what she asked for; after 14 days none", () => {
     const events = [r(`${MON}T10:00:00`, "Lauf"), r(`${MON}T10:00:00`, "Paket", { kind: "termin", reminder_asked: true })];
-    const due = (lastOpen: string) => dueReminders({ events, answered: new Set(), sentToday: 0, activity: { lastOpen: iso(lastOpen), lastTalk: null } }, at(`${MON}T09:46:00`)).map((e) => e.title);
+    const due = (lastOpen: string) =>
+      dueReminders({ events, answered: new Set(), sentToday: 0, activity: { lastOpen: iso(lastOpen), lastTalk: null }, goals }, at(`${MON}T09:46:00`)).map((e) => e.title);
     expect(due("2026-11-15T20:00:00")).toEqual(["Lauf", "Paket"]);
     expect(due("2026-11-13T20:00:00")).toEqual(["Paket"]);
     expect(due("2026-11-01T20:00:00")).toEqual([]);
@@ -304,8 +389,7 @@ describe("reminders (owner decision 2 «Blöcke und Wunsch»)", () => {
       "Um 10:00 · Nachricht an die Stationsleitung. · r.asked",
     );
     expect(msg(r(`${MON}T10:00:00`, "Jakobsweg: Etappen planen", { kind: "termin", goal_id: "g-camino", reminder_asked: true }))).toBe("Um 10:00 · Jakobsweg: Etappen planen. · r.asked");
-    // a dream's block she did not ask for: only its length; a sensitive title: never on the lock screen
-    expect(msg(r(`${MON}T10:00:00`, "Jakobsweg: Etappen planen", { goal_id: "g-camino" }))).toBe("Um 10:00 · Deine Stunde. · r.block");
+    // a sensitive title: never on the lock screen (a dream's block she did not ask for gets no reminder at all, above)
     expect(msg(r(`${MON}T10:00:00`, "Physio Knie", { kind: "termin", goal_id: null, reminder_asked: true }))).toBe("Um 10:00 · Dein Termin. · r.asked");
     expect(msg(r(`${MON}T10:00:00`, "Krafttraining", { goal_id: "g-weight" }))).toBe("Um 10:00 · Deine Stunde. · r.block");
     // the next morning (a reminder up to a day ahead), and a later weekday
@@ -362,7 +446,7 @@ describe("D2: a habit that serves a goal counts its minutes", () => {
     const rows = async () => (await b.exportData()).goal_time.filter((t: { source: string }) => t.source === "habit");
     await b.setHabitDone(h.id, today, true);
     await b.setHabitDone(h.id, today, true);
-    expect((await rows()).map((t: { minutes: number; external_id: string }) => [t.minutes, t.external_id])).toEqual([[10, habitTimeKey(h.id, today)]]);
+    expect((await rows()).map((t: { minutes: number; external_id: string | null }) => [t.minutes, t.external_id])).toEqual([[10, habitTimeKey(h.id, today)]]);
     expect((await b.listGoals(true)).find((g) => g.id === goal.id)?.time?.logged_minutes).toBe(10);
     await b.setHabitDone(h.id, today, false);
     expect(await rows()).toEqual([]);
