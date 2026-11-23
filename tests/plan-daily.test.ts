@@ -288,14 +288,16 @@ describe("the Wochenblick: last week's blocks nobody answered, one by one", () =
       block("noend", "g1", "2026-11-21T08:00:00Z", null),
       block("other", "g9", "2026-11-21T08:00:00Z", "2026-11-21T09:00:00Z"),
       block("free", null, "2026-11-21T08:00:00Z", "2026-11-21T09:00:00Z"),
+      // a termin with a goal (a training) counts like a block (owner decision 4); without a goal it has no goal here
       block("termin", "g1", "2026-11-21T08:00:00Z", "2026-11-21T09:00:00Z", { kind: "termin" }),
+      block("kino", null, "2026-11-21T19:00:00Z", "2026-11-21T21:00:00Z", { kind: "termin" }),
       block("before", "g1", "2026-11-15T17:00:00Z", "2026-11-15T18:00:00Z"), // the Sunday before
       block("today", "g1", "2026-11-23T06:00:00Z", "2026-11-23T07:00:00Z"), // the new week
       block("sun-late", "g1", "2026-11-22T22:30:00Z", "2026-11-22T22:50:00Z"), // Sunday 23:30 in Zurich: still the week
     ];
-    expect(openWeekBlocks(blocks, ["g1"], "2026-11-16", now, zurich).map((b) => b.id)).toEqual(["tue", "thu", "sun-late"]);
+    expect(openWeekBlocks(blocks, ["g1"], "2026-11-16", now, zurich).map((b) => b.id)).toEqual(["tue", "thu", "termin", "sun-late"]);
     // what weekGoalSummary counts as open is exactly these
-    expect(weekGoalSummary(["g1"], blocks, [], "2026-11-16", now, zurich)[0].open_minutes).toBe(60 + 60 + 20);
+    expect(weekGoalSummary(["g1"], blocks, [], "2026-11-16", now, zurich)[0].open_minutes).toBe(60 + 60 + 60 + 20);
     // not ended yet: not open
     expect(openWeekBlocks(blocks, ["g1"], "2026-11-16", new Date("2026-11-19T17:30:00Z"), zurich).map((b) => b.id)).toEqual(["tue"]);
   });

@@ -5,7 +5,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { backend } from "../lib/backend";
 import { localMidnightIso } from "../lib/dates";
-import { addDays } from "../lib/plan";
+import { addDays, countsLikeBlock } from "../lib/plan";
 import type { CalendarEvent, GoalTime } from "../lib/types";
 import { planData, usePlanData } from "../space/data";
 import { whenStill } from "../space/motion";
@@ -34,9 +34,12 @@ export interface RangeData {
   answer(e: CalendarEvent, done: boolean | null, minutes?: number): void;
 }
 
-/** planned minutes of a block that serves a goal and is over (it counts for the goal by itself), else null */
+/**
+ * planned minutes of a block that serves a goal and is over (it counts for the goal by itself), else null; a termin
+ * with a goal (a training) the same (owner decision 4: it counts like a block and gets Ja · Teilweise · Nein)
+ */
 export function pastBlockMinutes(e: CalendarEvent, now: number): number | null {
-  if (e.kind !== "block" || !e.goal_id || e.all_day || !e.ends_at) return null;
+  if (!countsLikeBlock(e) || !e.goal_id || e.all_day || !e.ends_at) return null;
   const end = Date.parse(e.ends_at);
   return end <= now ? Math.round((end - Date.parse(e.starts_at)) / 60000) : null;
 }

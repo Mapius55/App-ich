@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { backend } from "../../lib/backend";
-import { addDays, dayOf, goalDayMinutes, heatLevel, heatThresholds, provisionalDays, unansweredCredit, yearWeeks } from "../../lib/plan";
+import { addDays, countsLikeBlock, dayOf, goalDayMinutes, heatLevel, heatThresholds, provisionalDays, unansweredCredit, yearWeeks } from "../../lib/plan";
 import { longDay, minutesLabel } from "../../lib/dates";
 import type { CalendarEvent, Goal, GoalTime } from "../../lib/types";
 
@@ -31,7 +31,7 @@ export function YearView({ goals, today, refresh }: Props) {
     const startIso = new Date(`${from}T00:00:00`).toISOString();
     const endIso = new Date(`${addDays(today, 1)}T00:00:00`).toISOString();
     Promise.all([backend.listGoalTime(from, today), backend.listEvents(startIso, endIso), backend.countingFrom()])
-      .then(([log, events, countFrom]) => alive && setData({ log, blocks: events.filter((e) => e.kind === "block" && e.goal_id), from: countFrom }))
+      .then(([log, events, countFrom]) => alive && setData({ log, blocks: events.filter((e) => countsLikeBlock(e) && e.goal_id), from: countFrom }))
       .catch(() => alive && setData({ log: [], blocks: [], from: null }));
     return () => {
       alive = false;

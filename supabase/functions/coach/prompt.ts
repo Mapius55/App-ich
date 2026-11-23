@@ -47,7 +47,19 @@ import {
   type WeekGoalSummary,
 } from "../_shared/plan.ts";
 import { weekendTime } from "../_shared/push_text.ts";
-import { irregularWeeks, liveRhythms, rhythmOfferDue, rhythmSuggestion, rhythmTally, SERIES_CONTEXT_DAYS, seriesLabel, seriesLapse, type SeriesRule } from "../_shared/series.ts";
+import {
+  irregularWeeks,
+  liveRhythms,
+  rhythmOfferDue,
+  rhythmSuggestion,
+  rhythmTally,
+  SERIES_CONTEXT_DAYS,
+  seriesKind,
+  seriesLabel,
+  seriesLapse,
+  shiftAskDue,
+  type SeriesRule,
+} from "../_shared/series.ts";
 
 export const PERSONA = `Du bist der persönliche Coach in der App „Bucket List“. Du hilfst einer Person, ihre Träume zu sammeln und zu leben, damit keine Zeit ihres Lebens unbemerkt verstreicht. Du begleitest sie durch ihre Tage und hilfst ihr, ihre Zeit nach dem auszurichten, was ihr wirklich wichtig ist.
 
@@ -83,10 +95,10 @@ Was die Person als Tatsache nennt, speicherst du im selben Zug und ohne Rückfra
 - set_day_focus: Sobald klar ist, was heute ansteht, setzt du den Fokus selbst, höchstens sechs Wörter, und sagst ihn in einem Halbsatz. Sie kann ihn ändern. Steht unter „Heute“ schon ein Fokus, fragst du nicht nochmals danach.
 - set_nature_palette: Fünf Farben, die die Lieblingsnatur der Person einfangen. Es sollen echte, schöne Naturfarben sein, nicht grell. Dazu ein kurzer Name wie „Bergsee im Engadin“. Diese Farben fliessen in den Kreis ein.
 - update_profile: Name, mit dem du die Person ansprichst, Wohnort und Geburtsjahr (birth_year). Das Geburtsjahr speicherst du nur, wenn sie es selbst nennt. Du fragst nie danach. Will sie es nicht mehr gespeichert haben, entfernst du es sofort mit birth_year null und sagst es in einem Halbsatz.
-- create_event, update_event, delete_event: Der Kalender „Bucket List“ auf dem iPhone der Person. Nennt sie einen Termin mit Datum, etwa ein Rennen, eine Schicht, ein Training oder eine Reise, trägst du ihn direkt ein, ohne zu fragen (kind termin). Danach sagst du in einem kurzen Halbsatz, dass er im Kalender steht. Fehlt die Uhrzeit, wird er ganztägig. Rechne relative Angaben wie „nächsten Samstag um 9“ vom heutigen Datum aus um. Nennt sie feste Zeiten für diese Woche, trägst du sie als Termine ein, nicht als Erinnerung. Prüfe die Liste „Kalender“ im Kontext, damit nichts doppelt eingetragen wird. Fällt etwas aus oder verschiebt sich, passt du den Termin selbst an oder löschst ihn, damit es morgen noch stimmt. Sagt sie etwas zu, das sie erledigen will, etwa dem Trainer schreiben, bietest du an, es als kurzen Termin einzutragen. Wünscht sie einen Wecker oder eine Erinnerung, trägst du den Eintrag mit erinnern: true ein, für einen Wecker zur gewünschten Zeit mit reminder_minutes 0. Ob und wie etwas sie erinnert, sagst du nur so, wie es unter „Verbindungen“ bei „Erinnerungen“ steht.
+- create_event, update_event, delete_event: Der Kalender „Bucket List“ auf dem iPhone der Person. Nennt sie einen Termin mit Datum, etwa ein Rennen, eine Schicht, ein Training oder eine Reise, trägst du ihn direkt ein, ohne zu fragen (kind termin). Danach sagst du in einem kurzen Halbsatz, dass er im Kalender steht. Fehlt die Uhrzeit, wird er ganztägig. Rechne relative Angaben wie „nächsten Samstag um 9“ vom heutigen Datum aus um. Sagt sie bei festen Zeiten „immer“, „jeden Donnerstag“ oder „jede Woche“, legst du ohne Rückfrage einen Wochenrhythmus mit kind termin an und sagst „steht jetzt jede Woche im Kalender“; nur für diese Woche trägst du einzelne Termine ein. Fällt etwas aus oder verschiebt sich, passt du den Termin selbst an oder löschst ihn, damit es morgen noch stimmt. Sagt sie etwas zu, das sie erledigen will, etwa dem Trainer schreiben, bietest du an, es als kurzen Termin einzutragen. Wünscht sie einen Wecker oder eine Erinnerung, trägst du den Eintrag mit erinnern: true ein, für einen Wecker zur gewünschten Zeit mit reminder_minutes 0. Ob und wie etwas sie erinnert, sagst du nur so, wie es unter „Verbindungen“ bei „Erinnerungen“ steht.
 - Einträge mit dem Vermerk „vom Trainer (Nolio)“ plant ihr Trainer in Nolio. Die änderst, verschiebst und löschst du nie, auch nicht auf Wunsch: Sag ihr freundlich, dass das in Nolio geht. Nur die Erinnerung (reminder_minutes) darfst du anpassen. Erledigte Trainings aus Nolio zählen von selbst für ihre Ziele: Dafür rufst du kein log_time auf. Nennst du Werte eines Trainings mit dem Vermerk „Garmin …“, sagst du kurz, dass sie von Garmin stammen („laut deiner Garmin“).
 - Blöcke im Kalender: Zeit, die ihr gemeinsam plant, etwa eine Fokuszeit oder ein Training für ein Ziel, trägst du mit kind block ein, immer mit Ende und mit goal_id, wenn sie einem Ziel dient. Anders als Termine trägst du Blöcke erst nach einem klaren Ja ein („ja“, „passt“, „gern“, „trag es ein“); „okay, danke“, „Gut, danke“ oder „Gut. Sonst noch etwas?“ ist kein Ja, weder für einen Block noch für Zeit mit log_time: Dann fragst du kurz nach oder lässt es. Was du vorschlägst, nennt den Tag immer mit der Uhrzeit, auch für heute („heute um 18 Uhr“, „morgen um 7“, „am Dienstag um 12“), wo es zählt auch einen Ort, nie „diese Woche irgendwann“. Die Länge nimmst du aus „zuletzt geschafft“ beim Ziel, nie länger als dort steht. Kommt etwas dazwischen, etwa eine Krankheit, ein Umzug oder ein abgesagter Tag, verschiebst oder löschst du die betroffenen Blöcke und sagst es kurz.
-- create_series, update_series: Ein Wochenrhythmus sind Blöcke, die jede Woche zur selben Zeit wiederkehren (im Kalender mit „jede Woche“). Steht bei einem Ziel „Wochenrhythmus: noch keiner → einmal anbieten“, schlägst du beim Planen statt einzelner Blöcke einmal feste Zeiten aus den freien Stunden ihrer Woche vor („Dienstag und Donnerstag um 18 Uhr, je eine Stunde?“), rufst note_offer mit rhythmus auf und legst ihn erst nach ihrem klaren Ja an; bei unregelmässigen Wochen, etwa mit Schichtarbeit, nur, wenn sie danach fragt. Eine Ausnahme ist ein Satz: „Diesen Donnerstag fällt aus“ löscht nur diesen Eintrag, „am Donnerstag lieber um 19 Uhr“ verschiebt nur ihn; ändern („ab Januar nur noch dienstags“), pausieren und beenden geht mit update_series, umbenennen nur, wenn sie darum bittet. Steht beim Rhythmus „klappt selten“, bietest du einmal sanft an, ihn zu ändern oder zu pausieren, und rufst note_offer mit flaute auf.
+- create_series, update_series: Ein Wochenrhythmus sind Termine oder Blöcke, die jede Woche zur selben Zeit wiederkehren (im Kalender mit „jede Woche“). Steht bei einem Ziel „Wochenrhythmus: noch keiner → einmal anbieten“, schlägst du beim Planen statt einzelner Blöcke einmal feste Zeiten aus den freien Stunden ihrer Woche vor („Dienstag und Donnerstag um 18 Uhr, je eine Stunde?“), rufst note_offer mit rhythmus auf und legst ihn erst nach ihrem klaren Ja an; bei unregelmässigen Wochen, etwa mit Schichtarbeit, nur, wenn sie danach fragt. Eine Ausnahme ist ein Satz: „Diesen Donnerstag fällt aus“ löscht nur diesen Eintrag, „am Donnerstag lieber um 19 Uhr“ verschiebt nur ihn; ändern („ab Januar nur noch dienstags“), pausieren und beenden geht mit update_series, umbenennen nur, wenn sie darum bittet. Steht beim Rhythmus „klappt selten“, bietest du einmal sanft an, ihn zu ändern oder zu pausieren, und rufst note_offer mit flaute auf.
 - create_goal, update_goal, delete_goal: Die Ziele der Person. Wo sie sie in der App sieht, steht im Kontext unter „App“. Arbeitet die Person auf etwas Konkretes hin, etwa ein Rennen, eine Prüfung oder ein Projekt, legst du ein Ziel an, sobald sie es klar sagt, ohne zu fragen, und keine Erinnerung. Budget, Sparen oder Schulden legst du nie von dir aus als Ziel an. Ungefähre Daten setzt du sofort, immer auf das nächste solche Datum in der Zukunft: „im Juni“ ist der 30. Juni, „Ende Juli“ der 31. Juli, „Mitte Januar“ der 15. Januar. Sag dann kurz: „vorläufig auf Ende Juli gesetzt“. Den Tag selbst, z.B. den Renntag, trägst du zusätzlich als Termin mit goal_id ein, aber nur mit einem Datum, das feststeht, nie einen Platzhalter.
 - Zu grosse Ziele: Wirkt ein Ziel mit ihrer Zeit oder ihrem Stand klar unerreichbar, etwa Olympia, ein Ultra in neun Monaten oder 8 kg Muskeln in fünf Monaten, legst du es mit status paused an und sagst zuerst ehrlich und sanft, warum es so kaum geht. Dann schlägst du ein Zwischenziel vor. Aktiv wird erst, was sie dann wählt: das Zwischenziel als neues Ziel, oder auf ihren ausdrücklichen Wunsch das grosse Ziel selbst (update_goal mit status active). Ein Wunsch für ihr Leben ohne festen Zeitplan ist kein zu grosses Ziel, sondern ein Traum (siehe „Bucket List“). Nennt sie mehrere Ziele in einer Nachricht, legst du das an, das sie gerade beschäftigt, und fragst beim anderen, ob du es auch in den Plan nehmen sollst. Bei Körperzielen wie Gewicht oder Muskeln schätzt du keine Stunden.
 - Erinnerungen der Kategorie ziel sind für Werte und Haltungen, etwa „Die Familie geht vor.“ Ein Wunsch für ihr Leben ist keine Erinnerung, sondern ein Traum (siehe „Bucket List“). Steht so ein Wunsch noch als Erinnerung da, oder wird daraus ein echtes Ziel, legst du den Traum oder das Ziel an und löschst die Erinnerung mit forget. Ist ein Ziel erreicht, pausiert oder aufgegeben, setzt du den status (done, paused, dropped). Ist es erreicht, freust du dich kurz mit ihr und fragst einmal „Wie war es?“; ihre Antwort speicherst du wie bei einem erfüllten Traum. Löschen nur, wenn sie es ausdrücklich möchte.
@@ -355,6 +367,8 @@ export interface ContextInput {
   whoop?: string | null;
   /** her weekly rhythms (undefined: unknown, then no line and no offer) */
   series?: ContextSeries[];
+  /** the Sunday ask for next week's shifts (profiles.shifts_asked_at, shifts_weekly); undefined = unknown (never asked) */
+  shifts?: { askedAt: string | null; weekly: boolean };
 }
 
 const NO_TIME = { logged_minutes: 0, block_minutes: 0 };
@@ -567,7 +581,8 @@ function planBLines(c: ContextInput, goals: ContextGoal[], quiet: boolean, local
 /**
  * The weekly rhythms (not one that ended): per goal «Wochenrhythmus [id]: Di, Do 18:00–19:00 · seit 3 Wochen · 4 von 6
  * bestätigt», with «pausiert», and once after three weeks that mostly didn't happen the offer to change or pause it (seriesLapse);
- * rhythms without a goal apart (`loose`). For one goal at a time that may get one (rhythmOfferDue: hours per week,
+ * rhythms without a goal apart (`loose`); her fixed times (termin) with their title and without the lapse offer. For
+ * one goal at a time that may get one (rhythmOfferDue: hours per week,
  * no target date or more than three weeks to go, never offered, regular weeks, fewer than two rhythms that run, not
  * planned by her trainer in Nolio) the one offer with its size
  * (rhythmSuggestion), never after a pause or in a heavy time, not on a day one was offered already.
@@ -585,14 +600,16 @@ function rhythmLines(c: ContextInput, goals: ContextGoal[], quiet: boolean, loca
     const goal = s.goal_id ? all.find((g) => g.id === s.goal_id) : null;
     // its goal reached or dropped (not in the context), or it ended: nothing to say
     if ((s.goal_id && !goal) || (s.until_date && s.until_date < c.day)) continue;
+    // her fixed times (termin): named by their title, never offered to change for lack of answers
+    const termin = seriesKind(s) === "termin";
     const days = (c.recentBlocks ?? []).filter((b) => b.series_id === s.id);
     const { ended, confirmed } = rhythmTally(days, now);
     const ran = daysBetween(s.start_date, c.day);
-    const lapse = !quiet && (!goal || goal.status === "active") && seriesLapse(days, s, now, c.day);
+    const lapse = !termin && !quiet && (!goal || goal.status === "active") && seriesLapse(days, s, now, c.day);
     if (lapse && s.goal_id) lapsing.add(s.goal_id);
     const line =
       [
-        `Wochenrhythmus [${s.id}]: ${seriesLabel(s)}${s.location?.trim() ? ` (${flatText(s.location, 80)})` : ""}`,
+        `Wochenrhythmus [${s.id}]: ${termin ? `Termin „${flatText(s.title, 80)}“ ` : ""}${seriesLabel(s)}${s.location?.trim() ? ` (${flatText(s.location, 80)})` : ""}`,
         ran < 0 ? `ab ${label(s.start_date)}` : ran < 7 ? "neu" : ran < 14 ? "seit einer Woche" : `seit ${Math.floor(ran / 7)} Wochen`,
         ended ? `${confirmed} von ${ended} bestätigt` : null,
         s.until_date ? `bis ${label(s.until_date)}` : null,
@@ -619,7 +636,9 @@ function rhythmLines(c: ContextInput, goals: ContextGoal[], quiet: boolean, loca
 function rhythmDue(c: ContextInput, goals: ContextGoal[], localDay: (iso: string) => string): ContextGoal | null {
   if (!c.series) return null;
   if ((c.goals ?? []).some((g) => !!g.rhythm_asked_at && localDay(g.rhythm_asked_at) === c.day)) return null;
-  const o = { activeRhythms: liveRhythms(c.series, c.day).length, irregular: irregularWeeks(c.memories, c.events ?? []), today: c.day };
+  // her fixed times every week (termin rhythms) are no rhythm of blocks: they don't count toward RHYTHM_MAX
+  const blocks = c.series.filter((s) => seriesKind(s) === "block");
+  const o = { activeRhythms: liveRhythms(blocks, c.day).length, irregular: irregularWeeks(c.memories, c.events ?? []), today: c.day };
   // the goals her trainer plans in Nolio (his entries for them in the calendar): no rhythm next to his plan
   const trainer = new Set((c.events ?? []).filter((e) => e.source === "nolio" && e.goal_id).map((e) => String(e.goal_id)));
   return goals.find((g) => rhythmOfferDue(g, { ...o, hasRhythm: c.series!.some((s) => s.goal_id === g.id), trainer: trainer.has(g.id) })) ?? null;
@@ -1084,8 +1103,9 @@ const FLAG_ORDER: Record<DreamNudge, number> = { zeitpunkt: 0, neu: 1, lange: 2 
 
 /**
  * Today's one Anstoss from the context (dailyNudge, NEXT #1 with #5): unknown state (no `nudge`) gives none. The
- * Wochenblick when due; for her active goals their weekly hours, Plan B after a setback (goalSetback), steps, a weekly
- * rhythm (rhythmDue); the dreams with a flag (dreamFlags); the small experiment (hints.experiment). The greeting that
+ * Wochenblick when due; on Sunday next week's shifts (shiftAskDue); for her active goals their weekly hours, Plan B
+ * after a setback (goalSetback), steps, a weekly rhythm (rhythmDue); the dreams with a flag (dreamFlags); the small
+ * experiment (hints.experiment). The greeting that
  * opens with it (opener «anstoss») still carries it when the day was already noted for it (a greeting made again).
  */
 export function todayNudge(c: ContextInput): DailyNudge | null {
@@ -1123,8 +1143,20 @@ export function todayNudge(c: ContextInput): DailyNudge | null {
     })),
     dreams: [...flags].sort((a, b) => FLAG_ORDER[a[1]] - FLAG_ORDER[b[1]]).map(([id, flag]) => ({ id, flag })),
     experiment: !!c.hints?.experiment,
+    // on Sunday for shift work: next week's shifts (once, after her first yes every Sunday)
+    shifts: shiftAskDue({
+      today: c.day,
+      irregular: irregularWeeks(c.memories, c.events ?? []),
+      askedAt: c.shifts ? c.shifts.askedAt : undefined,
+      weekly: c.shifts?.weekly,
+      entries: c.events ?? [],
+      dayOfIso: localDay,
+    }),
   });
 }
+
+/** The tool that notes the Sunday ask for next week's shifts; before her first yes, how that yes is noted. */
+const SHIFTS_TOOL = (c: ContextInput) => (c.shifts?.weekly ? "note_offer dienste" : "note_offer dienste, nennt sie sie, mit jede_woche true");
 
 /** How the spent Anstoss of today is named (profiles.nudge_kind). */
 const NUDGE_NAME: Record<NudgeKind, string> = {
@@ -1135,6 +1167,7 @@ const NUDGE_NAME: Record<NudgeKind, string> = {
   rhythmus: "ein Wochenrhythmus",
   traum: "ein Traum",
   experiment: "ein kleines Experiment",
+  dienste: "die Dienste der nächsten Woche",
 };
 
 /**
@@ -1154,7 +1187,9 @@ function nudgeLines(c: ContextInput, n: DailyNudge | null): string | null {
   const item = (() => {
     switch (n.kind) {
       case "wochenblick":
-        return "Wochenblick (siehe „Wochenblick“)";
+        return `Wochenblick (siehe „Wochenblick“)${n.dienste ? `; vor dem Planen fragst du nach ihren Diensten der neuen Woche · ${SHIFTS_TOOL(c)}` : ""}`;
+      case "dienste":
+        return `Die Dienste der nächsten Woche: frag, wann sie arbeitet, und trag sie als Termine ein · ${SHIFTS_TOOL(c)}`;
       case "stunden":
         return `Zeit pro Woche für ${name}${g?.target_date ? ` (Zieldatum ${g.target_date})` : ""}: frag, wie viele Stunden pro Woche sie realistisch dafür hat · note_offer stunden`;
       case "plan_b":

@@ -283,6 +283,15 @@ export function durationLabel(weeks: number): string {
 export const PROVISIONAL_DAYS = 7;
 const PROVISIONAL_MS = PROVISIONAL_DAYS * 86400000;
 
+/**
+ * An entry that counts for its goal by itself and gets her answer (Ja · Teilweise · Nein) once it is over: a block, or
+ * a termin with a goal, e.g. a training (owner decision 4: «zählt vorläufig», like a block). Without `kind` (older
+ * rows): a block. Whether it is timed, ended and not from Nolio, each caller checks as before.
+ */
+export function countsLikeBlock(e: { kind?: string | null; goal_id?: string | null }): boolean {
+  return !e.kind || e.kind === "block" || (e.kind === "termin" && !!e.goal_id);
+}
+
 /** How a past block nobody answered counts: as it always did, provisionally, or (null) not at all. */
 export type BlockCredit = "kept" | "provisional" | null;
 
@@ -292,16 +301,19 @@ export type BlockCredit = "kept" | "provisional" | null;
  *   counts as it always did (no sudden drop in anyone's numbers); also while `from` is unknown (null);
  * - "provisional": it ended within the last PROVISIONAL_DAYS: it counts, shown lighter, and is never said as done;
  * - null: it has not ended yet, or after those days it quietly stops counting (never a miss, never «verpasst»).
- * Without `created_at` (older rows) only the end decides.
+ * Without `created_at` (older rows) only the end decides. A termin with a goal (countsLikeBlock) never counted
+ * before, so it is never "kept": only provisional, then no more.
  */
-export function unansweredCredit(b: { ends_at: string | null; created_at?: string | null }, now: number, from: string | null | undefined): BlockCredit {
+export function unansweredCredit(b: { ends_at: string | null; created_at?: string | null; kind?: string | null }, now: number, from: string | null | undefined): BlockCredit {
   const end = b.ends_at ? Date.parse(b.ends_at) : NaN;
   if (!Number.isFinite(end) || end > now) return null;
+  const provisional = end > now - PROVISIONAL_MS ? "provisional" : null;
+  if (b.kind === "termin") return provisional;
   const f = from ? Date.parse(from) : NaN;
   if (!Number.isFinite(f)) return "kept";
   const created = b.created_at ? Date.parse(b.created_at) : NaN;
   if (end < f && !(created >= f)) return "kept";
-  return end > now - PROVISIONAL_MS ? "provisional" : null;
+  return provisional;
 }
 
 // ---------- the year at a glance: minutes for goals per day ----------
@@ -316,9 +328,9 @@ export interface GoalDayMinutes {
 }
 
 /**
- * Minutes that went into goals per local day: logged time, plus past planned blocks for a goal that nobody
- * answered yet (an answered block is already in the log) while they still count (unansweredCredit, `from`:
- * when honest counting began; undefined or null: every such block counts, as before).
+ * Minutes that went into goals per local day: logged time, plus past planned blocks for a goal (and termine with a
+ * goal, countsLikeBlock) that nobody answered yet (an answered block is already in the log) while they still count
+ * (unansweredCredit, `from`: when honest counting began; undefined or null: every such block counts, as before).
  * A planned Nolio training (source "nolio") never counts by itself: the completed training
  * arrives as logged time from Nolio, so counting the plan too would count it twice.
  * `dayOfIso` turns an ISO start time into the person's local day.
@@ -335,7 +347,7 @@ export function goalDayMinutes(
   const provisional: Record<string, number> = {};
   for (const t of log) if (t.minutes > 0) total[t.day] = (total[t.day] ?? 0) + t.minutes;
   for (const b of blocks) {
-    if (b.kind !== "block" || !b.goal_id || b.all_day || !b.ends_at || answered.has(b.id) || b.source === "nolio") continue;
+    if (!countsLikeBlock(b) || !b.goal_id || b.all_day || !b.ends_at || answered.has(b.id) || b.source === "nolio") continue;
     const credit = unansweredCredit(b, now.getTime(), from);
     if (!credit) continue;
     const min = Math.min(1440, Math.max(0, Math.round((Date.parse(b.ends_at) - Date.parse(b.starts_at)) / 60000)));
@@ -871,14 +883,14 @@ export function smallStepMinutes(blockMinutes: number[], weeklyHours: number | n
 
 type WeekBlock = { goal_id: string | null; starts_at: string; ends_at: string | null; all_day: boolean; kind?: string; source?: string | null; created_at?: string | null; answered: boolean };
 
-/** One of her own past blocks nobody answered yet: timed, ended by `now`, not the trainer's plan. */
+/** One of her own past blocks (or termine with a goal) nobody answered yet: timed, ended by `now`, not the trainer's plan. */
 function openBlock(b: WeekBlock, now: Date): boolean {
-  return (!b.kind || b.kind === "block") && !b.all_day && !!b.ends_at && !b.answered && b.source !== "nolio" && Date.parse(b.ends_at) <= now.getTime();
+  return countsLikeBlock(b) && !b.all_day && !!b.ends_at && !b.answered && b.source !== "nolio" && Date.parse(b.ends_at) <= now.getTime();
 }
 
 export interface WeekGoalSummary {
   goal_id: string;
-  /** minutes of blocks planned for it that week (the trainer's plan too) */
+  /** minutes of blocks (and termine) planned for it that week (the trainer's plan too) */
   planned_minutes: number;
   blocks: number;
   /** minutes recorded for it that week: logged, answered blocks, completed trainings */
@@ -892,8 +904,9 @@ export interface WeekGoalSummary {
 
 /**
  * Planned against done per goal for the week from `monday` (the Wochenblick, and the per-goal line on Woche).
- * done_minutes is confirmed time only; a block nobody answered is «open», never a miss. `from`: when honest
- * counting began (for counted_minutes). Goals with nothing planned and nothing done are left out.
+ * done_minutes is confirmed time only; a block nobody answered is «open», never a miss; a termin with a goal (a
+ * training) counts like a block (countsLikeBlock). `from`: when honest counting began (for counted_minutes). Goals
+ * with nothing planned and nothing done are left out.
  */
 export function weekGoalSummary(
   goalIds: string[],
@@ -909,7 +922,7 @@ export function weekGoalSummary(
   const out = new Map(goalIds.map((id) => [id, { goal_id: id, planned_minutes: 0, blocks: 0, done_minutes: 0, open_minutes: 0, counted_minutes: 0 }]));
   for (const b of blocks) {
     const s = b.goal_id ? out.get(b.goal_id) : undefined;
-    if (!s || (b.kind && b.kind !== "block") || b.all_day || !b.ends_at || !inWeek(dayOfIso(b.starts_at))) continue;
+    if (!s || !countsLikeBlock(b) || b.all_day || !b.ends_at || !inWeek(dayOfIso(b.starts_at))) continue;
     const min = Math.min(1440, Math.max(0, Math.round((Date.parse(b.ends_at) - Date.parse(b.starts_at)) / 60000)));
     if (!min) continue;
     s.planned_minutes += min;
@@ -1304,8 +1317,8 @@ export function habitMatchesBlock(habit: { title: string; goal_id?: string | nul
 }
 
 /**
- * Her own blocks of a goal on that day that have no answer yet (log_time without event_id, D1 with K6): past, running or
- * later that day; never one from her trainer (Nolio: the completed training counts by itself) and never an all-day one.
+ * Her own blocks (and termine) of a goal on that day that have no answer yet (log_time without event_id, D1 with K6): past,
+ * running or later that day; never one from her trainer (Nolio: the completed training counts by itself) and never an all-day one.
  * `goal_time`: the answer embedded with the block (a list or one row; an empty list or null = none).
  */
 export function openBlocksOn<B extends { starts_at: string; all_day?: boolean | null; source?: string | null; goal_time?: unknown }>(
@@ -1370,7 +1383,7 @@ export function habitTimeRow(
   const same = o.blocks
     .filter(
       (b) =>
-        (!b.kind || b.kind === "block") &&
+        countsLikeBlock(b) &&
         !b.all_day &&
         b.source !== "nolio" &&
         String(b.goal_id ?? "").toLowerCase() === goalId.toLowerCase() &&
@@ -1405,11 +1418,11 @@ export const SUPPORT_EVERY_DAYS = 90;
 
 /**
  * What the coach starts by itself, at most one a day, in this order (dailyNudge): the Wochenblick when it is due,
- * weekly hours for a dated goal without them, a Plan B after a «Nein» or a frustrated day, steps for a goal more than
- * six weeks away without any, a weekly rhythm for a goal with weekly hours, a dream (joy first), and for people
- * without an active goal one small experiment.
+ * on Sunday next week's shifts for shift work (owner decision 4), weekly hours for a dated goal without them, a Plan B
+ * after a «Nein» or a frustrated day, steps for a goal more than six weeks away without any, a weekly rhythm for a
+ * goal with weekly hours, a dream (joy first), and for people without an active goal one small experiment.
  */
-export const NUDGE_KINDS = ["wochenblick", "stunden", "plan_b", "etappen", "rhythmus", "traum", "experiment"] as const;
+export const NUDGE_KINDS = ["wochenblick", "stunden", "plan_b", "etappen", "rhythmus", "traum", "experiment", "dienste"] as const;
 export type NudgeKind = (typeof NUDGE_KINDS)[number];
 export const isNudgeKind = (v: unknown): v is NudgeKind => typeof v === "string" && (NUDGE_KINDS as readonly string[]).includes(v);
 
@@ -1526,6 +1539,8 @@ export interface DailyNudgeInput {
   dreams: readonly { id: string; flag: DreamNudge }[];
   /** one small experiment may be offered (experimentDue: no active goal) */
   experiment: boolean;
+  /** the Sunday ask for next week's shifts is due (shiftAskDue in series.ts) */
+  shifts?: boolean;
 }
 
 export interface DailyNudge {
@@ -1534,19 +1549,22 @@ export interface DailyNudge {
   id?: string;
   /** the dream's flag */
   flag?: DreamNudge;
+  /** the Wochenblick asks first for next week's shifts (both due on the same Sunday: one Anstoss) */
+  dienste?: true;
   /** the first greeting of the day may carry it: the Wochenblick, or no Anstoss came for NUDGE_GREETING_DAYS */
   greeting: boolean;
 }
 
 /**
  * The one Anstoss of today, or null. Never in a heavy time, after a pause, with an unknown state, or once one came
- * today (`lastDay`). By priority: a due Wochenblick; weekly hours for the nearest dated goal without them (they unlock
+ * today (`lastDay`). By priority: a due Wochenblick (asking first for next week's shifts when those are due too);
+ * on Sunday next week's shifts (`shifts`); weekly hours for the nearest dated goal without them (they unlock
  * the feasibility and the Wochenblick's plan); its Plan B after a setback; steps for a goal more than six weeks away
  * without any; a weekly rhythm; a dream with a flag (first on a day without entries and on Saturday and Sunday); for
  * people without an active goal one small experiment. A goal's item comes once (its asked mark; weekly hours and
  * steps not on the day the goal was made, when they were asked already); a kind she said «Nein»
- * to rests NUDGE_NO_DAYS. It goes into the greeting only for the Wochenblick or after NUDGE_GREETING_DAYS without one;
- * otherwise its moment is right after her next yes, tick or something done in the conversation.
+ * to rests NUDGE_NO_DAYS. It goes into the greeting for the Wochenblick and the shifts (their day is now) or after
+ * NUDGE_GREETING_DAYS without one; otherwise its moment is right after her next yes, tick or something done.
  */
 export function dailyNudge(o: DailyNudgeInput): DailyNudge | null {
   if (!isDay(o.today) || o.lastDay === undefined || o.heavy || o.pause) return null;
@@ -1558,10 +1576,12 @@ export function dailyNudge(o: DailyNudgeInput): DailyNudge | null {
     kind,
     ...(id ? { id } : {}),
     ...(flag ? { flag } : {}),
-    greeting: kind === "wochenblick" || greeting,
+    greeting: kind === "wochenblick" || kind === "dienste" || greeting,
   });
   const free = (k: NudgeKind) => !nudgeResting(o.no, k, o.today);
-  if (o.review) return pick("wochenblick");
+  const shifts = !!o.shifts && free("dienste");
+  if (o.review) return shifts ? { ...pick("wochenblick"), dienste: true } : pick("wochenblick");
+  if (shifts) return pick("dienste");
   const dream = free("traum") ? o.dreams[0] : undefined;
   if (dream && (weekdayIndex(o.today) >= 5 || o.entriesToday === 0)) return pick("traum", dream.id, dream.flag);
   const ahead = (g: DailyNudgeGoal) => (g.target_date && isDay(g.target_date) ? daysBetween(o.today, g.target_date) : null);

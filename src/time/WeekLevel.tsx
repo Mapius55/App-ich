@@ -7,7 +7,7 @@
 // one: «Nächste Woche mit dem Coach planen»), a past week «Mit dem Coach anschauen» (a look back).
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { daySubline, spokenMinutes, timeHM, weekdayShort, weekRange, weekTitle } from "../lib/dates";
-import { addDays, dayMinutes, dayOf, daysBetween, isoWeek, weekDays, weekGoalSummary, weekStart } from "../lib/plan";
+import { addDays, countsLikeBlock, dayMinutes, dayOf, daysBetween, isoWeek, weekDays, weekGoalSummary, weekStart } from "../lib/plan";
 import type { CalendarEvent } from "../lib/types";
 import { usePlanData } from "../space/data";
 import { useFresh, useSeenWhenVisible } from "../space/fresh";
@@ -93,8 +93,9 @@ export function WeekLevel({ titleId, active }: WeekLevelProps) {
     for (const e of events ?? []) byDay.get(localDay(e.starts_at))?.push(e);
     for (const list of byDay.values()) list.sort(byStart);
     const range = trackRange(events ?? []);
-    // a planned Nolio training doesn't count by itself: the completed one comes as goal time from Nolio
-    const goalBlocks = (events ?? []).filter((e) => e.kind === "block" && e.goal_id && e.source !== "nolio");
+    // a planned Nolio training doesn't count by itself: the completed one comes as goal time from Nolio; a termin with a
+    // goal (a training) counts like a block
+    const goalBlocks = (events ?? []).filter((e) => countsLikeBlock(e) && e.goal_id && e.source !== "nolio");
     const done = dayMinutes(data.log ?? [], goalBlocks, answered, now, localDay, data.countFrom);
     const rows = days.map((day) => {
       const list = byDay.get(day) ?? [];
@@ -110,7 +111,7 @@ export function WeekLevel({ titleId, active }: WeekLevelProps) {
     if (!events) return [];
     const active = (goals ?? []).filter((g) => g.status === "active");
     if (!active.length) return [];
-    const blocks = events.filter((e) => e.kind === "block" && e.goal_id).map((e) => ({ ...e, answered: answered.has(e.id) }));
+    const blocks = events.filter((e) => countsLikeBlock(e) && e.goal_id).map((e) => ({ ...e, answered: answered.has(e.id) }));
     const sums = new Map(weekGoalSummary(active.map((g) => g.id), blocks, data.log ?? [], monday, now, localDay, data.countFrom).map((s) => [s.goal_id, s]));
     return active.flatMap((g) => {
       const s = sums.get(g.id);

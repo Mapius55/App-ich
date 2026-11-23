@@ -102,7 +102,7 @@ describe("dailyNudge: at most one item a day, by priority", () => {
     expect(dailyNudge(input({ goals: [], dreams, experiment: true }))).toEqual({ kind: "traum", id: "d1", flag: "lange", greeting: false });
     expect(dailyNudge(input({ experiment: true }))).toEqual({ kind: "experiment", greeting: false });
     expect(dailyNudge(input({ goals: [goal()] }))).toBeNull();
-    expect(NUDGE_KINDS).toEqual(["wochenblick", "stunden", "plan_b", "etappen", "rhythmus", "traum", "experiment"]);
+    expect(NUDGE_KINDS).toEqual(["wochenblick", "stunden", "plan_b", "etappen", "rhythmus", "traum", "experiment", "dienste"]);
   });
 
   it("weekly hours only for a goal with a target date ahead and without hours, the nearest date first, once", () => {

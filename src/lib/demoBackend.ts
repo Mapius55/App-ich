@@ -32,6 +32,7 @@ import { normaliseUsername, USERNAME_RE } from "./types";
 import type { NaturePalette } from "./palette";
 import {
   addDays,
+  countsLikeBlock,
   dailyNudge,
   dayOf,
   dreamNudge,
@@ -55,8 +56,10 @@ import {
   seriesDayFollows,
   seriesDays,
   seriesKeepsDay,
+  seriesKind,
   seriesPatchFromDay,
   seriesTimes,
+  shiftAskDue,
   unansweredCredit,
   weekStart,
   type DailyNudge,
@@ -106,6 +109,9 @@ interface DemoNudge {
   experiment_at: string | null;
   /** like goals.nudge_after: a dream rests after her «nicht jetzt» until this day */
   rest?: Record<string, string>;
+  /** like profiles.shifts_asked_at and shifts_weekly: the Sunday ask for next week's shifts, after her yes every Sunday */
+  shifts_asked_at?: string | null;
+  shifts_weekly?: boolean;
 }
 /** The way out every Anstoss ends with (and how the demo knows its last reply was one). */
 const NUDGE_WAY_OUT = "Sonst schauen wir ein andermal.";
@@ -389,7 +395,8 @@ export function blockTimeEntry(
   minutes?: number,
 ): { goal_id: string; day: string; minutes: number } {
   if (!ev) throw new Error("Diesen Eintrag gibt es nicht mehr.");
-  if (ev.kind !== "block" || !ev.goal_id) throw new Error("Das ist kein geplanter Block für ein Ziel.");
+  // a block, or a termin with a goal (a training): it counts like a block (owner decision 4)
+  if (!countsLikeBlock(ev) || !ev.goal_id) throw new Error("Das ist kein geplanter Block für ein Ziel.");
   const planned = ev.all_day || !ev.ends_at ? null : (Date.parse(ev.ends_at) - Date.parse(ev.starts_at)) / 60000;
   const m = done ? (minutes ?? planned) : 0;
   if (m === null || !Number.isFinite(m)) throw new Error("Wie lange hat es gedauert? Gib bitte die Minuten an.");
@@ -436,8 +443,8 @@ const byGoalOrder = (a: Pick<Goal, "target_date" | "created_at">, b: Pick<Goal, 
       : b.target_date === null
         ? -1
         : a.target_date.localeCompare(b.target_date);
-// Like the view goal_minutes: logged time, plus past blocks of the goal nobody answered yet that still count
-// (unansweredCredit: from before honest counting as before, else for a week after they ended), of those the provisional ones.
+// Like the view goal_minutes: logged time, plus past blocks (and termine) of the goal nobody answered yet that still count
+// (unansweredCredit: blocks from before honest counting as before, else for a week after they ended), of those the provisional ones.
 function presenter(u: DemoUser, at = Date.now()): (g: StoredGoal) => Goal {
   const answered = new Set(u.goal_time.flatMap((t) => (t.event_id ? [t.event_id] : [])));
   return (g) => {
@@ -446,7 +453,7 @@ function presenter(u: DemoUser, at = Date.now()): (g: StoredGoal) => Goal {
     let provisional = 0;
     for (const e of u.events) {
       // like the view: a planned Nolio training is a plan; the completed one counts (source 'nolio' time)
-      if (e.goal_id !== g.id || e.kind !== "block" || e.source === "nolio" || e.all_day || !e.ends_at || answered.has(e.id)) continue;
+      if (e.goal_id !== g.id || !countsLikeBlock(e) || e.source === "nolio" || e.all_day || !e.ends_at || answered.has(e.id)) continue;
       const credit = unansweredCredit(e, at, u.honest_from ?? null);
       if (!credit) continue;
       const min = Math.min(1440, (Date.parse(e.ends_at) - Date.parse(e.starts_at)) / 60000);
@@ -573,8 +580,10 @@ const goalState = (u: Pick<DemoUser, "goals">, id: string | null) => {
 /**
  * Like series_sync (and series_fill, which the coach and the daily job run): a rhythm's coming days nobody answered
  * that no longer belong go, the others follow it (not the ones she changed on their own), then the missing days up
- * to 8 weeks ahead are entered (not twice, not a day she let fall away, not over a single block of hers for the same
- * goal). `only`: one rhythm, else all. Returns whether anything changed.
+ * to 8 weeks ahead are entered (not twice, not a day she let fall away, not over a single entry of hers for it: for
+ * blocks a block of the same goal, for her fixed times a termin at the same start or with the same title, or a block
+ * of its goal). Its days take its kind; a termin rhythm with a reminder carries reminder_asked (she asked for it).
+ * `only`: one rhythm, else all. Returns whether anything changed.
  */
 export function syncDemoSeries(u: Pick<DemoUser, "events" | "goals" | "goal_time" | "series">, at = Date.now(), only?: string): boolean {
   let changed = false;
@@ -587,13 +596,16 @@ export function syncDemoSeries(u: Pick<DemoUser, "events" | "goals" | "goal_time
     const before = u.events.length;
     u.events = u.events.filter((e) => !coming(e) || seriesKeepsDay(s, e.series_day!, !!e.series_exception, goal));
     if (u.events.length !== before) changed = true;
-    const live = s.active && (!s.goal_id || goal?.status === "active");
+    const kind = seriesKind(s);
+    const live = s.active && (!s.goal_id || kind === "termin" || goal?.status === "active");
     if (!live) continue;
     for (const e of u.events) {
       if (!coming(e) || e.series_exception) continue;
       const t = seriesTimes(s, e.series_day!);
       if (Date.parse(t.starts_at) <= at) continue;
-      const next = { title: s.title, location: s.location, reminder_minutes: s.reminder_minutes, goal_id: s.goal_id, kind: "block" as const, all_day: false, ...t };
+      // a rhythm of blocks leaves what a day had (blocks get a reminder anyway)
+      const asked = kind === "termin" ? s.reminder_minutes !== null : e.reminder_asked;
+      const next = { title: s.title, location: s.location, reminder_minutes: s.reminder_minutes, reminder_asked: asked, goal_id: s.goal_id, kind, all_day: false, ...t };
       const differs = (Object.keys(next) as (keyof typeof next)[]).some((k) =>
         k === "starts_at" || k === "ends_at" ? Date.parse(String(e[k])) !== Date.parse(next[k]) : (e[k] ?? null) !== (next[k] ?? null),
       );
@@ -605,9 +617,13 @@ export function syncDemoSeries(u: Pick<DemoUser, "events" | "goals" | "goal_time
       if (u.events.some((e) => e.series_id === s.id && e.series_day === d.day)) continue;
       const end = Date.parse(d.ends_at);
       const start = Date.parse(d.starts_at);
-      const single = u.events.some(
-        (o) => !o.series_id && o.kind === "block" && (o.goal_id ?? null) === s.goal_id && Date.parse(o.starts_at) < end && Date.parse(o.ends_at ?? o.starts_at) > start,
-      );
+      const single = u.events.some((o) => {
+        const os = Date.parse(o.starts_at);
+        if (o.series_id || os >= end || !(Date.parse(o.ends_at ?? o.starts_at) > start || os === start)) return false;
+        if (kind === "block") return o.kind === "block" && (o.goal_id ?? null) === s.goal_id;
+        const sameTermin = o.kind === "termin" && !o.all_day && (os === start || o.title.trim().toLowerCase() === s.title.trim().toLowerCase());
+        return sameTermin || (!!s.goal_id && o.kind === "block" && o.goal_id === s.goal_id);
+      });
       if (single) continue;
       u.events.push({
         id: uuid(),
@@ -618,8 +634,9 @@ export function syncDemoSeries(u: Pick<DemoUser, "events" | "goals" | "goal_time
         location: s.location,
         notes: null,
         reminder_minutes: s.reminder_minutes,
+        reminder_asked: kind === "termin" && s.reminder_minutes !== null,
         source: "coach",
-        kind: "block",
+        kind,
         goal_id: s.goal_id,
         series_id: s.id,
         series_day: d.day,
@@ -657,8 +674,13 @@ function removeDemoSeries(u: DemoUser, ids: Set<string>, at = Date.now()) {
   for (const e of u.events) if (e.series_id && ids.has(e.series_id)) e.series_id = null; // on delete set null
 }
 
-// "jeden Dienstag und Donnerstag um 18 Uhr laufen": a weekly rhythm she asks for (the real coach offers one too)
-const RHYTHM = /\bjede[nrs]?\s+((?:montag|dienstag|mittwoch|donnerstag|freitag|samstag|sonntag)(?:\s*(?:,|und)\s*(?:montag|dienstag|mittwoch|donnerstag|freitag|samstag|sonntag))*)\s+um\s+(\d{1,2}(?:[:.]\d{2})?)/i;
+// "jeden Dienstag und Donnerstag um 18 Uhr laufen", "immer donnerstags um 18 Training", "jede Woche am Montag um 9":
+// her fixed times every week (the real coach: a termin rhythm without asking back; it offers rhythms of blocks too)
+const DAY_WORD = "(?:montag|dienstag|mittwoch|donnerstag|freitag|samstag|sonntag)s?";
+const RHYTHM = new RegExp(
+  `\\b(?:jede[nrs]?(?:\\s+woche\\s+am)?|immer(?:\\s+am)?)\\s+(${DAY_WORD}(?:\\s*(?:,|und)\\s*${DAY_WORD})*)\\s+um\\s+(\\d{1,2}(?:[:.]\\d{2})?)`,
+  "i",
+);
 const RHYTHM_WHAT: [RegExp, string][] = [
   [/lauf|jogg/i, "Laufen"],
   [/schwimm/i, "Schwimmen"],
@@ -672,7 +694,7 @@ const RHYTHM_WHAT: [RegExp, string][] = [
 export function parseDemoRhythm(text: string): { weekdays: number[]; time: string; title: string | null } | null {
   const m = RHYTHM.exec(text);
   if (!m) return null;
-  const weekdays = parseWeekdays(m[1].split(/\s*(?:,|und)\s*/));
+  const weekdays = parseWeekdays(m[1].split(/\s*(?:,|und)\s*/).map((w) => w.replace(/s$/i, "")));
   const time = parseClock(m[2]);
   if (!weekdays || !time) return null;
   return { weekdays, time, title: RHYTHM_WHAT.find(([re]) => re.test(text))?.[1] ?? null };
@@ -1042,8 +1064,8 @@ export class DemoBackend implements Backend {
       Object.assign(ev, defined(patch), { sequence: (ev.sequence ?? 0) + 1, updated_at: now() });
       // like the trigger events_series_exception: a day of a rhythm changed on its own is her exception
       if (ev.series_id && seriesFieldsDiffer(before, ev)) ev.series_exception = true;
-      // like the events_block_answer trigger: a block's answer follows the block
-      const notPastBlock = ev.kind !== "block" || ev.all_day || !ev.ends_at || new Date(ev.ends_at).getTime() > Date.now() || !ev.goal_id;
+      // like the events_block_answer trigger: a block's answer follows the block (a termin with a goal's too)
+      const notPastBlock = !countsLikeBlock(ev) || ev.all_day || !ev.ends_at || new Date(ev.ends_at).getTime() > Date.now() || !ev.goal_id;
       if (notPastBlock || ev.starts_at !== before.starts_at || ev.ends_at !== before.ends_at) {
         u.goal_time = u.goal_time.filter((t) => t.event_id !== id);
       } else if (ev.goal_id !== before.goal_id) {
@@ -1172,9 +1194,14 @@ export class DemoBackend implements Backend {
       followPlanB(g);
       // like the trigger goals_done_at: set when it becomes done (unless given), kept while done, else cleared
       g.done_at = followDone(g.status, done_at !== undefined ? done_at : g.done_at);
-      // like the trigger goals_series: no longer active → its rhythm rests; a new target date → its days follow
+      // like the trigger goals_series: no longer active → its rhythm of blocks rests; reached or dropped → her fixed
+      // times let go of it (they stay); a new target date → its days follow
       if (u.series?.some((x) => x.goal_id === id)) {
-        if (g.status !== "active") for (const x of u.series) if (x.goal_id === id) x.active = false;
+        for (const x of u.series) {
+          if (x.goal_id !== id || g.status === "active") continue;
+          if (seriesKind(x) === "block") x.active = false;
+          else if (g.status === "done" || g.status === "dropped") x.goal_id = null;
+        }
         syncDemoSeries(u);
       }
       out = presenter(u)(g);
@@ -1183,7 +1210,9 @@ export class DemoBackend implements Backend {
   }
   async deleteGoal(id: string) {
     this.mutate((u) => {
-      // like "on delete cascade" on series.goal_id: its rhythm goes, with its coming days
+      // like the trigger goals_series_unlink: her fixed times let go of it and stay (their coming days follow)
+      for (const x of u.series ?? []) if (x.goal_id === id && seriesKind(x) === "termin") x.goal_id = null;
+      // like "on delete cascade" on series.goal_id: its rhythm of blocks goes, with its coming days
       removeDemoSeries(u, new Set((u.series ?? []).filter((x) => x.goal_id === id).map((x) => x.id)));
       u.goals = u.goals.filter((g) => g.id !== id);
       u.goal_time = u.goal_time.filter((t) => t.goal_id !== id); // cascade
@@ -1268,7 +1297,7 @@ export class DemoBackend implements Backend {
       if (sameTimeLogged(u.goal_time, goalId, day, minutes)) return;
       const answered = new Set(u.goal_time.map((t) => t.event_id).filter(Boolean));
       const mine = u.events
-        .filter((e) => e.kind === "block" && e.goal_id === goalId)
+        .filter((e) => countsLikeBlock(e) && e.goal_id === goalId)
         .map((e) => ({ ...e, goal_time: answered.has(e.id) ? [e.id] : [] }))
         .sort((a, b) => Date.parse(a.starts_at) - Date.parse(b.starts_at));
       const block = openBlocksOn(mine, day, (iso) => dayOf(new Date(iso)))[0];
@@ -1338,7 +1367,7 @@ export class DemoBackend implements Backend {
       if (u.goal_time.some((t) => t.source === "habit" && t.external_id === key)) return; // like the unique index
       const answered = new Set(u.goal_time.flatMap((t) => (t.event_id ? [t.event_id] : [])));
       const row = habitTimeRow(h, day, {
-        blocks: u.events.filter((e) => e.kind === "block").map((e) => ({ ...e, answered: answered.has(e.id) })),
+        blocks: u.events.filter((e) => countsLikeBlock(e)).map((e) => ({ ...e, answered: answered.has(e.id) })),
         times: u.goal_time,
         dayOfIso: (iso) => dayOf(new Date(iso)),
       });
@@ -1661,7 +1690,8 @@ export class DemoBackend implements Backend {
 
   /**
    * Like the real coach's one Anstoss a day (dailyNudge, NEXT #1): the item for today from the demo's data, or null.
-   * The demo has no Wochenblick; the rest follows the same priorities, «once» marks and the 14 days after a «Nein».
+   * The demo has no Wochenblick; the rest follows the same priorities, «once» marks and the 14 days after a «Nein»,
+   * with the Sunday ask for next week's shifts (shiftAskDue).
    */
   private demoNudge(day: string): DailyNudge | null {
     const u = this.user();
@@ -1669,8 +1699,9 @@ export class DemoBackend implements Backend {
     const now = Date.now();
     const goals = u.goals.filter((g) => g.kind !== "dream" && g.status === "active");
     const blocks = u.events.filter((e) => e.kind === "block" && e.goal_id);
-    // like the coach: her trainer's plan in Nolio is no block of hers (never answered by hand), and no rhythm next to it
-    const own = blocks.filter((b) => b.source !== "nolio");
+    // like the coach: her trainer's plan in Nolio is no block of hers (never answered by hand), and no rhythm next to it;
+    // a termin with a goal (a training) is answered like a block
+    const own = u.events.filter((b) => countsLikeBlock(b) && b.goal_id && b.source !== "nolio");
     const trainer = new Set(u.events.filter((e) => e.source === "nolio" && e.goal_id).map((e) => e.goal_id!));
     // shift work or irregular weeks: no fixed weekly times offered (like the coach's rhythmDue)
     const irregular = irregularWeeks(u.memories, u.events);
@@ -1678,6 +1709,8 @@ export class DemoBackend implements Backend {
     const days = Object.values(u.days).map((d) => ({ day: d.day, mood: d.mood, focus: d.focus }));
     const recent = days.filter((d) => d.day !== day);
     const live = (u.series ?? []).filter((r) => r.active && !(r.until_date && r.until_date < day));
+    // her fixed times every week are no rhythm of blocks (they don't count toward the offer's limit)
+    const liveBlocks = live.filter((r) => seriesKind(r) === "block").length;
     return dailyNudge({
       today: day,
       heavy: heavyLately(u.days[day]?.mood, recent, day),
@@ -1703,13 +1736,14 @@ export class DemoBackend implements Backend {
           day,
           now,
         ),
-        rhythm: rhythmOfferDue(g, { hasRhythm: live.some((r) => r.goal_id === g.id), activeRhythms: live.length, irregular, today: day, trainer: trainer.has(g.id) }),
+        rhythm: rhythmOfferDue(g, { hasRhythm: live.some((r) => r.goal_id === g.id), activeRhythms: liveBlocks, irregular, today: day, trainer: trainer.has(g.id) }),
       })),
       dreams: u.goals
         .filter((g) => g.kind === "dream" && g.status === "active")
         .map((g) => ({ id: g.id, flag: dreamNudge({ ...g, nudge_after: state.rest?.[g.id] ?? null }, day, { startDay: state.since }) }))
         .filter((d): d is { id: string; flag: NonNullable<typeof d.flag> } => d.flag !== null),
       experiment: experimentDue(u.goals, state.experiment_at, day, (iso) => dayOf(new Date(iso))),
+      shifts: shiftAskDue({ today: day, irregular, askedAt: state.shifts_asked_at ?? null, weekly: state.shifts_weekly, entries: u.events, dayOfIso: (iso) => dayOf(new Date(iso)) }),
     });
   }
 
@@ -1725,6 +1759,7 @@ export class DemoBackend implements Backend {
       if (n.kind === "stunden" && n.id) st.hours[n.id] = at;
       if (n.kind === "etappen" && n.id) st.steps[n.id] = at;
       if (n.kind === "experiment") st.experiment_at = at;
+      if (n.kind === "dienste") st.shifts_asked_at ??= at;
       if (g && n.kind === "plan_b") g.plan_b_asked_at = at;
       if (g && n.kind === "rhythmus") g.rhythm_asked_at = at;
       if (g && n.kind === "traum") g.reminded_at = at;
@@ -1737,8 +1772,18 @@ export class DemoBackend implements Backend {
       rhythmus: `Magst du für „${title}“ feste Zeiten in der Woche?`,
       traum: `Was reizt dich am meisten an „${title}“?`,
       experiment: "Magst du heute zehn Minuten hinaus, solange es noch hell ist?",
+      dienste: "Wie sehen deine Dienste nächste Woche aus?",
     };
     return `${ask[n.kind]} ${NUDGE_WAY_OUT}`;
+  }
+
+  /** Her answer (no «Nein») right after today's Anstoss «dienste»: her first yes, from now on every Sunday. */
+  private demoShiftsYes(day: string, history: ChatMessage[]): boolean {
+    const st = this.user().nudge;
+    const last = [...history].reverse().find((m) => m.role === "assistant")?.content ?? "";
+    if (st?.kind !== "dienste" || st.day !== day || !last.endsWith(NUDGE_WAY_OUT)) return false;
+    this.mutate((u) => (u.nudge!.shifts_weekly = true));
+    return true;
   }
 
   /** Her «Nein» to today's Anstoss: that kind rests two weeks (a dream: three months), like note_offer with nein. */
@@ -1780,18 +1825,20 @@ export class DemoBackend implements Backend {
     }
     // "heute 1,5 Stunden trainiert": time for a goal (a report, so no appointment from it)
     const spent = req.message && !goal && !dreamTurn ? recogniseDemoTime(req.message, (await this.listGoals()).filter((g) => g.kind !== "dream")) : null;
-    // "jeden Dienstag und Donnerstag um 18 Uhr laufen": a weekly rhythm for her goal (an hour each)
+    // "jeden Dienstag und Donnerstag um 18 Uhr laufen": her fixed time every week (owner decision 4), a termin rhythm
+    // without a reminder (an hour each); an activity for her goal (a training) counts for it like a block
     const rhythm = req.message && !spent && !dreamTurn && !goal ? parseDemoRhythm(req.message) : null;
     if (rhythm) {
-      const focus = (await this.listGoals()).find((g) => g.kind !== "dream" && g.status === "active") ?? null;
+      const focus = rhythm.title ? ((await this.listGoals()).find((g) => g.kind !== "dream" && g.status === "active") ?? null) : null;
       const made = await this.addSeries({
         goal_id: focus?.id ?? null,
-        title: rhythm.title ?? focus?.title ?? "Fokuszeit",
+        kind: "termin",
+        title: rhythm.title ?? "Fester Termin",
         weekdays: rhythm.weekdays,
         start_time: rhythm.time,
         duration_minutes: 60,
         location: null,
-        reminder_minutes: 10,
+        reminder_minutes: null,
         time_zone: req.context.timezone || "Europe/Zurich",
         start_date: req.context.day,
         until_date: null,
@@ -1895,6 +1942,9 @@ export class DemoBackend implements Backend {
         }
       } else if (this.demoNudgeNo(req.message, req.context.day, history)) {
         reply = "Gut, dann lassen wir das.";
+      } else if (this.demoShiftsYes(req.context.day, history)) {
+        // her answer to the Sunday ask for next week's shifts: from now on every Sunday (note_offer dienste jede_woche)
+        reply = "Danke. Ich frage dich ab jetzt jeden Sonntag nach deinen Diensten der nächsten Woche.";
       } else if (dreamTurn) {
         reply = dreamTurn.reply;
       } else if (goal) {

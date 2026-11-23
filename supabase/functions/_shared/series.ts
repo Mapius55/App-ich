@@ -1,6 +1,7 @@
-// Fester Wochenrhythmus: fixed weekly blocks (a row in public.series) whose days are entered as normal calendar
-// entries up to 8 weeks ahead (supabase/migrations/20261124000000_series.sql). Pure helpers shared by the coach,
-// the app and the demo backend (which mirrors the database's fill and sync with seriesDays). No Deno-only imports.
+// Fester Wochenrhythmus: fixed weekly blocks or termine (a row in public.series, kind 'block' | 'termin') whose days are
+// entered as normal calendar entries up to 8 weeks ahead (supabase/migrations/20261124000000_series.sql,
+// 20261126000500_termin_series.sql). Pure helpers shared by the coach, the app and the demo backend (which mirrors
+// the database's fill and sync with seriesDays). No Deno-only imports.
 
 import { zonedToUtc } from "./ics.ts";
 import { addDays, blockAnswerState, daysBetween, localClock, weekdayIndex } from "./plan.ts";
@@ -15,8 +16,10 @@ export const RHYTHM_AHEAD_DAYS = 21;
 export const RHYTHM_SHARE = 0.7;
 /** No offer while she has this many active rhythms. */
 export const RHYTHM_MAX = 2;
-/** The coach creates at most this many active rhythms. */
+/** The coach creates at most this many active rhythms of blocks … */
 export const SERIES_MAX_ACTIVE = 3;
+/** … and of her fixed times (termine: a training, the shop, a lecture). */
+export const TERMIN_SERIES_MAX = 8;
 /** After this many days of a rhythm that mostly didn't happen, the coach offers once to change or pause it. */
 export const LAPSE_DAYS = 21;
 
@@ -25,10 +28,21 @@ export const WEEKDAY_CODES = ["mo", "di", "mi", "do", "fr", "sa", "so"] as const
 const WEEKDAY_SHORT = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"];
 const WEEKDAY_WORDS = ["montag", "dienstag", "mittwoch", "donnerstag", "freitag", "samstag", "sonntag"];
 
+/**
+ * What a rhythm's days are: blocks planned with the coach (they rest with their goal and end before its target date),
+ * or her fixed times (termine: «immer», «jeden Donnerstag», «jede Woche»; never ending with a goal, no reminder unless
+ * she asked). Missing (before its migration): blocks.
+ */
+export type SeriesKind = "block" | "termin";
+export const SERIES_KINDS: readonly SeriesKind[] = ["block", "termin"];
+export const seriesKind = (s: { kind?: string | null }): SeriesKind => (s.kind === "termin" ? "termin" : "block");
+
 /** A weekly rhythm as stored (public.series). Times are local in `time_zone`. */
 export interface SeriesRule {
   id: string;
   goal_id: string | null;
+  /** blocks (the default) or her fixed times */
+  kind?: SeriesKind;
   title: string;
   /** ISO weekdays, 1 = Monday … 7 = Sunday */
   weekdays: number[];
@@ -96,21 +110,28 @@ export function seriesTimes(s: Pick<SeriesRule, "start_time" | "duration_minutes
   return { starts_at, ends_at: new Date(Date.parse(starts_at) + s.duration_minutes * 60000).toISOString() };
 }
 
-/** The last day a rhythm may have: its own end, else the day before its goal's target date; null = open. */
-export function seriesEndDay(s: Pick<SeriesRule, "until_date">, goalTarget: string | null | undefined): string | null {
-  return s.until_date ?? (goalTarget ? addDays(goalTarget, -1) : null);
+/**
+ * The last day a rhythm may have: its own end, else (blocks) the day before its goal's target date; null = open.
+ * Her fixed times (termin) end only by their own end.
+ */
+export function seriesEndDay(s: Pick<SeriesRule, "until_date" | "kind">, goalTarget: string | null | undefined): string | null {
+  return s.until_date ?? (goalTarget && seriesKind(s) === "block" ? addDays(goalTarget, -1) : null);
 }
+
+/** Whether a rhythm runs: active, and for blocks its goal (if any) active too; her fixed times run whatever a goal does. */
+const seriesLive = (s: SeriesRule, goal: { status: string } | null | undefined) =>
+  s.active && (!s.goal_id || seriesKind(s) === "termin" || goal?.status === "active");
 
 /**
  * The coming days of a rhythm up to `horizonDays` ahead, as series_fill enters them: on its weekdays from its start
  * (never before today in its time zone, never a time that has passed) to its end, without the days she let fall
- * away. Nothing while it rests, or while its goal (`goal`, null when there is none) is not active.
+ * away. Nothing while it rests, or (blocks) while its goal (`goal`, null when there is none) is not active.
  */
 export function seriesDays(
   s: SeriesRule,
   o: { now: number; goal?: { status: string; target_date: string | null } | null; horizonDays?: number },
 ): { day: string; starts_at: string; ends_at: string }[] {
-  if (!s.active || (s.goal_id && (!o.goal || o.goal.status !== "active"))) return [];
+  if (!seriesLive(s, o.goal)) return [];
   const today = localClock(new Date(o.now), s.time_zone).day;
   const horizon = addDays(today, o.horizonDays ?? SERIES_HORIZON_DAYS);
   const end = seriesEndDay(s, s.goal_id ? o.goal?.target_date : null);
@@ -131,9 +152,8 @@ export function seriesKeepsDay(
   exception: boolean,
   goal: { status: string; target_date: string | null } | null | undefined,
 ): boolean {
-  const live = s.active && (!s.goal_id || goal?.status === "active");
   const end = seriesEndDay(s, s.goal_id ? goal?.target_date : null);
-  if (!live || day < s.start_date || (end && day > end) || s.skip_days.includes(day)) return false;
+  if (!seriesLive(s, goal) || day < s.start_date || (end && day > end) || s.skip_days.includes(day)) return false;
   return exception || s.weekdays.includes(isoWeekday(day));
 }
 
@@ -152,6 +172,31 @@ const SHIFT_ENTRY = /(?<!ge)schicht|\b(?:früh|spät|nacht)dienst\b|\bdienst\b/i
 export function irregularWeeks(memories: { content: string }[], entries: { title: string; kind?: string | null }[]): boolean {
   if (memories.some((m) => SHIFT_NOTE.test(m.content))) return true;
   return entries.filter((e) => e.kind !== "block" && SHIFT_ENTRY.test(e.title)).length >= 2;
+}
+
+/**
+ * The Sunday ask for next week's shifts (owner decision 4, the Anstoss «dienste»): on a Sunday, for irregular weeks
+ * (irregularWeeks), the first time once (`askedAt` null: never asked) and after her first yes every Sunday (`weekly`);
+ * not when two or more shifts of the coming week (Monday to Sunday) already stand in the calendar (she named them).
+ * Unknown state (`askedAt` undefined, before its migration): never, since nothing could be noted.
+ */
+export function shiftAskDue(o: {
+  today: string;
+  irregular: boolean;
+  askedAt: string | null | undefined;
+  weekly: boolean | null | undefined;
+  entries: readonly { title: string; kind?: string | null; starts_at: string }[];
+  dayOfIso: (iso: string) => string;
+}): boolean {
+  if (o.askedAt === undefined || !o.irregular || isoWeekday(o.today) !== 7) return false;
+  if (o.askedAt !== null && o.weekly !== true) return false;
+  const from = addDays(o.today, 1);
+  const to = addDays(o.today, 7);
+  const named = o.entries.filter((e) => {
+    const d = o.dayOfIso(e.starts_at);
+    return e.kind !== "block" && SHIFT_ENTRY.test(e.title) && d >= from && d <= to;
+  });
+  return named.length < 2;
 }
 
 /**

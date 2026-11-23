@@ -145,6 +145,8 @@ const GREETING_MARKS: Record<string, readonly string[]> = {
   update_goal: ["id", "reminded"],
   update_milestone: ["id", "nachgefragt"],
   update_memory: ["id", "nachgefragt"],
+  // the offer that was brought up, never her answer to it (her «Nein», her yes to the Sunday shifts)
+  note_offer: ["what", "goal_id"],
 };
 export const GREETING_WRITE_REFUSAL =
   "Erst nach ihrer Antwort: In der Begrüssung trägst du nichts ein und änderst nichts (sie hat noch nichts gesagt). Sag auch nicht, dass du etwas eingetragen hast.";
@@ -454,6 +456,7 @@ const OFFER_NUDGE: Readonly<Record<string, NudgeKind>> = {
   plan_b: "plan_b",
   rhythmus: "rhythmus",
   experiment: "experiment",
+  dienste: "dienste",
 };
 
 /** The Anstoss kind of a note_offer (null: begleitung, blockmuster, flaute are no Anstoss). */
@@ -463,3 +466,9 @@ export function offerNudgeKind(what: string): NudgeKind | null {
 
 /** What the coach hears back after her «Nein» to the day's Anstoss: that kind rests two weeks (NUDGE_NO_DAYS). */
 export const NUDGE_NO_NOTE = "Notiert: Diese Art von Anstoss ruht jetzt zwei Wochen. Lass es, ohne nachzufragen, und sprecht über das, was sie mitbringt.";
+
+/** What the coach hears back from note_offer dienste (the Sunday ask for next week's shifts, owner decision 4). */
+export const SHIFTS_ASKED_NOTE =
+  "Notiert. Ihre Dienste trägst du als Termine ein; nennt sie sie, rufst du note_offer dienste mit jede_woche true auf, dann fragst du jeden Sonntag.";
+export const SHIFTS_WEEKLY_NOTE = "Notiert: Ab jetzt fragst du jeden Sonntag nach ihren Diensten der nächsten Woche.";
+export const SHIFTS_STOP_NOTE = "Notiert: Nach ihren Diensten fragst du nicht mehr, ausser sie spricht es selbst an.";

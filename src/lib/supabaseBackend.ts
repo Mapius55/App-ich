@@ -548,9 +548,9 @@ export class SupabaseBackend implements Backend {
       const [blocks, times] = await Promise.all([
         this.sb
           .from("events")
+          // its blocks and termine (a termin with a goal counts like a block)
           .select("id, title, goal_id, starts_at, all_day, kind, source, goal_time(id)")
           .eq("goal_id", habit.goal_id)
-          .eq("kind", "block")
           .eq("all_day", false)
           .neq("source", "nolio")
           .gte("starts_at", new Date(start - 86400e3).toISOString())

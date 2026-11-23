@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { backend } from "../../lib/backend";
-import { addDays, addMonths, blockAnswerState, dayOf, daysBetween, monthGrid, monthStart, partialMinutes, unansweredCredit, weekDays, type BlockCredit } from "../../lib/plan";
+import { addDays, addMonths, blockAnswerState, countsLikeBlock, dayOf, daysBetween, monthGrid, monthStart, partialMinutes, unansweredCredit, weekDays, type BlockCredit } from "../../lib/plan";
 import { localMidnightIso, longDay, minutesLabel, monthTitle, timeHM, weekdayShort } from "../../lib/dates";
 import type { CalendarEvent, Goal } from "../../lib/types";
 import { EventSheet } from "./EventSheet";
@@ -24,9 +24,9 @@ function relativeDay(day: string, today: string): string | null {
 
 const byStart = (a: CalendarEvent, b: CalendarEvent) => (a.all_day === b.all_day ? a.starts_at.localeCompare(b.starts_at) : a.all_day ? -1 : 1);
 
-/** planned minutes of a block that serves a goal and is over (it counts for the goal by itself), else null */
+/** planned minutes of a block (or a termin with a goal) that serves a goal and is over (it counts by itself), else null */
 function pastBlockMinutes(e: CalendarEvent, now: number): number | null {
-  if (e.kind !== "block" || !e.goal_id || e.all_day || !e.ends_at) return null;
+  if (!countsLikeBlock(e) || !e.goal_id || e.all_day || !e.ends_at) return null;
   const end = Date.parse(e.ends_at);
   return end <= now ? Math.round((end - Date.parse(e.starts_at)) / 60000) : null;
 }

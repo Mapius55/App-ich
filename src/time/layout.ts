@@ -2,7 +2,7 @@
 // Minutes are wall-clock minutes since local midnight of a given day.
 import type { CalendarEvent } from "../lib/types";
 import { hoursMinutes } from "../lib/dates";
-import { addDays, dayOf, daysBetween, weekStart } from "../lib/plan";
+import { addDays, countsLikeBlock, dayOf, daysBetween, weekStart } from "../lib/plan";
 
 export type EventLike = Pick<CalendarEvent, "id" | "starts_at" | "ends_at" | "all_day" | "kind" | "goal_id">;
 
@@ -137,7 +137,7 @@ export function weekTrack(events: EventLike[], day: string, range: TrackRange): 
     const start = Math.max(range.from, minutesIn(day, e.starts_at));
     const end = Math.min(range.to, endIn(day, e));
     if (end <= start) continue;
-    out.push({ id: e.id, left: (start - range.from) / span, width: (end - start) / span, goal: e.kind === "block" && !!e.goal_id });
+    out.push({ id: e.id, left: (start - range.from) / span, width: (end - start) / span, goal: countsLikeBlock(e) && !!e.goal_id });
   }
   return out;
 }
@@ -149,11 +149,11 @@ export function nowTick(now: Date, range: TrackRange): number | null {
   return (m - range.from) / (range.to - range.from);
 }
 
-/** minutes of goal blocks on a day that have not ended yet (they are "geplant") */
+/** minutes of goal blocks (and termine with a goal) on a day that have not ended yet (they are "geplant") */
 export function plannedMinutes(events: EventLike[], now: Date): number {
   let sum = 0;
   for (const e of events) {
-    if (e.kind !== "block" || !e.goal_id || e.all_day || !e.ends_at) continue;
+    if (!countsLikeBlock(e) || !e.goal_id || e.all_day || !e.ends_at) continue;
     const end = Date.parse(e.ends_at);
     if (end <= now.getTime()) continue;
     sum += Math.min(DAY_MIN, Math.max(0, Math.round((end - Date.parse(e.starts_at)) / 60000)));

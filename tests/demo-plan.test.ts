@@ -299,7 +299,9 @@ describe("block time entries", () => {
   });
   it("needs a block for a goal, and a length", () => {
     expect(() => blockTimeEntry(null, true)).toThrow("gibt es nicht mehr");
-    expect(() => blockTimeEntry({ ...block, kind: "termin" }, true)).toThrow("kein geplanter Block");
+    // a termin with a goal (a training) is answered like a block (owner decision 4); without a goal it is no block
+    expect(blockTimeEntry({ ...block, kind: "termin" }, true)).toMatchObject({ goal_id: block.goal_id });
+    expect(() => blockTimeEntry({ ...block, kind: "termin", goal_id: null }, true)).toThrow("kein geplanter Block");
     expect(() => blockTimeEntry({ ...block, goal_id: null }, true)).toThrow("kein geplanter Block");
     expect(() => blockTimeEntry({ ...block, ends_at: null }, true)).toThrow("Minuten");
     expect(blockTimeEntry({ ...block, ends_at: null }, true, 40)).toMatchObject({ minutes: 40 });
@@ -344,12 +346,12 @@ describe("demo backend: effort and time", () => {
     const g = await b.addGoal({ title: "Halbmarathon" });
     const past = await b.addEvent(entry("Lange Runde", -3 * H, -2 * H, { goal_id: g.id }));
     await b.addEvent(entry("Intervalle", -1.5 * H, -1 * H, { goal_id: g.id }));
-    // not counted: future, running, all-day, without end, an appointment, another goal
+    // not counted: future, running, all-day, without end, an appointment without the goal, another goal
     await b.addEvent(entry("Später", 2 * H, 3 * H, { goal_id: g.id }));
     await b.addEvent(entry("Läuft gerade", -0.5 * H, 0.5 * H, { goal_id: g.id }));
     await b.addEvent(entry("Ganzer Tag", -48 * H, -24 * H, { goal_id: g.id, all_day: true }));
     await b.addEvent(entry("Ohne Ende", -5 * H, null, { goal_id: g.id }));
-    await b.addEvent(entry("Wettkampf", -5 * H, -4 * H, { goal_id: g.id, kind: "termin" }));
+    await b.addEvent(entry("Wettkampf", -5 * H, -4 * H, { kind: "termin" }));
     const other = await b.addGoal({ title: "Ruhiger werden" });
     await b.addEvent(entry("Meditation", -5 * H, -4 * H, { goal_id: other.id }));
     expect(await timeOf(g.id)).toEqual({ logged_minutes: 0, block_minutes: 90, provisional_minutes: 90 });

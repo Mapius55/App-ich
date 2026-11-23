@@ -396,7 +396,7 @@ describe("the coach's context", () => {
   it("the prompt: one bullet for the rhythm (replacing «ab und zu»), the exception in one sentence, the guards", () => {
     // round 3: no «ab und zu» offers of its own; the rhythm comes as the day's Anstoss or while planning
     expect(PERSONA).not.toContain("Biete ab und zu an");
-    expect(PERSONA).toContain("- create_series, update_series: Ein Wochenrhythmus sind Blöcke, die jede Woche zur selben Zeit wiederkehren");
+    expect(PERSONA).toContain("- create_series, update_series: Ein Wochenrhythmus sind Termine oder Blöcke, die jede Woche zur selben Zeit wiederkehren");
     expect(PERSONA).toContain("legst ihn erst nach ihrem klaren Ja an; bei unregelmässigen Wochen, etwa mit Schichtarbeit, nur, wenn sie danach fragt");
     expect(PERSONA).toContain("„Diesen Donnerstag fällt aus“ löscht nur diesen Eintrag, „am Donnerstag lieber um 19 Uhr“ verschiebt nur ihn");
     expect(PERSONA).toContain("rufst note_offer mit flaute auf");
@@ -414,15 +414,15 @@ describe("the coach's tools", () => {
     return tools.slice(at, next < 0 ? undefined : next);
   };
 
-  it("create_series: after her yes, weekdays as codes, until the day before the target date by default", () => {
-    expect(tool("create_series")).toContain("Nur nach ihrem klaren Ja.");
+  it("create_series: blocks after her yes, termine at once; weekdays as codes, blocks until the day before the target date", () => {
+    expect(tool("create_series")).toContain("Termine gleich, wenn sie „immer“, „jeden Donnerstag“ oder „jede Woche“ sagt; Blöcke nur nach ihrem klaren Ja.");
     expect(tool("create_series")).toContain('weekdays: { type: "array", items: { type: "string", enum: [...WEEKDAY_CODES] }');
     expect(tool("create_series")).toContain('required: ["title", "weekdays", "time"]');
-    expect(tool("create_series")).toContain("ohne until bis zum Tag vor dem Zieldatum");
+    expect(tool("create_series")).toContain("Blöcke ohne until bis zum Tag vor dem Zieldatum");
     expect(source).toContain("time_zone: ctx.tz,");
-    expect(source).toContain("if (active.length >= SERIES_MAX_ACTIVE) throw new ToolInputError(");
-    // an ended rhythm, or the old part of one split «ab Januar», never counts towards the limit or as a double
-    expect(source).toContain("const active = liveRhythms((others.data ?? []) as Running[], day);");
+    expect(source).toContain("const max = kind === \"termin\" ? TERMIN_SERIES_MAX : SERIES_MAX_ACTIVE;");
+    // an ended rhythm, or the old part of one split «ab Januar», never counts towards the limit or as a double; per kind
+    expect(source).toContain("const active = liveRhythms(((others.data ?? []) as Running[]).filter((o) => seriesKind(o) === kind), day);");
     expect(source).toContain('throw new ToolInputError("Diesen Rhythmus gibt es schon (siehe „Wochenrhythmus“): ändere ihn mit update_series");');
   });
 

@@ -6,7 +6,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { backend } from "../lib/backend";
 import { localMidnightIso } from "../lib/dates";
-import { dayOf, goalDayMinutes, heatThresholds, provisionalDays } from "../lib/plan";
+import { countsLikeBlock, dayOf, goalDayMinutes, heatThresholds, provisionalDays } from "../lib/plan";
 import type { CalendarEvent, GoalTime } from "../lib/types";
 import { usePlanData } from "../space/data";
 import { whenStill } from "../space/motion";
@@ -57,7 +57,7 @@ export function useYearData(year: number, goalId: string | null): YearData {
     if (!data) return { perDay: {}, provisional: new Set<string>(), entries, planned };
     const answered = new Set(data.log.flatMap((t) => (t.event_id ? [t.event_id] : [])));
     const log = goalId ? data.log.filter((t) => t.goal_id === goalId) : data.log;
-    const blocks = data.events.filter((e) => e.kind === "block" && e.goal_id && (!goalId || e.goal_id === goalId));
+    const blocks = data.events.filter((e) => countsLikeBlock(e) && e.goal_id && (!goalId || e.goal_id === goalId));
     for (const e of data.events) {
       const d = localDay(e.starts_at);
       entries[d] = (entries[d] ?? 0) + 1;
