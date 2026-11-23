@@ -121,15 +121,17 @@ describe("a past termin with a goal counts like a block (provisional for a week,
   it("a habit tick that is the training answers it (counted once); a termin without an end counts for nothing, so never", () => {
     const habit = { id: "11111111-1111-4111-8111-111111111111", title: "Training", goal_id: "g1", minutes: 90 };
     const training = { id: "t1", title: "Training Halle", goal_id: "g1", starts_at: "2026-11-21T17:00:00Z", ends_at: "2026-11-21T18:30:00Z", all_day: false, kind: "termin", source: "coach", answered: false };
-    expect(habitTimeRow(habit, "2026-11-21", { blocks: [training], times: [], dayOfIso: zurich })?.event_id).toBe("t1");
+    // ticked after the training
+    const now = Date.parse("2026-11-21T19:00:00Z");
+    expect(habitTimeRow(habit, "2026-11-21", { blocks: [training], times: [], dayOfIso: zurich, now })?.event_id).toBe("t1");
     // without its end (or the end not fetched) the tick is her own time, never the termin's answer: an answer of an
     // entry without an end goes with its next change (sync_block_answer), and the tick's minutes would go with it
     for (const ends_at of [null, undefined]) {
-      const row = habitTimeRow(habit, "2026-11-21", { blocks: [{ ...training, ends_at }], times: [], dayOfIso: zurich });
+      const row = habitTimeRow(habit, "2026-11-21", { blocks: [{ ...training, ends_at }], times: [], dayOfIso: zurich, now });
       expect(row).toMatchObject({ event_id: null, minutes: 90, source: "habit" });
     }
     // a block as before (with or without an end)
-    expect(habitTimeRow(habit, "2026-11-21", { blocks: [{ ...training, kind: "block", ends_at: undefined }], times: [], dayOfIso: zurich })?.event_id).toBe("t1");
+    expect(habitTimeRow(habit, "2026-11-21", { blocks: [{ ...training, kind: "block", ends_at: undefined }], times: [], dayOfIso: zurich, now })?.event_id).toBe("t1");
     // both backends fetch the end with the entries
     expect(source).toContain('.select("id, title, goal_id, starts_at, ends_at, all_day, kind, source, goal_time(id)")');
     expect(read("../src/lib/supabaseBackend.ts")).toContain('.select("id, title, goal_id, starts_at, ends_at, all_day, kind, source, goal_time(id)")');
@@ -313,7 +315,7 @@ describe("the migration 20261126000500_termin_series.sql", () => {
 describe("the coach: a weekly termin rhythm without asking back, single termine only for this week", () => {
   it("the rule replaces «feste Zeiten für diese Woche» (lean: one sentence)", () => {
     expect(PERSONA).toContain(
-      "Sagt sie bei festen Zeiten „immer“, „jeden Donnerstag“ oder „jede Woche“, legst du ohne Rückfrage einen Wochenrhythmus mit kind termin an und sagst „steht jetzt jede Woche im Kalender“; nur für diese Woche trägst du einzelne Termine ein.",
+      "Was jede Woche gleich ist, ob sie „immer“, „jeden Donnerstag“ oder „jede Woche“ sagt oder ihre normale Woche beschreibt, legst du ohne Rückfrage als Wochenrhythmus mit kind termin an und sagst „steht jetzt jede Woche im Kalender“; einzelne Termine nur für diese Woche und für wechselnde Schichten.",
     );
     expect(PERSONA).not.toContain("Nennt sie feste Zeiten für diese Woche");
     expect(PERSONA).toContain("Ein Wochenrhythmus sind Termine oder Blöcke");

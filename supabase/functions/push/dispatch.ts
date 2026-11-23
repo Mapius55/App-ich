@@ -9,6 +9,7 @@ import {
   busyDecision,
   calendarSubscribed,
   chooseBody,
+  DAILY_LOOKBACK_DAYS,
   dueReminders,
   dueSlot,
   endedLate,
@@ -136,12 +137,12 @@ async function activityOf(sb: SupabaseClient, userId: string): Promise<Activity 
 const EVENT_COLS = "id, title, starts_at, ends_at, all_day, kind, goal_id, source, location";
 
 /**
- * Her entries around now: three days back (an entry of every day, an all-day entry over a few days, the late entry of
- * last night) to a day and a half ahead, and all-day entries that began before and still run. Null when they could
- * not be read: then nothing about her day, no wait for a running entry and no later morning.
+ * Her entries around now: a week back (an entry of every day, DAILY_LOOKBACK_DAYS; an all-day entry over a few days,
+ * the late entry of last night) to a day and a half ahead, and all-day entries that began before and still run. Null
+ * when they could not be read: then nothing about her day, no wait for a running entry and no later morning.
  */
 async function nearEvents(sb: SupabaseClient, userId: string, at: Date): Promise<PushEvent[] | null> {
-  const from = new Date(at.getTime() - 3 * 86400e3).toISOString();
+  const from = new Date(at.getTime() - (DAILY_LOOKBACK_DAYS + 1) * 86400e3).toISOString();
   const [near, longer] = await Promise.all([
     rows<PushEvent>(
       sb
@@ -151,7 +152,7 @@ async function nearEvents(sb: SupabaseClient, userId: string, at: Date): Promise
         .gte("starts_at", from)
         .lte("starts_at", new Date(at.getTime() + 36 * 3600e3).toISOString())
         .order("starts_at")
-        .limit(120),
+        .limit(300),
       "events",
     ),
     // all-day entries that began before that and still run (two weeks of holidays): ends_at is the local
@@ -440,21 +441,40 @@ async function answeredOf(sb: SupabaseClient, ids: string[]): Promise<Set<string
  */
 async function soonReminded(sb: SupabaseClient, p: Person, at: Date, activity: Activity | null): Promise<Set<string>> {
   if (p.notify_reminders !== true || calendarSubscribed(p.calendar_fetched_at, at)) return new Set();
-  const list = await rows<ReminderEvent>(
-    sb
-      .from("events")
-      .select(REMINDER_COLS)
-      .eq("user_id", p.id)
-      .eq("all_day", false)
-      .not("reminder_minutes", "is", null)
-      .neq("source", "nolio")
-      .gte("starts_at", at.toISOString())
-      .lte("starts_at", new Date(at.getTime() + (REMINDER_SOON_MIN + REMINDER_MAX_LEAD_MIN) * 60000).toISOString())
-      .or("kind.eq.block,reminder_asked.is.true")
-      .order("starts_at")
-      .limit(50),
-    "reminders soon",
-  );
+  const until = new Date(at.getTime() + (REMINDER_SOON_MIN + REMINDER_MAX_LEAD_MIN) * 60000).toISOString();
+  const [timed, allDay] = await Promise.all([
+    rows<ReminderEvent>(
+      sb
+        .from("events")
+        .select(REMINDER_COLS)
+        .eq("user_id", p.id)
+        .eq("all_day", false)
+        .not("reminder_minutes", "is", null)
+        .neq("source", "nolio")
+        .gte("starts_at", at.toISOString())
+        .lte("starts_at", until)
+        .or("kind.eq.block,reminder_asked.is.true")
+        .order("starts_at")
+        .limit(50),
+      "reminders soon",
+    ),
+    // an all-day entry she asked a reminder for: from a day back (its day began at midnight; remindedSoon checks it)
+    rows<ReminderEvent>(
+      sb
+        .from("events")
+        .select(REMINDER_COLS)
+        .eq("user_id", p.id)
+        .eq("all_day", true)
+        .eq("reminder_asked", true)
+        .not("reminder_minutes", "is", null)
+        .neq("source", "nolio")
+        .gte("starts_at", new Date(at.getTime() - 24 * 3600e3).toISOString())
+        .lte("starts_at", until)
+        .limit(20),
+      "all-day reminders soon",
+    ),
+  ]);
+  const list = timed ? [...timed, ...(allDay ?? [])] : null;
   if (!list?.length) return new Set();
   const [answered, goals] = await Promise.all([answeredOf(sb, list.filter((e) => e.goal_id).map((e) => e.id)), goalsOf(sb, p.id)]);
   // unknown answers: an entry done early would still be named, never a reminder that does not come left out
@@ -469,10 +489,10 @@ async function askedLater(sb: SupabaseClient, userId: string, at: Date, tz: stri
       .select(REMINDER_COLS)
       .eq("user_id", userId)
       .eq("reminder_asked", true)
-      .eq("all_day", false)
       .not("reminder_minutes", "is", null)
       .neq("source", "nolio")
-      .gte("starts_at", at.toISOString())
+      // from a day back: an all-day entry's reminder may fall within its day
+      .gte("starts_at", new Date(at.getTime() - 24 * 3600e3).toISOString())
       .lte("starts_at", new Date(at.getTime() + (REMINDER_MAX_LEAD_MIN + 24 * 60) * 60000).toISOString())
       .limit(50),
     "asked reminders later",
@@ -487,22 +507,39 @@ async function askedLater(sb: SupabaseClient, userId: string, at: Date, tz: stri
 async function reminderCandidates(sb: SupabaseClient, at: Date): Promise<{ byUser: Map<string, ReminderEvent[]>; answered: Set<string> }> {
   const byUser = new Map<string, ReminderEvent[]>();
   const answered = new Set<string>();
-  const list = await rows<ReminderEvent & { user_id: string }>(
-    sb
-      .from("events")
-      .select(REMINDER_COLS)
-      .eq("all_day", false)
-      .not("reminder_minutes", "is", null)
-      .neq("source", "nolio")
-      .gte("starts_at", at.toISOString())
-      .lte("starts_at", new Date(at.getTime() + (REMINDER_MAX_LEAD_MIN + REMINDER_WINDOW_MIN) * 60000).toISOString())
-      .or("kind.eq.block,reminder_asked.is.true")
-      .order("starts_at")
-      .limit(2000),
-    "reminder entries",
-  );
+  const [list, allDay] = await Promise.all([
+    rows<ReminderEvent & { user_id: string }>(
+      sb
+        .from("events")
+        .select(REMINDER_COLS)
+        .eq("all_day", false)
+        .not("reminder_minutes", "is", null)
+        .neq("source", "nolio")
+        .gte("starts_at", at.toISOString())
+        .lte("starts_at", new Date(at.getTime() + (REMINDER_MAX_LEAD_MIN + REMINDER_WINDOW_MIN) * 60000).toISOString())
+        .or("kind.eq.block,reminder_asked.is.true")
+        .order("starts_at")
+        .limit(2000),
+      "reminder entries",
+    ),
+    // all-day entries she asked a reminder for (counted from the midnight their day begins: also within that day)
+    rows<ReminderEvent & { user_id: string }>(
+      sb
+        .from("events")
+        .select(REMINDER_COLS)
+        .eq("all_day", true)
+        .eq("reminder_asked", true)
+        .not("reminder_minutes", "is", null)
+        .neq("source", "nolio")
+        .gte("starts_at", new Date(at.getTime() - 24 * 3600e3).toISOString())
+        .lte("starts_at", new Date(at.getTime() + (REMINDER_MAX_LEAD_MIN + REMINDER_WINDOW_MIN) * 60000).toISOString())
+        .order("starts_at")
+        .limit(500),
+      "all-day reminder entries",
+    ),
+  ]);
   // only what falls in this run's span (the pure check again per person, with her own facts)
-  const near = (list ?? []).filter((e) => reminderInRun(e, at.getTime()));
+  const near = [...(list ?? []), ...(allDay ?? [])].filter((e) => reminderInRun(e, at.getTime()));
   for (const e of near) {
     if (!byUser.has(e.user_id)) byUser.set(e.user_id, []);
     byUser.get(e.user_id)!.push(e);

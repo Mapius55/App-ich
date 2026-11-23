@@ -564,6 +564,8 @@ export class SupabaseBackend implements Backend {
         blocks: ((blocks.data ?? []) as BlockRow[]).map((b) => ({ ...b, answered: Array.isArray(b.goal_time) ? b.goal_time.length > 0 : !!b.goal_time })),
         times: (times.data ?? []) as { goal_id: string; day: string; minutes: number; source: string; external_id: string | null }[],
         dayOfIso: (iso) => dayOf(new Date(iso)),
+        // only a block that has begun is the one the tap answers (a later one keeps its reminder)
+        now: Date.now(),
       });
       if (!row) return;
       const ins = await this.sb

@@ -783,13 +783,17 @@ export type ReviewDue = "anbieten" | "fragen";
  * `offeredOn`, the days whose greeting opened with it and that she answered, in case the tool was not called; a
  * conversation in which it was not offered leaves it due), at least one goal with weekly hours or blocks,
  * not after a pause (that is a restart) and not in a heavy time. Never when she said she doesn't want it, and never
- * before she ever talked on an earlier day (`lastTalk`: her own last message before today, talkClock; null: there
- * is no week of hers to look back on yet; the Kennenlernen has its own thread and doesn't count).
+ * before there is a week of hers to look back on: she talked on an earlier day (`lastTalk`: her own last message
+ * before today, talkClock; the Kennenlernen has its own thread and doesn't count), and the week it looks back on
+ * (the one before reviewWeek) holds a day after her first one (`startDay`: her local day of profiles.created_at;
+ * someone who began on Monday gets no look back on the week before on Tuesday, only on Sunday from 16:00).
  */
 export function wochenblickDue(o: {
   day: string;
   minutes: number;
   lastTalk: { day: string; minutes: number } | null;
+  /** her first day with the app (local), null or missing: unknown (then only lastTalk decides) */
+  startDay?: string | null;
   state: ReviewState;
   hasPlanGoal: boolean;
   heavy: boolean;
@@ -802,6 +806,8 @@ export function wochenblickDue(o: {
   const inWindow = (wd === 6 && o.minutes >= REVIEW_FROM) || wd <= REVIEW_LAST_WEEKDAY;
   if (!inWindow) return null;
   const week = reviewWeek(o.day, o.minutes);
+  // the week it looks back on ends on the Sunday before `week`: it needs a day of hers after her first one
+  if (o.startDay && isDay(o.startDay) && addDays(week, -1) <= o.startDay) return null;
   if (o.state.week && isDay(o.state.week) && o.state.week >= week) return null;
   // a greeting on Sunday with the Wochenblick was from 16:00 on (its window), so it belongs to the coming week
   if ((o.offeredOn ?? []).some((d) => isDay(d) && d < o.day && reviewWeek(d, 24 * 60 - 1) === week)) return null;
@@ -844,6 +850,8 @@ export function dailySituation(o: {
   lastSeenDay: string | null;
   /** her own last message before today (its thread and created_at), null = none */
   lastSpoke: { thread: string; created_at: string } | null;
+  /** her first day with the app (her local day of profiles.created_at), null = unknown (wochenblickDue) */
+  startDay: string | null;
   todayMood: Mood;
   recentDays: { day: string; mood: Mood }[];
   review: ReviewState | null;
@@ -860,6 +868,7 @@ export function dailySituation(o: {
         day: o.day,
         minutes,
         lastTalk: o.lastSpoke ? talkClock(o.lastSpoke.thread, o.lastSpoke.created_at, o.tz) : null,
+        startDay: o.startDay,
         state: o.review,
         hasPlanGoal: o.hasPlanGoal,
         heavy,
@@ -1261,9 +1270,11 @@ export function followUpDue(m: { event_date: string | null; content: string; fol
   return d >= from && d <= from + 2 && !sensitiveTopic(m.content);
 }
 
-// Work and shifts: the evening never takes them up («Spätdienst», «Frühschicht», «Arbeit», «Teammeeting», «im Laden»).
-// «Geschichte» is no shift, «Dienstag» no duty, «Gartenarbeit» no work, «erkunden» no customer.
-const WORK = /\barbeit|(?<!ge)schicht|dienst(?!ag)|büro|office|meeting|sitzung|besprechung|\bcall\b|\bkunde|\bjob|\bladen\b|pikett|rapport/i;
+// Work and shifts: the evening never takes them up («Spätdienst», «Frühschicht», «Arbeit», «Teammeeting», «im Laden»,
+// «Veloladen»). «Geschichte» is no shift, «Dienstag» no duty, «Gartenarbeit» no work, «erkunden» no customer, and
+// «einladen», «aufladen», «hochladen», «Fensterladen» or «Schokoladen» no shop.
+const WORK =
+  /\barbeit|(?<!ge)schicht|dienst(?!ag)|büro|office|meeting|sitzung|besprechung|\bcall\b|\bkunde|\bjob|(?<!ein|auf|aus|ab|be|ent|um|vor|nach|über|hoch|runter|zu|fenster|schoko)l[aä]den\b|pikett|rapport/i;
 
 /** An entry about her work or a shift (a coarse word check on its title). */
 export function workEntry(text: string): boolean {
@@ -1378,12 +1389,14 @@ export interface HabitTimeRow {
 /**
  * What a habit's tick counts for its goal (D2): a habit with a goal and a length («10 Minuten dehnen», habits.minutes)
  * writes one goal_time row for the day. Counted once, whichever comes first:
- * - a block of the goal that day that is the same thing (habitMatchesBlock) and has no answer yet: the tick answers it
- *   (event_id), so the block and the habit are one row (K7);
+ * - a block of the goal that day that is the same thing (habitMatchesBlock), has begun by the tick (`now`) and has no
+ *   answer yet: the tick answers it (event_id), so the block and the habit are one row (K7);
  * - that block already answered, or the same minutes for the goal that day already there (said in conversation, D1, a
  *   training): nothing more (null).
- * Never a block from her trainer (Nolio) or an all-day one, and a termin only with an end (one without counts for
- * nothing, so it gets no answer). `blocks[].answered`: the block has a goal_time row.
+ * A block later that day is not answered by it (K6: it counts as done once she says so): the morning tick of «Italienisch
+ * im Bus» is not the ride home at 18:10, which keeps its reminder and its own answer. Never a block from her trainer
+ * (Nolio) or an all-day one, and a termin only with an end (one without counts for nothing, so it gets no answer).
+ * `blocks[].answered`: the block has a goal_time row.
  */
 export function habitTimeRow(
   habit: { id: string; title: string; goal_id?: string | null; minutes?: number | null },
@@ -1402,6 +1415,8 @@ export function habitTimeRow(
     }[];
     times: { goal_id: string; day: string; minutes: number | string | null; source?: string | null; external_id?: string | null }[];
     dayOfIso: (iso: string) => string;
+    /** the moment of the tick (ms): only a block that has begun by then is the one it answers */
+    now: number;
   },
 ): HabitTimeRow | null {
   const goalId = habit.goal_id;
@@ -1421,9 +1436,10 @@ export function habitTimeRow(
     )
     .sort((a, b) => Date.parse(a.starts_at) - Date.parse(b.starts_at));
   if (same.some((b) => b.answered)) return null;
+  const begun = same.filter((b) => Date.parse(b.starts_at) <= o.now);
   const others = o.times.filter((t) => !(t.source === "habit" && t.external_id === key));
-  if (!same.length && sameTimeLogged(others, goalId, day, minutes)) return null;
-  return { goal_id: goalId, day, minutes, source: "habit", external_id: key, event_id: same[0]?.id ?? null };
+  if (!begun.length && sameTimeLogged(others, goalId, day, minutes)) return null;
+  return { goal_id: goalId, day, minutes, source: "habit", external_id: key, event_id: begun[0]?.id ?? null };
 }
 
 /**

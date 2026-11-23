@@ -364,11 +364,13 @@ describe("reminders (owner decision 2 «Blöcke und Wunsch»)", () => {
       r("2026-11-17T00:20:00", "Nach Mitternacht", { kind: "termin", reminder_asked: true }),
       r("2026-11-17T09:00:00", "Morgen, einen Tag vorher", { kind: "termin", reminder_asked: true, reminder_minutes: 1440 }),
       r(`${MON}T16:00:00`, "Block", {}),
-      r(`${MON}T17:00:00`, "Ganztag", { reminder_asked: true, all_day: true }),
+      // all-day, counted from the midnight its day begins: tomorrow's at 18:00 today (360) counts, one not asked never
+      r("2026-11-17T00:00:00", "Ganztag gefragt", { kind: "termin", reminder_asked: true, all_day: true, ends_at: null, reminder_minutes: 360 }),
+      r("2026-11-18T00:00:00", "Ganztag ungefragt", { kind: "termin", all_day: true, ends_at: null, reminder_minutes: 360 }),
     ];
-    // «Anruf» (14:50) and «Spät» (23:58); «Jetzt gleich» (08:50) rings in this run, «Nach Mitternacht» (00:10) and
-    // «Morgen, einen Tag vorher» (09:00) tomorrow; a block and an all-day entry never count
-    expect(laterAskedToday(events, now, TZ)).toBe(2);
+    // «Anruf» (14:50), «Spät» (23:58) and «Ganztag gefragt» (18:00); «Jetzt gleich» (08:50) rings in this run, «Nach
+    // Mitternacht» (00:10) and «Morgen, einen Tag vorher» (09:00) tomorrow; a block never counts
+    expect(laterAskedToday(events, now, TZ)).toBe(3);
   });
 
   it("away a few days: only what she asked for; after 14 days none", () => {
@@ -425,10 +427,12 @@ describe("reminders (owner decision 2 «Blöcke und Wunsch»)", () => {
 describe("D2: a habit that serves a goal counts its minutes", () => {
   const habit = { id: "8b0c6b1e-0000-4000-8000-000000000001", title: "10 Minuten dehnen", goal_id: "g-run", minutes: 10 };
   const day = MON;
-  const opts = (blocks: Parameters<typeof habitTimeRow>[2]["blocks"] = [], times: Parameters<typeof habitTimeRow>[2]["times"] = []) => ({
+  // the tick at 22:00, after the evening's block began
+  const opts = (blocks: Parameters<typeof habitTimeRow>[2]["blocks"] = [], times: Parameters<typeof habitTimeRow>[2]["times"] = [], now = at(`${MON}T22:00:00`).getTime()) => ({
     blocks,
     times,
     dayOfIso: (s: string) => localParts(new Date(s), TZ).date,
+    now,
   });
   const block = (id: string, title: string, extra: Record<string, unknown> = {}) => ({ id, title, goal_id: "g-run", starts_at: iso(`${MON}T21:30:00`), all_day: false, kind: "block", source: "coach", answered: false, ...extra });
 
@@ -451,6 +455,12 @@ describe("D2: a habit that serves a goal counts its minutes", () => {
     expect(habitTimeRow(habit, day, opts([block("b3", "Dehnen", { source: "nolio" })]))?.event_id).toBeNull();
     expect(habitTimeRow(habit, day, opts([block("b4", "Dehnen", { starts_at: iso("2026-11-17T21:30:00") })]))?.event_id).toBeNull();
     expect(habitTimeRow(habit, day, opts([block("b5", "Dehnen", { all_day: true })]))?.event_id).toBeNull();
+    // ticked before the block began: her own time, the block keeps its reminder and its own answer (K6); once it
+    // began (or is over) the tick answers it
+    expect(habitTimeRow(habit, day, opts([block("b1", "Dehnen")], [], at(`${MON}T12:17:00`).getTime()))).toMatchObject({ minutes: 10, event_id: null });
+    expect(habitTimeRow(habit, day, opts([block("b1", "Dehnen")], [], at(`${MON}T21:30:00`).getTime()))?.event_id).toBe("b1");
+    // a later block answered early (she said it was done) still counts once with the tick
+    expect(habitTimeRow(habit, day, opts([block("b1", "Dehnen", { answered: true })], [], at(`${MON}T12:17:00`).getTime()))).toBeNull();
   });
   it("the same minutes for the goal that day already there (said in conversation, D1): no second count", () => {
     expect(habitTimeRow(habit, day, opts([], [{ goal_id: "g-run", day, minutes: 10, source: "coach" }]))).toBeNull();

@@ -415,7 +415,7 @@ export interface PushEvent {
 }
 
 export interface MorningFacts {
-  /** her entries around today (the function filters today's; the three days before tell an entry of every day) */
+  /** her entries around today (the function filters today's; the seven days before tell an entry of every day) */
   events: PushEvent[];
   /** open steps (milestones) due today */
   dueSteps: { title: string; goal_id: string }[];
@@ -435,7 +435,7 @@ export interface EveningFacts {
   milestones: { title: string; goal_id: string; done_at: string | null }[];
   /** habits ticked today */
   habits: { title: string; goal_id?: string | null }[];
-  /** her entries around today, for the day's own entry when there is no win (the three days before as in the morning) */
+  /** her entries around today, for the day's own entry when there is no win (the days before as in the morning) */
   events?: PushEvent[];
   named?: Record<string, number>;
 }
@@ -461,12 +461,18 @@ function duration(min: number): string {
 
 const titleKey = (t: string) => norm(t).replace(/\s+/g, " ").trim();
 
+/** how many days before today tell an entry of every day (dailyTitles) */
+export const DAILY_LOOKBACK_DAYS = 7;
+
 /**
- * Her timed entries that come every day: the same title on at least two of the three days before today (a daily
- * series, «10 Minuten dehnen» each evening). Such an entry is named at most twice within 7 days (DAILY_NAMED_MAX).
+ * Her timed entries that come every day (a daily series, «10 Minuten dehnen» each evening): within the 7 days before
+ * today the same title on every day since it first appears, on two days at least. A weekly rhythm is no such entry,
+ * even with days in a row: one of Monday, Tuesday and Thursday misses the Wednesday, and from its second week on the
+ * days after last week's (only in its first week can a Wednesday after Monday and Tuesday look like every day). Such
+ * an entry is named at most twice within 7 days (DAILY_NAMED_MAX).
  */
 export function dailyTitles(events: PushEvent[], today: string, tz: string): Set<string> {
-  const from = addDays(today, -3);
+  const from = addDays(today, -DAILY_LOOKBACK_DAYS);
   const days = new Map<string, Set<string>>();
   for (const e of events) {
     if (e.all_day) continue;
@@ -476,7 +482,12 @@ export function dailyTitles(events: PushEvent[], today: string, tz: string): Set
     if (!days.has(k)) days.set(k, new Set());
     days.get(k)!.add(d);
   }
-  return new Set([...days].filter(([, d]) => d.size >= 2).map(([k]) => k));
+  const everyDay = (d: Set<string>) => {
+    if (d.size < 2) return false;
+    for (let x = [...d].sort()[0]; x < today; x = addDays(x, 1)) if (!d.has(x)) return false;
+    return true;
+  };
+  return new Set([...days].filter(([, d]) => everyDay(d)).map(([k]) => k));
 }
 
 /** how often each label was named in a message sent within the 7 days up to today (fingerprints of the labels) */
@@ -511,7 +522,8 @@ export function morningCandidates(f: MorningFacts, at: Date, tz: string): Candid
     if (!today || servesDream(e.goal_id, f.goals)) continue;
     const label = safeLabel(e.title, f.goals, e.goal_id);
     if (e.all_day) {
-      if (label && !allDay.includes(label)) allDay.push(label);
+      // the reminder she asked for comes within the hour: it names the day's entry itself
+      if (label && !allDay.includes(label) && !(e.id && f.remindSoon?.has(e.id))) allDay.push(label);
       continue;
     }
     const ms = Date.parse(e.starts_at);
@@ -605,7 +617,8 @@ export function eveningCandidates(f: EveningFacts, at: Date, tz: string): Candid
 
   const reached = (f.goals ?? []).filter((g) => g.kind !== "dream" && g.status === "done" && doneToday(g.done_at));
   if (reached.length) {
-    const l = safeLabel(reached[0].title, f.goals);
+    // the goal's own title (P2: a word it shares with a dream, «Zürich», does not hide it)
+    const l = safeLabel(reached[0].title, f.goals, reached[0].id);
     groups.push(
       l
         ? [
@@ -656,7 +669,7 @@ export function eveningCandidates(f: EveningFacts, at: Date, tz: string): Candid
   const top = [...perGoal.entries()].sort((a, b) => b[1] - a[1])[0];
   if (top) {
     const d = duration(Math.min(top[1], 1440));
-    const l = safeLabel(f.goals?.find((g) => g.id === top[0])?.title, f.goals);
+    const l = safeLabel(f.goals?.find((g) => g.id === top[0])?.title, f.goals, top[0]);
     const noLabel = [
       { template: "e.time.4", body: `Heute ${d} für dein Ziel.` },
       { template: "e.time.5", body: `${d} für dein Ziel heute. Das zählt.` },
@@ -802,15 +815,27 @@ export function calendarSubscribed(fetchedAt: string | null | undefined, at: Dat
 
 /**
  * The moment (ms) a reminder is due: starts_at − reminder_minutes, for her blocks and the entries she asked a
- * reminder for (owner decision 2 (b)); null for the rest: all-day entries, her trainer's (Nolio), none set, more
- * than a day ahead.
+ * reminder for (owner decision 2 (b)); an all-day entry only when she asked, counted from the midnight its day begins
+ * (as create_event sets it: -480 = 08:00 that day, 360 = 18:00 the evening before). Null for the rest: an all-day
+ * entry she did not ask for, her trainer's (Nolio), none set, more than a day ahead.
  */
 export function reminderAt(e: ReminderEvent): number | null {
-  if (e.all_day || e.source === "nolio" || e.reminder_minutes == null) return null;
-  if (e.kind !== "block" && e.reminder_asked !== true) return null;
-  if (e.reminder_minutes < 0 || e.reminder_minutes > REMINDER_MAX_LEAD_MIN) return null;
+  if (e.source === "nolio" || e.reminder_minutes == null) return null;
+  if (e.all_day) {
+    // within her day (up to 23:59) or up to a day before it
+    if (e.reminder_asked !== true || e.reminder_minutes <= -24 * 60 || e.reminder_minutes > REMINDER_MAX_LEAD_MIN) return null;
+  } else {
+    if (e.kind !== "block" && e.reminder_asked !== true) return null;
+    if (e.reminder_minutes < 0 || e.reminder_minutes > REMINDER_MAX_LEAD_MIN) return null;
+  }
   const s = Date.parse(e.starts_at);
   return Number.isFinite(s) ? s - e.reminder_minutes * 60000 : null;
+}
+
+/** Whether the entry began (a timed one) or its first day is over (an all-day one): then no reminder any more. */
+function reminderTooLate(e: ReminderEvent, now: number): boolean {
+  const s = Date.parse(e.starts_at);
+  return !(now < (e.all_day ? s + DAY_MS : s));
 }
 
 export interface ReminderFacts {
@@ -829,11 +854,12 @@ export interface ReminderFacts {
 
 /**
  * Whether a reminder's moment falls in the run at `now` (ms): within the next run's span, the end included (a run that
- * starts on the minute still has the moment at its end), or a few minutes behind; never once the entry began.
+ * starts on the minute still has the moment at its end), or a few minutes behind; never once the entry began (an
+ * all-day one: once its day is over).
  */
 export function reminderInRun(e: ReminderEvent, now: number): boolean {
   const m = reminderAt(e);
-  return m !== null && now < Date.parse(e.starts_at) && m <= now + REMINDER_WINDOW_MIN * 60000 && now - m <= REMINDER_GRACE_MIN * 60000;
+  return m !== null && !reminderTooLate(e, now) && m <= now + REMINDER_WINDOW_MIN * 60000 && now - m <= REMINDER_GRACE_MIN * 60000;
 }
 
 /**
@@ -890,7 +916,7 @@ export function remindedSoon(f: Pick<ReminderFacts, "events" | "answered" | "act
   const out = new Set<string>();
   for (const e of f.events) {
     const m = reminderAt(e);
-    if (m === null || !(now < Date.parse(e.starts_at)) || m > now + withinMin * 60000 || now - m > REMINDER_GRACE_MIN * 60000 || !wanted(e)) continue;
+    if (m === null || reminderTooLate(e, now) || m > now + withinMin * 60000 || now - m > REMINDER_GRACE_MIN * 60000 || !wanted(e)) continue;
     out.add(e.id);
   }
   return out;
@@ -921,15 +947,26 @@ export function dueReminders(f: ReminderFacts, at: Date): ReminderEvent[] {
 }
 
 /**
- * The reminder itself: «Um 10:00» and her title («Nachricht an die Stationsleitung.»). A reminder she asked for
- * shows her own title, also of a dream step (it is her own alarm); a block with a sensitive title only its length
- * («Deine halbe Stunde.»), a termin «Dein Termin.» (a dream's block she did not ask for never gets here, dueReminders).
+ * The reminder itself: «Um 10:00» and her title («Nachricht an die Stationsleitung.»); an all-day entry by its day
+ * («Morgen», «Heute»). A reminder she asked for shows her own title, also of a dream step (it is her own alarm); a
+ * block with a sensitive title only its length («Deine halbe Stunde.»), a termin «Dein Termin.» (a dream's block she
+ * did not ask for never gets here, dueReminders).
  */
 export function reminderMessage(e: ReminderEvent, goals: PushGoal[] | null, at: Date, tz: string): Candidate & { title: string } {
   const start = localParts(new Date(e.starts_at), tz);
   const today = localParts(at, tz).date;
   const time = hhmm(start.minutes);
-  const title = start.date === today ? `Um ${time}` : start.date === addDays(today, 1) ? `Morgen um ${time}` : `${WEEKDAYS[start.weekday]} um ${time}`;
+  const title = e.all_day
+    ? start.date === today
+      ? "Heute"
+      : start.date === addDays(today, 1)
+        ? "Morgen"
+        : WEEKDAYS[start.weekday]
+    : start.date === today
+      ? `Um ${time}`
+      : start.date === addDays(today, 1)
+        ? `Morgen um ${time}`
+        : `${WEEKDAYS[start.weekday]} um ${time}`;
   const own = e.reminder_asked === true;
   const label = own ? safeLabel(e.title, goals, e.goal_id, true) : servesDream(e.goal_id, goals) ? null : safeLabel(e.title, goals, e.goal_id);
   const fallback = e.kind === "block" ? lengthLabel(lengthOf(e)) : "dein Termin";

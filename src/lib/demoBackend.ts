@@ -584,7 +584,8 @@ const goalState = (u: Pick<DemoUser, "goals">, id: string | null) => {
  * that no longer belong go, the others follow it (not the ones she changed on their own), then the missing days up
  * to 8 weeks ahead are entered (not twice, not a day she let fall away, not over a single entry of hers for it: for
  * blocks a block of the same goal, for her fixed times a termin at the same start or with the same title, or a block
- * of its goal). Its days take its kind; a termin rhythm with a reminder carries reminder_asked (she asked for it).
+ * of its goal). Its days take its kind; with a reminder they carry reminder_asked for a termin rhythm (she asked for
+ * it) and for one she asked the reminder for (series.reminder_asked, 20261126000600_series_reminder_asked.sql).
  * `only`: one rhythm, else all. Returns whether anything changed.
  */
 export function syncDemoSeries(u: Pick<DemoUser, "events" | "goals" | "goal_time" | "series">, at = Date.now(), only?: string): boolean {
@@ -601,12 +602,11 @@ export function syncDemoSeries(u: Pick<DemoUser, "events" | "goals" | "goal_time
     const kind = seriesKind(s);
     const live = s.active && (!s.goal_id || kind === "termin" || goal?.status === "active");
     if (!live) continue;
+    const asked = s.reminder_minutes !== null && (kind === "termin" || s.reminder_asked === true);
     for (const e of u.events) {
       if (!coming(e) || e.series_exception) continue;
       const t = seriesTimes(s, e.series_day!);
       if (Date.parse(t.starts_at) <= at) continue;
-      // a rhythm of blocks leaves what a day had (blocks get a reminder anyway)
-      const asked = kind === "termin" ? s.reminder_minutes !== null : e.reminder_asked;
       const next = { title: s.title, location: s.location, reminder_minutes: s.reminder_minutes, reminder_asked: asked, goal_id: s.goal_id, kind, all_day: false, ...t };
       const differs = (Object.keys(next) as (keyof typeof next)[]).some((k) =>
         k === "starts_at" || k === "ends_at" ? Date.parse(String(e[k])) !== Date.parse(next[k]) : (e[k] ?? null) !== (next[k] ?? null),
@@ -636,7 +636,7 @@ export function syncDemoSeries(u: Pick<DemoUser, "events" | "goals" | "goal_time
         location: s.location,
         notes: null,
         reminder_minutes: s.reminder_minutes,
-        reminder_asked: kind === "termin" && s.reminder_minutes !== null,
+        reminder_asked: asked,
         source: "coach",
         kind,
         goal_id: s.goal_id,
@@ -663,6 +663,7 @@ function seriesFieldsDiffer(a: CalendarEvent, b: CalendarEvent): boolean {
     a.all_day !== b.all_day ||
     (a.location ?? null) !== (b.location ?? null) ||
     (a.reminder_minutes ?? null) !== (b.reminder_minutes ?? null) ||
+    !!a.reminder_asked !== !!b.reminder_asked ||
     a.kind !== b.kind ||
     (a.goal_id ?? null) !== (b.goal_id ?? null)
   );
@@ -1381,6 +1382,7 @@ export class DemoBackend implements Backend {
         blocks: u.events.filter((e) => countsLikeBlock(e)).map((e) => ({ ...e, answered: answered.has(e.id) })),
         times: u.goal_time,
         dayOfIso: (iso) => dayOf(new Date(iso)),
+        now: Date.now(),
       });
       if (row) {
         u.goal_time.push({ id: uuid(), ...row, note: null });

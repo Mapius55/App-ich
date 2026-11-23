@@ -294,6 +294,15 @@ describe("K7: a habit and its block are asked about once", () => {
     expect(asks({ ...morning, habits: [{ ...habit, title: "Laufen", goal_id: "g1" }] })).not.toContain("abgehakt");
   });
 
+  it("a tick made before the block began counted on its own (Peter's morning bus, the ride home at 18:10): asked like any block", () => {
+    const habit = { id: "h1", title: "Dehnen", per_week: 7, goal_id: "g1", done_days: ["2026-11-16"] };
+    // the block began at 08:00 (07:00Z): a tick at 07:30 was before it, one at 08:20 after it
+    expect(asks({ ...morning, habits: [{ ...habit, ticked_at: { "2026-11-16": "2026-11-16T06:30:00Z" } }] })).not.toContain("abgehakt");
+    expect(asks({ ...morning, habits: [{ ...habit, ticked_at: { "2026-11-16": "2026-11-16T07:20:00Z" } }] })).toContain("Gewohnheit „Dehnen“ an dem Tag abgehakt");
+    // the coach reads when each tick was made
+    expect(source).toContain('.select("id, title, per_week, goal_id, habit_logs(day, created_at)")');
+  });
+
   it("which habit is the same thing as a block: a word of what is done, never the goal alone", () => {
     expect(habitMatchesBlock({ title: "10 Minuten dehnen" }, { title: "Dehnen" })).toBe(true);
     expect(habitMatchesBlock({ title: "Laufen", goal_id: "g1" }, { title: "Lauf am See", goal_id: "G1" })).toBe(true);

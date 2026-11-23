@@ -417,7 +417,7 @@ describe("the coach's tools", () => {
   };
 
   it("create_series: blocks after her yes, termine at once; weekdays as codes, blocks until the day before the target date", () => {
-    expect(tool("create_series")).toContain("Termine gleich, wenn sie „immer“, „jeden Donnerstag“ oder „jede Woche“ sagt; Blöcke nur nach ihrem klaren Ja.");
+    expect(tool("create_series")).toContain("Termine gleich, wenn etwas jede Woche gleich ist („immer“, „jeden Donnerstag“, ihre normale Woche); Blöcke nur nach ihrem klaren Ja.");
     expect(tool("create_series")).toContain('weekdays: { type: "array", items: { type: "string", enum: [...WEEKDAY_CODES] }');
     expect(tool("create_series")).toContain('required: ["title", "weekdays", "time"]');
     expect(tool("create_series")).toContain("Blöcke ohne until bis zum Tag vor dem Zieldatum");
@@ -501,7 +501,7 @@ describe("the migration", () => {
     // the demo's export too (the same tables as the real one)
     expect(read("../src/lib/demoBackend.ts")).toContain("series: u.series ?? [],");
     expect(read("../public/datenschutz.html").replace(/\s+/g, " ")).toContain(
-      "dazu deine festen Wochenrhythmen (Termine wie ein Training jeden Donnerstag oder Blöcke für ein Ziel: Tage, Uhrzeit, Dauer und welche einzelnen Tage ausfallen)",
+      "dazu deine festen Wochenrhythmen (Termine wie ein Training jeden Donnerstag oder Blöcke für ein Ziel: Tage, Uhrzeit, Dauer, ob du um ihre Erinnerung gebeten hast, und welche einzelnen Tage ausfallen)",
     );
   });
 });

@@ -72,6 +72,8 @@ export interface SeriesRule {
   duration_minutes: number;
   location: string | null;
   reminder_minutes: number | null;
+  /** she asked for its reminder herself (series.reminder_asked): its days carry the mark */
+  reminder_asked?: boolean;
   time_zone: string;
   start_date: string;
   /** last day (inclusive); null: until the day before its goal's target date */

@@ -5,6 +5,7 @@
 import { describe, expect, it } from "vitest";
 import { dispatch, LOG_KEEP_DAYS, type Send, type Sub } from "../supabase/functions/push/dispatch";
 import { addDays, fingerprint } from "../supabase/functions/_shared/push_text";
+import { habitTimeRow } from "../supabase/functions/_shared/plan";
 
 type Row = Record<string, unknown>;
 type Result = { data: unknown; error: { code?: string; message?: string } | null };
@@ -691,5 +692,105 @@ describe("dispatch", () => {
     db.insert("push_log", { user_id: LEA, day: addDays(MON, -3), slot: "morning", status: "sent" });
     await dispatch(sb, send, at(`${MON}T12:00:00`));
     expect(db.rows("push_log").map((r) => r.day)).toEqual([addDays(MON, -3)]);
+  });
+});
+
+// Round 3, corrections from the offline persona replay: the same rules through the real dispatch (tests/round3-personas.test.ts
+// has them as pure functions).
+describe("after the persona replay", () => {
+  it("Jonas: the evening without a win never names his job «Veloladen» (it names another entry of his)", async () => {
+    const { db, sent, send, said, sb } = setup();
+    said(`${MON}T08:00:00`);
+    event(db, `${MON}T09:00:00`, "Veloladen", { ends_at: at(`${MON}T17:00:00`).toISOString() });
+    expect(await dispatch(sb, send, at(`${MON}T21:05:00`))).toBe(0);
+    expect(db.rows("push_log")[0]).toMatchObject({ slot: "evening", status: "skipped", reason: "empty" });
+    const two = setup();
+    two.said(`${MON}T08:00:00`);
+    event(two.db, `${MON}T09:00:00`, "Veloladen", { ends_at: at(`${MON}T17:00:00`).toISOString() });
+    event(two.db, `${MON}T18:00:00`, "Fussball", { ends_at: at(`${MON}T19:30:00`).toISOString() });
+    await dispatch(two.sb, two.send, at(`${MON}T21:05:00`));
+    expect(two.sent.map((s) => s.body)).toEqual(["Heute war: 18:00 Fussball."]);
+  });
+
+  it("Jonas: the evening names his goal though a word of it («Zürich») is in a dream", async () => {
+    const { db, sent, send, said, sb } = setup();
+    said(`${MON}T08:00:00`);
+    db.insert("goals", { id: "g-velo", user_id: LEA, title: "Mit dem Velo von Zürich ans Meer", kind: "dream", status: "active", done_at: null });
+    db.insert("goal_time", { user_id: LEA, goal_id: "g-run", day: MON, minutes: 60, source: "block" });
+    await dispatch(sb, send, at(`${MON}T21:05:00`));
+    expect(sent.map((s) => s.body)).toEqual(["Heute 1 Stunde für Halbmarathon Zürich."]);
+  });
+
+  it("Sara: a weekly rhythm on Monday, Tuesday and Thursday is named every Thursday morning", async () => {
+    const { db, sent, send, said, sb } = setup();
+    db.rows("profiles")[0].notify_evening = null;
+    const days: string[] = [];
+    for (let d = "2026-11-23"; d <= "2026-12-04"; d = addDays(d, 1)) if ([1, 2, 4].includes(new Date(`${d}T12:00:00Z`).getUTCDay())) days.push(d);
+    for (const d of days) event(db, `${d}T17:00:00`, "Training", { ends_at: at(`${d}T18:30:00`).toISOString(), kind: "termin" });
+    for (let d = "2026-11-23"; d <= "2026-12-04"; d = addDays(d, 1)) {
+      said(`${addDays(d, -1)}T20:00:00`);
+      await dispatch(sb, send, at(`${d}T07:31:00`));
+    }
+    const named = db.rows("push_log").filter((r) => r.status === "sent").map((r) => r.day);
+    expect(named).toEqual(days);
+    expect(sent.map((s) => /17:00/.test(s.body) && /Training/.test(s.body))).toEqual(days.map(() => true));
+  });
+
+  describe("reminders", () => {
+    const reminderSetup = () => {
+      const t = setup();
+      Object.assign(t.db.rows("profiles")[0], { notify_morning: null, notify_evening: null, notify_reminders: true, calendar_fetched_at: null });
+      return t;
+    };
+
+    it("Mia: an all-day exam she asked a reminder for comes at 18:00 the evening before («360 = 18 Uhr am Vortag»)", async () => {
+      const { db, sent, send, said, sb } = reminderSetup();
+      said("2026-11-25T07:00:00");
+      event(db, "2026-11-26T00:00:00", "Bio-Prüfung", { id: "e-bio", all_day: true, kind: "termin", reminder_minutes: 360, reminder_asked: true, source: "coach" });
+      event(db, "2026-11-26T00:00:00", "Chemie-Prüfung", { id: "e-che", all_day: true, kind: "termin", reminder_minutes: 360, reminder_asked: false, source: "coach" });
+      expect(await dispatch(sb, send, at("2026-11-25T17:31:00"))).toBe(0);
+      expect(await dispatch(sb, send, at("2026-11-25T17:46:00"))).toBe(1);
+      expect(sent).toEqual([{ to: ["s1"], title: "Morgen", body: "Bio-Prüfung." }]);
+      expect(db.rows("push_log")).toMatchObject([{ slot: "reminder", event_id: "e-bio", day: "2026-11-25", template: "r.asked" }]);
+      expect(await dispatch(sb, send, at("2026-11-25T18:01:00"))).toBe(0); // once
+    });
+
+    it("Mia: an all-day entry's default (08:00 on the day) comes that morning; the morning message leaves it to the reminder", async () => {
+      const { db, sent, send, said, sb } = reminderSetup();
+      db.rows("profiles")[0].notify_morning = "07:30:00";
+      said("2026-11-25T07:00:00");
+      event(db, "2026-11-26T00:00:00", "Bio-Prüfung", { id: "e-bio", all_day: true, kind: "termin", reminder_minutes: -480, reminder_asked: true, source: "coach" });
+      expect(await dispatch(sb, send, at("2026-11-26T07:31:00"))).toBe(0);
+      expect(db.rows("push_log")).toMatchObject([{ slot: "morning", status: "skipped", reason: "empty" }]);
+      expect(await dispatch(sb, send, at("2026-11-26T07:46:00"))).toBe(1);
+      expect(sent).toEqual([{ to: ["s1"], title: "Heute", body: "Bio-Prüfung." }]);
+    });
+
+    it("Peter: after his morning tick of «Italienisch im Bus» the 17:45 run still reminds him of the ride home at 18:10", async () => {
+      const { db, sent, send, said, sb } = reminderSetup();
+      said("2026-12-03T12:17:00");
+      db.insert("goals", { id: "g-garda", user_id: LEA, title: "Am Gardasee selbst bestellen", kind: "goal", status: "active", done_at: null });
+      const block = {
+        id: "ser-2026-12-03",
+        title: "Italienisch im Bus heimwärts",
+        goal_id: "g-garda",
+        kind: "block",
+        starts_at: at("2026-12-03T18:10:00").toISOString(),
+        ends_at: at("2026-12-03T18:25:00").toISOString(),
+        all_day: false,
+        source: "coach",
+      };
+      db.insert("events", { user_id: LEA, ...block, reminder_minutes: 10, reminder_asked: false });
+      // the tick at 12:17, as the coach's log_habit writes it
+      const row = habitTimeRow({ id: "11111111-2222-4333-8444-555555555555", title: "Italienisch im Bus", goal_id: "g-garda", minutes: 15 }, "2026-12-03", {
+        blocks: [{ ...block, answered: false }],
+        times: [],
+        dayOfIso: (s) => new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Zurich" }).format(new Date(s)),
+        now: at("2026-12-03T12:17:00").getTime(),
+      });
+      db.insert("goal_time", { user_id: LEA, ...row });
+      expect(await dispatch(sb, send, at("2026-12-03T17:46:00"))).toBe(1);
+      expect(sent).toEqual([{ to: ["s1"], title: "Um 18:10", body: "Italienisch im Bus heimwärts." }]);
+    });
   });
 });
