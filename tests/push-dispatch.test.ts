@@ -699,7 +699,7 @@ describe("dispatch", () => {
 // has them as pure functions).
 describe("after the persona replay", () => {
   it("Jonas: the evening without a win never names his job «Veloladen» (it names another entry of his)", async () => {
-    const { db, sent, send, said, sb } = setup();
+    const { db, send, said, sb } = setup();
     said(`${MON}T08:00:00`);
     event(db, `${MON}T09:00:00`, "Veloladen", { ends_at: at(`${MON}T17:00:00`).toISOString() });
     expect(await dispatch(sb, send, at(`${MON}T21:05:00`))).toBe(0);
