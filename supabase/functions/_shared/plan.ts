@@ -292,6 +292,23 @@ export function countsLikeBlock(e: { kind?: string | null; goal_id?: string | nu
   return !e.kind || e.kind === "block" || (e.kind === "termin" && !!e.goal_id);
 }
 
+/**
+ * A termin that would count for its goal like a block (timed, with an end) next to Nolio: when the goal takes its
+ * completed trainings from Nolio (its sports are chosen, «Welche Trainings zählen?»), the training counts already, so
+ * the coach does not link the termin to it (one training, one count). For her single termine and her fixed times every
+ * week alike; all-day termine and those without an end count for nothing anyway (a race day keeps its goal).
+ */
+export function terminCountsTwice(entry: TerminShape, goal: { sports?: readonly string[] | null } | null | undefined): boolean {
+  return countingTermin(entry) && !!goal?.sports?.length;
+}
+
+type TerminShape = { kind?: string | null; all_day?: boolean | null; ends_at?: string | null };
+
+/** A termin (the default kind) that would count for a goal: with a time and an end. */
+export function countingTermin(entry: TerminShape): boolean {
+  return (entry.kind ?? "termin") === "termin" && !entry.all_day && !!entry.ends_at;
+}
+
 /** How a past block nobody answered counts: as it always did, provisionally, or (null) not at all. */
 export type BlockCredit = "kept" | "provisional" | null;
 
@@ -1407,6 +1424,40 @@ export function habitTimeRow(
   const others = o.times.filter((t) => !(t.source === "habit" && t.external_id === key));
   if (!same.length && sameTimeLogged(others, goalId, day, minutes)) return null;
   return { goal_id: goalId, day, minutes, source: "habit", external_id: key, event_id: same[0]?.id ?? null };
+}
+
+/**
+ * One report, said and ticked in the same turn, counts once (D1 with D2): she says «20 Minuten Italienisch im Bus», and
+ * the coach logs the time (log_time without a block) and ticks the habit «Italienisch im Bus» (log_habit), as its rules
+ * say. Per goal and day of that turn: a tick after the time writes no row of its own (`tickCounts`); time after a tick
+ * takes the tick's row instead of a second one (`ticksOf`: its minutes become the ones she said).
+ */
+export class TurnTime {
+  private said = new Set<string>();
+  private ticks = new Map<string, Set<string>>();
+  private key = (goalId: string, day: string) => `${goalId.toLowerCase()}:${day}`;
+  /** log_time without a block saved time for this goal and day */
+  noteSaid(goalId: string, day: string): void {
+    this.said.add(this.key(goalId, day));
+  }
+  /** whether a tick of this turn may count its own minutes for the goal on that day */
+  tickCounts(goalId: string, day: string): boolean {
+    return !this.said.has(this.key(goalId, day));
+  }
+  /** a tick of this turn wrote its row (goal_time.external_id, habitTimeKey) */
+  noteTick(goalId: string, day: string, externalId: string): void {
+    const k = this.key(goalId, day);
+    if (!this.ticks.has(k)) this.ticks.set(k, new Set());
+    this.ticks.get(k)!.add(externalId);
+  }
+  /** an untick of this turn: its row is gone */
+  dropTick(externalId: string): void {
+    for (const t of this.ticks.values()) t.delete(externalId);
+  }
+  /** the rows this turn's ticks wrote for the goal on that day */
+  ticksOf(goalId: string, day: string): string[] {
+    return [...(this.ticks.get(this.key(goalId, day)) ?? [])];
+  }
 }
 
 /** People without an active goal get one small experiment at most every this many days. */

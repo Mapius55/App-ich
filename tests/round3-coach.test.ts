@@ -165,7 +165,7 @@ describe("D2 and «erinnern» in the coach and the app (wiring; the rules themse
   const backendSrc = readFileSync(new URL("../src/lib/supabaseBackend.ts", import.meta.url), "utf8");
   const logHabit = source.slice(source.indexOf('case "log_habit": {'), source.indexOf('case "log_time": {'));
   it("log_habit counts the habit's minutes on a tick and removes them on an untick (never failing the tick)", () => {
-    expect(logHabit).toContain("const counted = await habitTime(sb, userId, habit, logDay, done, ctx.tz);");
+    expect(logHabit).toContain("const counted = await habitTime(sb, userId, habit, logDay, done, ctx.tz, ctx.turn);");
     expect(logHabit).toContain("gezaehlt_minuten: counted");
     expect(source).toContain('.delete().eq("user_id", userId).eq("source", "habit").eq("external_id", key)');
     expect(source).toContain('{ onConflict: "user_id,source,external_id", ignoreDuplicates: true }');
@@ -449,7 +449,8 @@ describe("D1: no double count for log_time without event_id", () => {
     expect(TIME_ALREADY_LOGGED).toContain("sag höchstens in einem Halbsatz, dass sie schon dastehen");
     expect(TIME_ALREADY_LOGGED).toContain("Nur wenn sie es wirklich zweimal gemacht hat, nochmals mit zusaetzlich: true.");
     expect(tools).toContain('zusaetzlich: { type: "boolean"');
-    expect(source).toContain("if (sameTimeLogged(same.data ?? [], goalId, logDay, minutes)) return JSON.stringify({ ok: true, hint: TIME_ALREADY_LOGGED });");
+    expect(source).toContain("if (sameTimeLogged(same.data ?? [], goalId, logDay, minutes)) {");
+    expect(source).toContain("return JSON.stringify({ ok: true, hint: TIME_ALREADY_LOGGED });");
     expect(source).toContain('const extra = input.zusaetzlich === undefined ? false : bool(input.zusaetzlich, "zusaetzlich");');
   });
 });
@@ -500,7 +501,7 @@ describe("D1 with K6: time on a day with an unanswered block of the goal", () =>
     // checked before the insert (no row that the block would double), the old after-the-fact hint is gone
     const at = source.indexOf("const open = openBlocksOn(blocks.data ?? [], logDay");
     expect(at).toBeGreaterThan(0);
-    expect(at).toBeLessThan(source.indexOf("const ins = await insert();\n        if (ins.error) throw missingGoal(ins.error);"));
+    expect(at).toBeLessThan(source.indexOf("const ins = await insert();\n          if (ins.error) throw missingGoal(ins.error);"));
     expect(source).toContain("return JSON.stringify({ ok: false, hint: blockOpenThatDay(");
     expect(source).not.toContain("lösche diesen Eintrag nicht doppelt");
     expect(tools).toContain("true, wenn es wirklich Zeit dazu war, neben einem Block dieses Tages oder dieselbe Zeit ein zweites Mal.");

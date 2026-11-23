@@ -437,7 +437,8 @@ describe("the coach's tools", () => {
 
   it("one day of a rhythm on its own: the result says only that day; note_offer notes the offer and the lapse", () => {
     expect(source).toContain('const SERIES_DAY_NOTE = "Nur dieser Tag; der Wochenrhythmus bleibt, wie er ist.";');
-    expect(source.match(/series_id \? \{ ok: true, notiert: SERIES_DAY_NOTE \} : \{ ok: true \}/g)).toHaveLength(2);
+    expect(source.match(/series_id \? \{ ok: true, notiert: SERIES_DAY_NOTE \} : \{ ok: true \}/g)).toHaveLength(1); // delete_event
+    expect(source).toContain("...(data.series_id ? { notiert: SERIES_DAY_NOTE } : {})"); // update_event
     expect(tool("note_offer")).toContain("rhythmus (du hast für ein Ziel einen Wochenrhythmus angeboten; mit goal_id, einmal pro Ziel)");
     expect(source).toContain('await sb.from("goals").update({ rhythm_asked_at: new Date().toISOString() }).eq("id", goalId).select("id");');
     expect(source).toContain('await sb.from("series").update({ lapse_asked_at: new Date().toISOString() }).eq("goal_id", goalId).select("id");');
@@ -497,7 +498,9 @@ describe("the migration", () => {
     expect(read("../src/lib/supabaseBackend.ts")).toContain('["series", ["id"]],');
     // the demo's export too (the same tables as the real one)
     expect(read("../src/lib/demoBackend.ts")).toContain("series: u.series ?? [],");
-    expect(read("../public/datenschutz.html")).toContain("dazu deine festen Wochenrhythmen (Tage, Uhrzeit, Dauer und welche einzelnen Tage ausfallen)");
+    expect(read("../public/datenschutz.html").replace(/\s+/g, " ")).toContain(
+      "dazu deine festen Wochenrhythmen (Termine wie ein Training jeden Donnerstag oder Blöcke für ein Ziel: Tage, Uhrzeit, Dauer und welche einzelnen Tage ausfallen)",
+    );
   });
 });
 

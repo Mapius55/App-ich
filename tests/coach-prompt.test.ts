@@ -266,7 +266,8 @@ describe("prompt texts", () => {
       expect(PERSONA).toContain(name);
     }
     expect(MODE_CHECKIN).toContain("kind block");
-    expect(MODE_CHECKIN).toContain("reminder_minutes 10");
+    // the block's reminder is the tool's default (10 minutes), not repeated here
+    expect(MODE_CHECKIN).toContain("create_event mit kind block und goal_id, wenn er einem Ziel dient.");
   });
 
   it("explain effort and time", () => {

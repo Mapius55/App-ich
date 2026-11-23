@@ -32,11 +32,12 @@ describe("the account export", () => {
 
 describe("the privacy page names what this round stores and sends", () => {
   const page = read("../public/datenschutz.html");
+  const flat = page.replace(/\s+/g, " ");
 
   it("the answers to blocks, the coach's notes of its offers, the notification log", () => {
-    expect(page).toContain("ob ein\n          geplanter Block geklappt hat: ja, teilweise oder nein");
+    expect(flat).toContain("ob ein geplanter Block oder ein Termin für ein Ziel, etwa ein Training, geklappt hat: ja, teilweise oder nein");
     expect(page).toContain("vorgeschlagen hat, die Blöcke\n          eines Ziels anders zu legen oder einen Wochenrhythmus zu ändern oder zu pausieren");
-    expect(page).toContain("mit einer Kennung der Vorlage, nie mit ihrem Text");
+    expect(flat).toContain("mit einer Kennung der Vorlage, nie mit einem Text");
     expect(page).toContain("<li>Das Protokoll der Nachrichten vom Coach: 90 Tage.</li>");
   });
 

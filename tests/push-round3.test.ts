@@ -27,6 +27,7 @@ import {
   reminderDay,
   reminderInRun,
   reminderMessage,
+  remindedSoon,
   REMINDERS_PER_DAY,
   runningUntil,
   safeLabel,
@@ -377,6 +378,28 @@ describe("reminders (owner decision 2 «Blöcke und Wunsch»)", () => {
     expect(due("2026-11-15T20:00:00")).toEqual(["Lauf", "Paket"]);
     expect(due("2026-11-13T20:00:00")).toEqual(["Paket"]);
     expect(due("2026-11-01T20:00:00")).toEqual([]);
+  });
+
+  it("remindedSoon: her reminders within the hour as dueReminders would send them, for the morning and the pause line to leave out", () => {
+    const events = [
+      r(`${MON}T08:00:00`, "Italienisch"), // 07:50: within the hour
+      r(`${MON}T09:00:00`, "Kraft"), // 08:50: later
+      r(`${MON}T07:35:00`, "Schon gemacht"), // answered
+      r(`${MON}T08:10:00`, "Island", { goal_id: "g-camino" }), // a dream's block she did not ask for: no reminder
+      r(`${MON}T08:15:00`, "Paket", { kind: "termin", goal_id: null, reminder_asked: true }),
+      r(`${MON}T07:30:00`, "Läuft schon"),
+    ];
+    const soon = (lastOpen: string) =>
+      [...remindedSoon({ events, answered: new Set(["id-Schon gemacht"]), activity: { lastOpen: iso(lastOpen), lastTalk: null }, goals }, at(`${MON}T07:30:00`))].sort();
+    expect(soon("2026-11-15T20:00:00")).toEqual(["id-Italienisch", "id-Paket"]);
+    // away a few days: only what she asked for comes, so only that is left out
+    expect(soon("2026-11-13T20:00:00")).toEqual(["id-Paket"]);
+    expect(soon("2026-11-01T20:00:00")).toEqual([]);
+    // the morning without it, the pause line too
+    const list = [ev(`${MON}T08:00:00`, "Intervalle", { id: "id-Italienisch", kind: "block", goal_id: "g-run" }), ev(`${MON}T12:15:00`, "Volkshochschule anrufen", { id: "e-vhs" })];
+    expect(first(morning({ events: list }))).toBe("Heute: 08:00 Intervalle, 12:15 Volkshochschule anrufen.");
+    expect(first(morning({ events: list, remindSoon: new Set(["id-Italienisch"]) }))).toBe("Heute: 12:15 Volkshochschule anrufen.");
+    expect(first(pauseCandidates({ events: list, steps: [], goals, remindSoon: new Set(["id-Italienisch"]) }, at(`${MON}T07:30:00`), TZ))).toBe("Heute: 12:15 Volkshochschule anrufen.");
   });
 
   it("the message: her title via safeLabel; one she asked for may name a dream step (her own alarm), never a sensitive word", () => {

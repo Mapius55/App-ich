@@ -259,7 +259,7 @@ describe("create_series: the same rhythm never twice, of either kind", () => {
     expect(sameRhythm(run(), { goal_id: null, start_time: "18:00", weekdays: [2] })).toBe(false);
     // the tool checks every rhythm that runs, of both kinds, before the limit per kind
     expect(source).toContain("const running = liveRhythms((others.data ?? []) as Running[], day);");
-    expect(source).toContain("if (running.some((o) => sameRhythm(o, { goal_id: goalId, start_time: time, weekdays })))");
+    expect(source).toContain("if (running.some((o) => sameRhythm(o, { goal_id: (row.goal_id as string | null) ?? null, start_time: time, weekdays })))");
     expect(source).toContain("const active = running.filter((o) => seriesKind(o) === kind);");
   });
 

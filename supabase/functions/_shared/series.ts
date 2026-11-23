@@ -189,10 +189,13 @@ export function rhythmSuggestion(weeklyHours: number): { count: number; minutes:
 const SHIFT_NOTE = /(?<!ge)schicht|nachtdienst|frühdienst|spätdienst|pikett|dienstplan|turnus|wechselnde\w* (?:arbeits)?zeit|unregelmässige\w* (?:arbeits)?zeit|unregelmässige\w* wochen/i;
 const SHIFT_ENTRY = /(?<!ge)schicht|\b(?:früh|spät|nacht)dienst\b|\bdienst\b/i;
 
-/** Her weeks look irregular (shift work, a rota): from what the coach noted, or two or more shifts in the calendar. */
-export function irregularWeeks(memories: { content: string }[], entries: { title: string; kind?: string | null }[]): boolean {
+/**
+ * Her weeks look irregular (shift work, a rota): from what the coach noted, or two or more single shifts in the
+ * calendar. A shift of a weekly rhythm (series_id: «jeden Montag Frühdienst») is the same every week, so no sign of it.
+ */
+export function irregularWeeks(memories: { content: string }[], entries: { title: string; kind?: string | null; series_id?: string | null }[]): boolean {
   if (memories.some((m) => SHIFT_NOTE.test(m.content))) return true;
-  return entries.filter((e) => e.kind !== "block" && SHIFT_ENTRY.test(e.title)).length >= 2;
+  return entries.filter((e) => e.kind !== "block" && !e.series_id && SHIFT_ENTRY.test(e.title)).length >= 2;
 }
 
 /**

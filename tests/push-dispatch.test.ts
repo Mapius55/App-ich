@@ -634,6 +634,47 @@ describe("dispatch", () => {
       expect(await dispatch(sb, send, at(`${MON}T11:46:00`))).toBe(0);
     });
 
+    it("the morning leaves out what her own reminder says within the hour (two messages never say the same thing)", async () => {
+      const { db, sent, send, sb } = reminderSetup();
+      Object.assign(db.rows("profiles")[0], { notify_morning: "07:30:00" });
+      block(db, `${MON}T08:00:00`, "Italienisch im Bus");
+      event(db, `${MON}T12:15:00`, "Volkshochschule anrufen", { id: "e-vhs", reminder_minutes: 30, source: "coach" });
+      expect(await dispatch(sb, send, at(`${MON}T07:31:00`))).toBe(1);
+      expect(await dispatch(sb, send, at(`${MON}T07:46:00`))).toBe(1);
+      expect(sent.map((x) => `${x.title} · ${x.body}`)).toEqual(["Guten Morgen, Lea · Heute: 12:15 Volkshochschule anrufen.", "Um 08:00 · Italienisch im Bus."]);
+    });
+
+    it("… only where the reminder really comes: with her iPhone calendar subscribed the morning names it", async () => {
+      const { db, sent, send, sb } = reminderSetup();
+      Object.assign(db.rows("profiles")[0], { notify_morning: "07:30:00", calendar_fetched_at: at(`${MON}T06:00:00`).toISOString() });
+      block(db, `${MON}T08:00:00`, "Italienisch im Bus");
+      expect(await dispatch(sb, send, at(`${MON}T07:31:00`))).toBe(1);
+      expect(await dispatch(sb, send, at(`${MON}T07:46:00`))).toBe(0);
+      expect(sent.map((x) => x.body)).toEqual(["Heute: 08:00 Italienisch im Bus."]);
+    });
+
+    it("a reminder later than the hour stays in the morning too; one alone within it leaves the morning out", async () => {
+      const one = reminderSetup();
+      Object.assign(one.db.rows("profiles")[0], { notify_morning: "07:30:00" });
+      block(one.db, `${MON}T10:00:00`, "Intervalle");
+      expect(await dispatch(one.sb, one.send, at(`${MON}T07:31:00`))).toBe(1);
+      expect(one.sent.map((x) => x.body)).toEqual(["Heute: 10:00 Intervalle."]);
+
+      const two = reminderSetup();
+      Object.assign(two.db.rows("profiles")[0], { notify_morning: "07:30:00" });
+      block(two.db, `${MON}T08:00:00`, "Intervalle");
+      expect(await dispatch(two.sb, two.send, at(`${MON}T07:31:00`))).toBe(0);
+      expect(two.db.rows("push_log")).toMatchObject([{ slot: "morning", status: "skipped", reason: "empty" }]);
+    });
+
+    it("no reminder for a training (a termin with a goal) a habit's tick already answered", async () => {
+      const { db, sent, send, sb } = reminderSetup();
+      event(db, `${MON}T10:00:00`, "Training", { id: "e-tr", kind: "termin", goal_id: "g-run", reminder_minutes: 15, reminder_asked: true, source: "coach" });
+      db.insert("goal_time", { user_id: LEA, goal_id: "g-run", day: MON, minutes: 45, source: "habit", event_id: "e-tr", external_id: "h:2026-11-16" });
+      expect(await dispatch(sb, send, at(`${MON}T09:41:00`))).toBe(0);
+      expect(sent).toHaveLength(0);
+    });
+
     it("without the push log (migration not run) no reminder at all, the morning still comes", async () => {
       const { db, sent, send, sb } = reminderSetup();
       db.missing.add("push_log");

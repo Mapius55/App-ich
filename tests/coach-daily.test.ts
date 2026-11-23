@@ -147,8 +147,9 @@ describe("the morning in one minute", () => {
     expect(PERSONA).not.toContain("Legst du ein Ziel an oder steht bei einem „Aufwand noch nicht geschätzt“");
     expect(PERSONA).toContain("Legst du ein Ziel an, oder sprecht ihr über ein Ziel mit „Aufwand noch nicht geschätzt“, schätzt du den gesamten Aufwand");
     expect(PERSONA).toContain("schlägst du, wenn ihr es anlegt oder darüber sprecht, in einem einzigen Satz zwei bis vier Etappen mit Monat vor");
-    expect(PERSONA).toContain("Sprecht ihr gerade nicht über das Ziel, fragst du danach nur als Anstoss.");
-    expect(PERSONA).toContain("Sprecht ihr gerade nicht darüber, schlägst du sie nur als Anstoss vor.");
+    // «nur als Anstoss» once, in the Anstoss rule above (MODE_CHECKIN), not again at each goal rule
+    expect(PERSONA).not.toContain("Sprecht ihr gerade nicht über das Ziel, fragst du danach nur als Anstoss.");
+    expect(PERSONA).not.toContain("Sprecht ihr gerade nicht darüber, schlägst du sie nur als Anstoss vor.");
     expect(PERSONA).not.toContain("Einrichtungsfrage");
   });
 

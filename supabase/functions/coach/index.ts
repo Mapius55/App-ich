@@ -40,6 +40,7 @@ import {
   greetingWriteRefusal,
   nextStepHint,
   NOLIO_EDIT_REFUSAL,
+  NOLIO_TERMIN_NOTE,
   NOLIO_TIME_REFUSAL,
   nolioEditAllowed,
   NOTIFICATIONS_NOTE,
@@ -56,6 +57,7 @@ import {
   reviewPatch,
   sameBlockAnswer,
   TIME_ALREADY_LOGGED,
+  TIME_WITH_TICK,
   WHOOP_HIDDEN_REPLY,
   WHOOP_MEMORY_REFUSAL,
   whoopInMemory,
@@ -91,7 +93,10 @@ import {
   reviewWeek,
   sameTimeLogged,
   streakLabel,
+  countingTermin,
   SUPPORT_EVERY_DAYS,
+  terminCountsTwice,
+  TurnTime,
   weekGoalSummary,
   weekStart,
   type OpenerKind,
@@ -701,6 +706,17 @@ const uuid = (v: unknown, field: string): string => {
 };
 // Optional link to a goal: undefined = unchanged, empty = no goal.
 const optGoalId = (v: unknown): string | null | undefined => (v === undefined ? undefined : v === null || v === "" ? null : uuid(v, "goal_id"));
+
+/**
+ * Whether a termin would count twice for this goal (terminCountsTwice: timed, with an end, and the goal takes its
+ * completed trainings from Nolio): then it stands without the goal. Unknown (a failed read): no.
+ */
+async function countsTwice(sb: SupabaseClient, entry: { kind?: string | null; all_day?: boolean | null; ends_at?: string | null }, goalId: unknown): Promise<boolean> {
+  if (typeof goalId !== "string" || !goalId || !countingTermin(entry)) return false;
+  const res = await sb.from("goals").select("sports").eq("id", goalId).maybeSingle();
+  if (res.error) console.error("goal sports:", res.error.code ?? "error");
+  return terminCountsTwice(entry, res.data as { sports?: string[] | null } | null);
+}
 const oneOf = <T extends string>(v: unknown, values: readonly T[], field: string): T => {
   if (typeof v !== "string" || !(values as readonly string[]).includes(v)) throw new ToolInputError(`${field}: erlaubt sind ${values.join(", ")}`);
   return v as T;
@@ -921,16 +937,19 @@ async function doneDays(sb: SupabaseClient, habitId: string, today: string): Pro
  * of that day that is the same thing or the same minutes already there (habitTimeRow). An untick removes the row.
  * Never fails the tick itself: the minutes it counted now, or 0.
  */
-async function habitTime(sb: SupabaseClient, userId: string, habit: Row, day: string, done: boolean, tz: string): Promise<number> {
+async function habitTime(sb: SupabaseClient, userId: string, habit: Row, day: string, done: boolean, tz: string, turn?: TurnTime): Promise<number> {
   const key = habitTimeKey(String(habit.id), day);
   try {
     if (!done) {
       const del = await sb.from("goal_time").delete().eq("user_id", userId).eq("source", "habit").eq("external_id", key);
       if (del.error) console.error("habit time off:", del.error.code ?? "error");
+      turn?.dropTick(key);
       return 0;
     }
     if (!habit.goal_id || !habit.minutes) return 0;
     const goalId = String(habit.goal_id);
+    // the time she said in this turn (log_time) is this tick's time: it counts once
+    if (turn && !turn.tickCounts(goalId, day)) return 0;
     const dayStart = Date.parse(`${day}T00:00:00Z`);
     const [blocks, times] = await Promise.all([
       sb
@@ -960,7 +979,9 @@ async function habitTime(sb: SupabaseClient, userId: string, habit: Row, day: st
       .select("id");
     // 23505 on the block: it was answered in the meantime, so it counts once already
     if (ins.error) console.error("habit time:", ins.error.code ?? "error");
-    return !ins.error && ins.data?.length ? row.minutes : 0;
+    const counted = !ins.error && ins.data?.length ? row.minutes : 0;
+    if (counted) turn?.noteTick(goalId, day, key);
+    return counted;
   } catch (e) {
     console.error("habit time:", e);
     return 0;
@@ -992,7 +1013,7 @@ const PLAN_TOOLS = new Set([
 async function runTool(
   name: string,
   input: Record<string, unknown>,
-  ctx: { sb: SupabaseClient; userId: string; day: string; tz: string; mode: ReqBody["mode"]; send: (e: Ev) => void; whoop?: boolean },
+  ctx: { sb: SupabaseClient; userId: string; day: string; tz: string; mode: ReqBody["mode"]; send: (e: Ev) => void; whoop?: boolean; turn?: TurnTime },
 ): Promise<string> {
   const { sb, userId, day, send } = ctx;
   switch (name) {
@@ -1136,10 +1157,13 @@ async function runTool(
         // a planned block needs an end to count toward its goal: one hour unless said otherwise
         if (row.kind === "block" && !allDay && !row.ends_at) row.ends_at = new Date(Date.parse(String(row.starts_at)) + 3600_000).toISOString();
         row.reminder_minutes = input.reminder_minutes !== undefined ? reminder(allDay) : defaultReminder(allDay, row.kind);
+        // a training for a goal whose trainings come from Nolio: the completed one counts, the termin stands without the goal
+        const unlinked = await countsTwice(sb, { kind: row.kind as string | undefined, all_day: allDay, ends_at: row.ends_at as string | undefined }, row.goal_id);
+        if (unlinked) row.goal_id = null;
         const { data, error } = await sb.from("events").insert({ ...row, user_id: userId, source: "coach" }).select().single();
         if (error) throw missingGoal(error);
         send({ type: "event_created", event: await markAsked(data) });
-        return JSON.stringify({ ok: true, id: data.id });
+        return JSON.stringify({ ok: true, id: data.id, ...(unlinked ? { ohne_ziel: NOLIO_TERMIN_NOTE } : {}) });
       }
       const id = uuid(input.id, "id");
       if (!Object.keys(row).length && input.reminder_minutes === undefined && asked === undefined) throw new ToolInputError("nichts zu ändern");
@@ -1166,6 +1190,17 @@ async function runTool(
         } else row.ends_at = new Date(Date.parse(String(row.starts_at)) + Date.parse(ends_at) - Date.parse(starts_at)).toISOString();
       }
       if (endsBeforeStart(row.starts_at ?? starts_at, row.ends_at === undefined ? ends_at : row.ends_at)) throw new ToolInputError("end liegt vor start");
+      // linked to a goal whose trainings come from Nolio, or made to count for it: it stands without the goal
+      const linking = row.goal_id !== undefined || row.kind !== undefined || row.ends_at !== undefined || row.all_day !== undefined;
+      const unlinked =
+        linking &&
+        cur.data.source !== "nolio" &&
+        (await countsTwice(
+          sb,
+          { kind: (row.kind as string | undefined) ?? kind, all_day: allDay, ends_at: (row.ends_at === undefined ? ends_at : row.ends_at) as string | null },
+          row.goal_id === undefined ? cur.data.goal_id : row.goal_id,
+        ));
+      if (unlinked) row.goal_id = null;
       let data: Row | null = cur.data;
       if (Object.keys(row).length) {
         const res = await sb.from("events").update(row).eq("id", id).select().maybeSingle();
@@ -1175,7 +1210,7 @@ async function runTool(
       if (!data) throw new ToolInputError("Termin nicht gefunden");
       data = await markAsked(data);
       send({ type: "event_updated", event: data });
-      return JSON.stringify(data.series_id ? { ok: true, notiert: SERIES_DAY_NOTE } : { ok: true });
+      return JSON.stringify({ ok: true, ...(data.series_id ? { notiert: SERIES_DAY_NOTE } : {}), ...(unlinked ? { ohne_ziel: NOLIO_TERMIN_NOTE } : {}) });
     }
     case "delete_event": {
       const id = uuid(input.id, "id");
@@ -1230,7 +1265,7 @@ async function runTool(
         ...(kind === "termin" ? { kind } : {}),
       };
       const [goal, others] = await Promise.all([
-        goalId ? sb.from("goals").select("status, target_date").eq("id", goalId).maybeSingle() : Promise.resolve(null),
+        goalId ? sb.from("goals").select("status, target_date, sports").eq("id", goalId).maybeSingle() : Promise.resolve(null),
         // "*": kind only after its migration (without it every rhythm is one of blocks)
         sb.from("series").select("*").eq("active", true).limit(40),
       ]);
@@ -1238,11 +1273,14 @@ async function runTool(
       if (goal?.error) throw goal.error;
       if (goal && !goal.data) throw new ToolInputError("Ziel nicht gefunden");
       if (goal?.data && goal.data.status !== "active") throw new ToolInputError("Das Ziel ist nicht aktiv: erst wieder aufnehmen (update_goal status active)");
+      // her fixed training for a goal whose trainings come from Nolio: the completed ones count, the rhythm stands without the goal
+      const unlinked = kind === "termin" && terminCountsTwice({ kind, ends_at: "end" }, goal?.data);
+      if (unlinked) row.goal_id = null;
       // only the rhythms that still run (an ended one, or the old part of one split «ab Januar», never counts); the same
       // one of either kind (a training as blocks and again as her fixed time) would stand twice and count twice
       type Running = { goal_id: string | null; kind?: string | null; weekdays: number[]; start_time: string; active: boolean; start_date: string; until_date: string | null };
       const running = liveRhythms((others.data ?? []) as Running[], day);
-      if (running.some((o) => sameRhythm(o, { goal_id: goalId, start_time: time, weekdays })))
+      if (running.some((o) => sameRhythm(o, { goal_id: (row.goal_id as string | null) ?? null, start_time: time, weekdays })))
         throw new ToolInputError("Diesen Rhythmus gibt es schon (siehe „Wochenrhythmus“): ändere ihn mit update_series");
       const active = running.filter((o) => seriesKind(o) === kind);
       const max = kind === "termin" ? TERMIN_SERIES_MAX : SERIES_MAX_ACTIVE;
@@ -1252,7 +1290,7 @@ async function runTool(
       if (error && kind === "termin" && (error.code === "PGRST204" || error.code === "42703"))
         throw new ToolInputError("Feste Termine jede Woche gehen hier noch nicht: trag sie für die nächsten Wochen einzeln ein");
       if (error) throw error.code === "23503" ? missingGoal(error) : seriesMissing(error);
-      return JSON.stringify(await seriesResult(sb, data as Row, ctx.tz, send, "created"));
+      return JSON.stringify({ ...(await seriesResult(sb, data as Row, ctx.tz, send, "created")), ...(unlinked ? { ohne_ziel: NOLIO_TERMIN_NOTE } : {}) });
     }
     case "update_series": {
       if (ctx.mode !== "checkin") throw new ToolInputError("nur im täglichen Gespräch");
@@ -1262,6 +1300,7 @@ async function runTool(
       if (!cur.data) throw new ToolInputError("Rhythmus nicht gefunden");
       const s = cur.data as Row;
       const patch: Row = {};
+      let unlinked = false;
       if (input.weekdays !== undefined) {
         const w = parseWeekdays(input.weekdays);
         if (!w) throw new ToolInputError("weekdays: z.B. [\"di\", \"do\"]");
@@ -1287,6 +1326,11 @@ async function runTool(
           if (g.data.status !== "active") throw new ToolInputError("Das Ziel ist nicht aktiv: erst wieder aufnehmen (update_goal status active)");
         }
         patch.goal_id = goalId;
+        // her fixed times for a goal whose trainings come from Nolio: they stand without the goal
+        if (goalId && seriesKind(s) === "termin" && (await countsTwice(sb, { kind: "termin", ends_at: "end" }, goalId))) {
+          patch.goal_id = null;
+          unlinked = true;
+        }
       }
       if (input.until !== undefined) patch.until_date = input.until === "" || input.until === null ? null : optDate(input.until, "until");
       if (input.pausiert !== undefined) patch.active = !bool(input.pausiert, "pausiert");
@@ -1320,7 +1364,10 @@ async function runTool(
       const { data, error } = await sb.from("series").update(patch).eq("id", target).select().maybeSingle();
       if (error) throw error.code === "23503" ? missingGoal(error) : error;
       if (!data) throw new ToolInputError("Rhythmus nicht gefunden");
-      return JSON.stringify(await seriesResult(sb, data as Row, ctx.tz, send, patch.active === false ? "paused" : "changed"));
+      return JSON.stringify({
+        ...(await seriesResult(sb, data as Row, ctx.tz, send, patch.active === false ? "paused" : "changed")),
+        ...(unlinked ? { ohne_ziel: NOLIO_TERMIN_NOTE } : {}),
+      });
     }
     case "create_goal": {
       const title = str(input.title, 200, "title");
@@ -1593,7 +1640,7 @@ async function runTool(
         ? await sb.from("habit_logs").upsert({ habit_id: habitId, user_id: userId, day: logDay }, { onConflict: "habit_id,day", ignoreDuplicates: true })
         : await sb.from("habit_logs").delete().eq("habit_id", habitId).eq("day", logDay);
       if (res.error) throw res.error;
-      const counted = await habitTime(sb, userId, habit, logDay, done, ctx.tz);
+      const counted = await habitTime(sb, userId, habit, logDay, done, ctx.tz, ctx.turn);
       send({ type: "habit_logged", habit_id: habitId, title: habit.title, day: logDay, done });
       // Where the week and the streak stand now, so the coach can mention a nice streak.
       const h = { per_week: Number(habit.per_week), done_days: await doneDays(sb, habitId, day) };
@@ -1619,6 +1666,8 @@ async function runTool(
       if (!goalRes.data) throw new ToolInputError("Ziel nicht gefunden");
       let blockDay: string | null = null;
       let doneEarly = false;
+      // the time went into the row of a habit ticked in this turn (the same report)
+      let withTick = false;
       if (eventId) {
         const ev = await sb.from("events").select("starts_at, ends_at, all_day, kind, goal_id, source, reminder_minutes").eq("id", eventId).maybeSingle();
         if (ev.error) throw ev.error;
@@ -1667,12 +1716,23 @@ async function runTool(
           }
         }
       } else {
+        // a habit ticked in this turn for this goal and day is the same report («20 Minuten Italienisch im Bus»): its
+        // row takes the minutes she said, so the two count once (TurnTime)
+        const ticks = extra ? [] : (ctx.turn?.ticksOf(goalId, logDay) ?? []);
+        const merged = ticks.length
+          ? await sb.from("goal_time").update({ minutes, ...(note !== undefined ? { note } : {}) }).eq("source", "habit").in("external_id", ticks).select("id")
+          : null;
+        if (merged?.error) throw merged.error;
+        withTick = !!merged?.data?.length;
         // the same minutes for this goal on this day already there (said again, or a block or a habit that has them):
         // no second row unless she really did it twice (D1)
-        if (!extra) {
+        if (!extra && !withTick) {
           const same = await sb.from("goal_time").select("goal_id, day, minutes").eq("goal_id", goalId).eq("day", logDay).eq("minutes", minutes).limit(1);
           if (same.error) throw same.error;
-          if (sameTimeLogged(same.data ?? [], goalId, logDay, minutes)) return JSON.stringify({ ok: true, hint: TIME_ALREADY_LOGGED });
+          if (sameTimeLogged(same.data ?? [], goalId, logDay, minutes)) {
+            ctx.turn?.noteSaid(goalId, logDay); // her report stands: a tick of it in this turn adds nothing
+            return JSON.stringify({ ok: true, hint: TIME_ALREADY_LOGGED });
+          }
           // a block of this goal on that day without an answer (past, running or later today) would count as well:
           // nothing saved, the coach answers the block or says it was more time (D1 with K6)
           const dayStart = Date.parse(`${logDay}T00:00:00Z`);
@@ -1695,8 +1755,11 @@ async function runTool(
             return JSON.stringify({ ok: false, hint: blockOpenThatDay(open.map((b) => ({ id: String(b.id), time: time.format(new Date(b.starts_at)) }))) });
           }
         }
-        const ins = await insert();
-        if (ins.error) throw missingGoal(ins.error);
+        if (!withTick) {
+          const ins = await insert();
+          if (ins.error) throw missingGoal(ins.error);
+        }
+        ctx.turn?.noteSaid(goalId, logDay);
       }
       send({ type: "time_logged", goal_id: goalId, title: goalRes.data.title, minutes });
       // The new totals, so the coach can mention the progress in a word. The time is saved
@@ -1718,10 +1781,16 @@ async function runTool(
           // a dream without an estimate gets no «Aufwand noch nicht geschätzt» to fill in (as create/update_goal)
           ...(goal.kind !== "dream" || goal.effort_hours ? { aufwand: effortLine(goal, day) } : {}),
           ...(doneEarly ? { erinnerung: BLOCK_DONE_EARLY } : {}),
+          ...(withTick ? { notiert: TIME_WITH_TICK } : {}),
         });
       } catch (err) {
         console.error(err);
-        return JSON.stringify({ ok: true, ...(eventId && minutes === 0 ? { naechster_schritt: BLOCK_NO_NEXT } : {}), ...(doneEarly ? { erinnerung: BLOCK_DONE_EARLY } : {}) });
+        return JSON.stringify({
+          ok: true,
+          ...(eventId && minutes === 0 ? { naechster_schritt: BLOCK_NO_NEXT } : {}),
+          ...(doneEarly ? { erinnerung: BLOCK_DONE_EARLY } : {}),
+          ...(withTick ? { notiert: TIME_WITH_TICK } : {}),
+        });
       }
     }
     case "wochenblick": {
@@ -2575,6 +2644,8 @@ async function converse({ sb, userId, body, send }: { sb: SupabaseClient; userId
         : TOOLS.filter((t) => t.name !== "finish_onboarding");
   let fullText = "";
   let lastRoundText = ""; // what the last round that said something said
+  // what this turn logged and ticked: one report said and ticked counts once (log_time with log_habit)
+  const turn = new TurnTime();
 
   for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
     const stream = anthropic.beta.messages.stream({
@@ -2635,7 +2706,7 @@ async function converse({ sb, userId, body, send }: { sb: SupabaseClient; userId
         // a turn without her words (the greeting) writes nothing of hers (K4); tidying is no conversation
         const refused = mode !== "tidy" && !message ? greetingWriteRefusal(tu.name, input) : null;
         if (refused) return { type: "tool_result" as const, tool_use_id: tu.id, content: refused, is_error: true };
-        const out = await runTool(tu.name, input, { sb, userId, day: context.day, tz, mode, send, whoop: whoopInContext });
+        const out = await runTool(tu.name, input, { sb, userId, day: context.day, tz, mode, send, whoop: whoopInContext, turn });
         return { type: "tool_result" as const, tool_use_id: tu.id, content: out };
       } catch (e) {
         const msgText = e instanceof ToolInputError ? e.message : "Speichern fehlgeschlagen";

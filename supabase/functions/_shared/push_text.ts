@@ -19,7 +19,8 @@
 // - Reminders (a third kind): at starts_at − reminder_minutes, for her blocks and the entries she asked a
 //   reminder for, only when her iPhone calendar is not subscribed (no double alarm), never for Nolio entries,
 //   a dream's block only when she asked for it, at most 3 a day, never late, once per entry (and the day of its
-//   moment).
+//   moment). An entry whose reminder comes within the hour is left out of the morning and the pause line (the
+//   reminder names it; two messages never say the same thing).
 // - Lock-screen safe: short, no health words (also not the title of something that serves a goal with
 //   one), no WHOOP values, never a dream (a reminder she asked for may show her own title). Goals unknown
 //   (the query failed): times and counts only.
@@ -64,6 +65,8 @@ export const REMINDER_GRACE_MIN = 5;
 export const REMINDERS_PER_DAY = 3;
 /** a reminder longer than this ahead stays in the calendar only */
 export const REMINDER_MAX_LEAD_MIN = 1440;
+/** the morning and the pause line leave out an entry whose reminder comes as a notification within this time */
+export const REMINDER_SOON_MIN = DUE_WINDOW_MIN;
 /** the iPhone calendar counts as subscribed while it fetched the feed within this many days */
 export const CALENDAR_FRESH_DAYS = 3;
 /** no identical body within this many days (today included) */
@@ -420,6 +423,8 @@ export interface MorningFacts {
   goals: PushGoal[] | null;
   /** how often each label was named in a message of the last 7 days (fingerprint → count; see namedCounts) */
   named?: Record<string, number>;
+  /** her entries whose reminder comes as a notification within the hour (remindedSoon): the reminder names them */
+  remindSoon?: ReadonlySet<string>;
 }
 
 export interface EveningFacts {
@@ -510,8 +515,9 @@ export function morningCandidates(f: MorningFacts, at: Date, tz: string): Candid
       continue;
     }
     const ms = Date.parse(e.starts_at);
-    // already running or over (P1: «Um 06:45 geht es los: Frühdienst.» at 07:30)
-    if (ms <= at.getTime()) continue;
+    // already running or over (P1: «Um 06:45 geht es los: Frühdienst.» at 07:30); or its reminder comes within the
+    // hour as a notification of its own (two messages saying the same thing)
+    if (ms <= at.getTime() || (e.id && f.remindSoon?.has(e.id))) continue;
     const shown = label ?? (e.kind === "block" ? lengthLabel(lengthOf(e)) : "Termin");
     if (daily.has(titleKey(e.title)) && namedEnough(f.named, shown)) continue;
     timed.push({ ms, time: hhmm(start.minutes), label: shown, evening: start.minutes >= EVENING_ENTRY_MIN });
@@ -726,6 +732,8 @@ export interface PauseFacts {
   /** her open steps with a day */
   steps: { title: string; goal_id: string; due_date: string | null }[];
   goals: PushGoal[] | null;
+  /** as in the morning: an entry whose own reminder comes within the hour is not the line */
+  remindSoon?: ReadonlySet<string>;
 }
 
 /** how far ahead the pause line looks for her next entry or step */
@@ -742,7 +750,7 @@ export function pauseCandidates(f: PauseFacts, at: Date, tz: string): Candidate[
   let entry: { day: string; ms: number; time: string; label: string; evening: boolean } | null = null;
   for (const e of f.events) {
     const ms = Date.parse(e.starts_at);
-    if (e.all_day || !(ms > at.getTime()) || servesDream(e.goal_id, f.goals) || (entry && entry.ms <= ms)) continue;
+    if (e.all_day || !(ms > at.getTime()) || servesDream(e.goal_id, f.goals) || (entry && entry.ms <= ms) || (e.id && f.remindSoon?.has(e.id))) continue;
     const s = localParts(new Date(ms), tz);
     const label = safeLabel(e.title, f.goals, e.goal_id);
     if (!label || s.date > last) continue;
@@ -854,6 +862,41 @@ export function laterAskedToday(events: ReminderEvent[], at: Date, tz: string): 
 }
 
 /**
+ * Whether an entry's reminder may come at all (the window aside): not after an answer (done early, a habit's tick),
+ * a dream's block only when she asked for it, after a few days away only what she asked for, after 14 days nothing.
+ */
+function reminderWanted(f: Pick<ReminderFacts, "answered" | "activity" | "goals">, at: Date): (e: ReminderEvent) => boolean {
+  const now = at.getTime();
+  const pause = f.activity ? pauseState(at, f.activity, true) : null;
+  const ref = Date.parse(f.activity?.lastOpen ?? f.activity?.since ?? "");
+  if (Number.isFinite(ref) && now - ref >= PAUSE_AFTER_DAYS * DAY_MS) return () => false;
+  return (e) =>
+    !f.answered.has(e.id) &&
+    !(e.reminder_asked !== true && servesDream(e.goal_id, f.goals)) &&
+    // away for a few days: her blocks rest (no pressure), what she asked for still comes
+    !(pause && e.reminder_asked !== true);
+}
+
+/**
+ * Her entries whose reminder comes as a notification soon: its moment from a few minutes behind up to `withinMin`
+ * ahead, the entry not begun, and wanted as dueReminders decides. The morning and the pause line leave them out, so a
+ * message and the reminder right after it never say the same thing («Heute: 08:00 Italienisch» at 07:30, «Um 08:00
+ * Italienisch.» at 07:50). The day's three are not looked at: one they hold back is still left out (rare; the entry
+ * stays in her calendar).
+ */
+export function remindedSoon(f: Pick<ReminderFacts, "events" | "answered" | "activity" | "goals">, at: Date, withinMin = REMINDER_SOON_MIN): Set<string> {
+  const now = at.getTime();
+  const wanted = reminderWanted(f, at);
+  const out = new Set<string>();
+  for (const e of f.events) {
+    const m = reminderAt(e);
+    if (m === null || !(now < Date.parse(e.starts_at)) || m > now + withinMin * 60000 || now - m > REMINDER_GRACE_MIN * 60000 || !wanted(e)) continue;
+    out.add(e.id);
+  }
+  return out;
+}
+
+/**
  * The reminders this run sends, earliest first: their moment lies within the next run's span (or a few minutes
  * behind, never once the entry began), at most what is left of the day's three. Those she asked for come first: a
  * block's reminder only while the day still has room after hers (also those still to come today, `laterAsked`). A
@@ -861,16 +904,11 @@ export function laterAskedToday(events: ReminderEvent[], at: Date, tz: string): 
  */
 export function dueReminders(f: ReminderFacts, at: Date): ReminderEvent[] {
   const now = at.getTime();
-  const pause = f.activity ? pauseState(at, f.activity, true) : null;
-  const ref = Date.parse(f.activity?.lastOpen ?? f.activity?.since ?? "");
-  if (Number.isFinite(ref) && now - ref >= PAUSE_AFTER_DAYS * DAY_MS) return [];
+  const wanted = reminderWanted(f, at);
   const seen = new Set<string>();
   const due = f.events
     .filter((e) => {
-      if (!reminderInRun(e, now) || seen.has(e.id) || f.answered.has(e.id)) return false;
-      if (e.reminder_asked !== true && servesDream(e.goal_id, f.goals)) return false;
-      // away for a few days: her blocks rest (no pressure), what she asked for still comes
-      if (pause && e.reminder_asked !== true) return false;
+      if (!reminderInRun(e, now) || seen.has(e.id) || !wanted(e)) return false;
       seen.add(e.id);
       return true;
     })

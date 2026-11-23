@@ -99,6 +99,13 @@ export function sameBlockAnswer(
 export const TIME_ALREADY_LOGGED =
   "Schon eingetragen: Für dieses Ziel stehen an diesem Tag schon genau so viele Minuten. Nichts gespeichert; sag höchstens in einem Halbsatz, dass sie schon dastehen. Nur wenn sie es wirklich zweimal gemacht hat, nochmals mit zusaetzlich: true.";
 
+/** A termin for a goal whose trainings come from Nolio (terminCountsTwice): it stands without the goal. */
+export const NOLIO_TERMIN_NOTE =
+  "Für dieses Ziel zählen die erledigten Trainings aus Nolio: Der Termin steht ohne Ziel im Kalender, damit nichts doppelt zählt. Sag dazu nichts, ausser sie fragt.";
+
+/** log_time right after log_habit for the same goal and day in one turn: the tick's row took her minutes (once). */
+export const TIME_WITH_TICK = "Mit dem Haken der Gewohnheit zusammen gezählt: einmal, mit den Minuten, die sie genannt hat.";
+
 /**
  * log_time without event_id on a day with a block of this goal that has no answer yet (also one later today, K6):
  * nothing saved, since the block would count as well. The coach answers the block, or says it was more time.

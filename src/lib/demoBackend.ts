@@ -58,6 +58,8 @@ import {
   seriesKeepsDay,
   seriesKind,
   seriesPatchFromDay,
+  terminCountsTwice,
+  TurnTime,
   seriesTimes,
   shiftAskDue,
   unansweredCredit,
@@ -1289,11 +1291,19 @@ export class DemoBackend implements Backend {
    * this goal on that day without an answer (also one later today) is answered with it, as the coach does after its
    * tool's hint, so the block doesn't count as well.
    */
-  private logTime(goalId: string, day: string, minutes: number): boolean {
+  private logTime(goalId: string, day: string, minutes: number, turn?: TurnTime): boolean {
     if (!Number.isInteger(minutes) || minutes < 0 || minutes > 1440) throw new Error("Bitte zwischen 0 und 1440 Minuten.");
     let saved = false;
     this.mutate((u) => {
       checkGoal(u, goalId);
+      // like the coach: a habit ticked in the same turn for this goal and day is the same report, its row takes the minutes
+      const ticks = new Set(turn?.ticksOf(goalId, day) ?? []);
+      const tick = u.goal_time.find((t) => t.source === "habit" && !!t.external_id && ticks.has(t.external_id));
+      if (tick) {
+        tick.minutes = minutes;
+        saved = true;
+        return;
+      }
       if (sameTimeLogged(u.goal_time, goalId, day, minutes)) return;
       const answered = new Set(u.goal_time.map((t) => t.event_id).filter(Boolean));
       // like the coach's query: entries of the goal with an end (one without counts for nothing)
@@ -1348,7 +1358,7 @@ export class DemoBackend implements Backend {
   async deleteHabit(id: string) {
     this.mutate((u) => (u.habits = u.habits.filter((h) => h.id !== id)));
   }
-  async setHabitDone(habitId: string, day: string, done: boolean) {
+  async setHabitDone(habitId: string, day: string, done: boolean, turn?: TurnTime) {
     this.mutate((u) => {
       const h = u.habits.find((x) => x.id === habitId);
       if (!h) {
@@ -1372,7 +1382,10 @@ export class DemoBackend implements Backend {
         times: u.goal_time,
         dayOfIso: (iso) => dayOf(new Date(iso)),
       });
-      if (row) u.goal_time.push({ id: uuid(), ...row, note: null });
+      if (row) {
+        u.goal_time.push({ id: uuid(), ...row, note: null });
+        turn?.noteTick(row.goal_id, day, row.external_id);
+      }
     });
   }
 
@@ -1830,7 +1843,9 @@ export class DemoBackend implements Backend {
     // without a reminder (an hour each); an activity for her goal (a training) counts for it like a block
     const rhythm = req.message && !spent && !dreamTurn && !goal ? parseDemoRhythm(req.message) : null;
     if (rhythm) {
-      const focus = rhythm.title ? ((await this.listGoals()).find((g) => g.kind !== "dream" && g.status === "active") ?? null) : null;
+      const active = rhythm.title ? ((await this.listGoals()).find((g) => g.kind !== "dream" && g.status === "active") ?? null) : null;
+      // like the coach: not for a goal whose trainings come from Nolio (the completed ones count; terminCountsTwice)
+      const focus = active && !terminCountsTwice({ kind: "termin", ends_at: "end" }, active) ? active : null;
       const made = await this.addSeries({
         goal_id: focus?.id ?? null,
         kind: "termin",
@@ -1867,15 +1882,17 @@ export class DemoBackend implements Backend {
       calendarNote = `Ich habe „${ev.title}“ in deinen Kalender „Bucket List“ eingetragen. `;
     }
     const habitsDone = req.message && !goal && !dreamTurn ? recogniseDemoHabits(req.message, this.user().habits) : [];
+    // one report ticked and said counts once (the coach's TurnTime)
+    const turn = new TurnTime();
     for (const h of habitsDone) {
-      await this.setHabitDone(h.id, req.context.day, true);
+      await this.setHabitDone(h.id, req.context.day, true, turn);
       onEvent({ type: "habit_logged", habit_id: h.id, title: h.title, day: req.context.day, done: true });
     }
     if (habitsDone.length) {
       const names = habitsDone.map((h) => `„${h.title}“`).join(" und ");
       habitNote = `Stark, ${names} ${habitsDone.length > 1 ? "sind" : "ist"} für heute abgehakt. `;
     }
-    if (spent && !this.logTime(spent.goal.id, addDays(req.context.day, -spent.daysAgo), spent.minutes)) {
+    if (spent && !this.logTime(spent.goal.id, addDays(req.context.day, -spent.daysAgo), spent.minutes, turn)) {
       timeNote = `Die ${minutesLabel(spent.minutes)} für „${spent.goal.title}“ stehen schon da. `;
     } else if (spent) {
       onEvent({ type: "time_logged", goal_id: spent.goal.id, title: spent.goal.title, minutes: spent.minutes });

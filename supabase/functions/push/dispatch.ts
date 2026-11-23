@@ -31,6 +31,8 @@ import {
   reminderDay,
   reminderInRun,
   reminderMessage,
+  remindedSoon,
+  REMINDER_SOON_MIN,
   skipReason,
   slotDueAt,
   zoneOr,
@@ -247,8 +249,11 @@ async function pauseFacts(sb: SupabaseClient, userId: string, at: Date, today: s
   return { events: events ?? [], steps: steps ?? [], goals };
 }
 
-/** what went out lately (rotation, the pause line, how often an entry was named); before this round without `named` */
-async function historyOf(sb: SupabaseClient, userId: string, today: string): Promise<SentBefore[]> {
+/**
+ * What went out lately (rotation, the pause line, how often an entry was named); before this round without `named`.
+ * `log`: the push log is there (without it no reminder goes out, claim()).
+ */
+async function historyOf(sb: SupabaseClient, userId: string, today: string): Promise<{ sent: SentBefore[]; log: boolean }> {
   const q = (cols: string) =>
     sb
       .from("push_log")
@@ -257,12 +262,12 @@ async function historyOf(sb: SupabaseClient, userId: string, today: string): Pro
       .in("slot", ["morning", "evening"])
       .gte("day", addDays(today, -PAUSE_AFTER_DAYS));
   const res = await q("day, slot, status, template, fingerprint, named, created_at");
-  if (!res.error) return (res.data ?? []) as unknown as SentBefore[];
+  if (!res.error) return { sent: (res.data ?? []) as unknown as SentBefore[], log: true };
   if (!missingColumn(res.error)) {
     if (!missingTable(res.error)) console.warn("push: history", res.error.message ?? res.error);
-    return [];
+    return { sent: [], log: !missingTable(res.error) };
   }
-  return ((await rows<SentBefore>(q("day, slot, status, template, fingerprint, created_at"), "history")) ?? []);
+  return { sent: (await rows<SentBefore>(q("day, slot, status, template, fingerprint, created_at"), "history")) ?? [], log: true };
 }
 
 /**
@@ -310,7 +315,7 @@ async function slotFor(r: PersonRun): Promise<number> {
   const due = slotDueAt(slot, time, now.weekday, late);
 
   const activity = await r.activity();
-  const history = await historyOf(sb, p.id, now.date);
+  const { sent: history, log } = await historyOf(sb, p.id, now.date);
   const a = activity ? { ...activity, since: p.created_at } : null;
   const lineSent = a ? pauseLineSent(history, a) : false;
   // unknown activity (the query failed): no pause and no skip, as before
@@ -327,10 +332,12 @@ async function slotFor(r: PersonRun): Promise<number> {
   if (!reason) {
     const recent = history.filter((h) => h.day >= addDays(now.date, -NO_REPEAT_DAYS));
     const named = namedCounts(recent, now.date);
+    // what her own reminders say within the hour, the morning and the pause line leave out (none without the log)
+    const remindSoon = log && (pauseLine || slot === "morning") ? await soonReminded(sb, p, at, a) : undefined;
     const groups = pauseLine
-      ? pauseCandidates(await pauseFacts(sb, p.id, at, now.date), at, tz)
+      ? pauseCandidates({ ...(await pauseFacts(sb, p.id, at, now.date)), remindSoon }, at, tz)
       : slot === "morning"
-        ? morningCandidates({ ...(await morningFacts(sb, p.id, now.date, events)), named }, at, tz)
+        ? morningCandidates({ ...(await morningFacts(sb, p.id, now.date, events)), named, remindSoon }, at, tz)
         : eveningCandidates({ ...(await eveningFacts(sb, p.id, at, now.date, events)), named }, at, tz);
     choice = chooseBody(groups, recent, now.date, slot);
     // nothing of her own to say: no message (round 3, no filler)
@@ -415,6 +422,45 @@ async function remindersFor(r: PersonRun, candidates: ReminderEvent[], answered:
 
 const REMINDER_COLS = "id, user_id, title, starts_at, ends_at, all_day, kind, goal_id, source, reminder_minutes, reminder_asked";
 
+/** the ids of entries with an answer already (done early, a habit's tick); null when that could not be read */
+async function answeredOf(sb: SupabaseClient, ids: string[]): Promise<Set<string> | null> {
+  const out = new Set<string>();
+  for (const part of chunks(ids)) {
+    const done = await rows<{ event_id: string }>(sb.from("goal_time").select("event_id").in("event_id", part), "answered entries");
+    if (!done) return null;
+    for (const d of done) out.add(d.event_id);
+  }
+  return out;
+}
+
+/**
+ * Her entries whose reminder comes as a notification within the hour (remindedSoon), for the morning and the pause
+ * line to leave out: only when her reminders come as notifications (the switch on, her iPhone calendar not
+ * subscribed). Empty when that is not so or could not be read (then a message may name it as before).
+ */
+async function soonReminded(sb: SupabaseClient, p: Person, at: Date, activity: Activity | null): Promise<Set<string>> {
+  if (p.notify_reminders !== true || calendarSubscribed(p.calendar_fetched_at, at)) return new Set();
+  const list = await rows<ReminderEvent>(
+    sb
+      .from("events")
+      .select(REMINDER_COLS)
+      .eq("user_id", p.id)
+      .eq("all_day", false)
+      .not("reminder_minutes", "is", null)
+      .neq("source", "nolio")
+      .gte("starts_at", at.toISOString())
+      .lte("starts_at", new Date(at.getTime() + (REMINDER_SOON_MIN + REMINDER_MAX_LEAD_MIN) * 60000).toISOString())
+      .or("kind.eq.block,reminder_asked.is.true")
+      .order("starts_at")
+      .limit(50),
+    "reminders soon",
+  );
+  if (!list?.length) return new Set();
+  const [answered, goals] = await Promise.all([answeredOf(sb, list.filter((e) => e.goal_id).map((e) => e.id)), goalsOf(sb, p.id)]);
+  // unknown answers: an entry done early would still be named, never a reminder that does not come left out
+  return remindedSoon({ events: list, answered: answered ?? new Set(list.map((e) => e.id)), activity, goals }, at);
+}
+
 /** how many reminders she asked for ring later today (laterAskedToday); on a failed query the whole day's three */
 async function askedLater(sb: SupabaseClient, userId: string, at: Date, tz: string): Promise<number> {
   const list = await rows<ReminderEvent>(
@@ -461,11 +507,11 @@ async function reminderCandidates(sb: SupabaseClient, at: Date): Promise<{ byUse
     if (!byUser.has(e.user_id)) byUser.set(e.user_id, []);
     byUser.get(e.user_id)!.push(e);
   }
-  for (const part of chunks(near.filter((e) => e.kind === "block").map((e) => e.id))) {
-    const done = await rows<{ event_id: string }>(sb.from("goal_time").select("event_id").in("event_id", part), "answered blocks");
-    // unknown answers: no block reminder (one for something she did already would be worse than none)
-    if (!done) for (const id of part) answered.add(id);
-    for (const d of done ?? []) answered.add(d.event_id);
+  // those with a goal can have an answer: a block, and a termin with a goal (a training, answered early by a tick)
+  for (const part of chunks(near.filter((e) => e.goal_id).map((e) => e.id))) {
+    const done = await answeredOf(sb, part);
+    // unknown answers: no reminder for these (one for something she did already would be worse than none)
+    for (const id of done ?? part) answered.add(id);
   }
   return { byUser, answered };
 }
