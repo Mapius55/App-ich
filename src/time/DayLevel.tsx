@@ -13,7 +13,7 @@ import { useFresh, useSeenWhenVisible } from "../space/fresh";
 import { useSpace } from "../space/state";
 import { BlockAnswer } from "./BlockAnswer";
 import { HabitChips } from "./HabitChips";
-import { calmEvening, dayRows, dayPlanText, hm, largestGap, minutesIn } from "./layout";
+import { calmEvening, dayRowMeta, dayRows, dayPlanText, hm, largestGap, minutesIn } from "./layout";
 import { CornerPill, LevelHeader, NextLevelLink } from "./LevelHeader";
 import { useNow, usePeriodSwap, useTimePaging } from "./usePaging";
 import { clearRangeCache, pastBlockMinutes, prefetchRange, useRangeEvents, type Answers } from "./useRangeEvents";
@@ -273,9 +273,7 @@ function DayRow(props: {
   const nolio = e.source === "nolio"; // planned by the trainer: read-only, counts by itself once done in Nolio
   const planned = goal && !nolio ? pastBlockMinutes(e, now) : null;
   const goalLabel = goal ? (goal === e.title ? "Ziel" : goal) : null;
-  // a day of a weekly rhythm: a quiet «jede Woche» (one unit: never broken over two lines)
-  const weekly = e.series_id ? "jede\u00a0Woche" : null;
-  const meta = planned === null ? [e.location, goalLabel, weekly, nolio ? "vom Trainer" : null].filter(Boolean).join(" · ") : "";
+  const meta = planned === null ? dayRowMeta(e, goalLabel, nolio) : "";
   const label = `${e.title}, ${e.all_day ? "ganztägig" : `${time}${end ? ` bis ${end}` : ""}`}${e.kind === "block" ? ", Block" : ""}${e.series_id ? ", jede Woche" : ""}${goal ? `, Ziel ${goal}` : ""}${nolio ? ", vom Trainer geplant. Ansehen" : ". Bearbeiten"}${fresh ? ", neu vom Coach" : ""}`;
   return (
     <li
@@ -284,7 +282,10 @@ function DayRow(props: {
       className={`day-row${past ? " past" : ""}${e.goal_id ? " goal" : ""}${planned !== null ? " answer" : ""}${fresh ? " is-fresh" : ""}${flash ? " is-flash" : ""}`}
     >
       <button type="button" className={`day-row-main${meta || planned !== null ? "" : " bare"}`} aria-label={label} onClick={(ev) => props.onOpen(ev.currentTarget)}>
-        <span className={`day-time${e.all_day ? " allday" : ""}`}>{e.all_day ? "Ganztags" : time}</span>
+        {/* an all-day entry says «ganztags» in its meta line: the word does not fit this column */}
+        <span className="day-time" aria-hidden={e.all_day || undefined}>
+          {time}
+        </span>
         <span className="day-body">
           <span className="day-title">
             {e.title}

@@ -4,6 +4,7 @@ import {
   calmEvening,
   CALM_FROM,
   dayPlanText,
+  dayRowMeta,
   dayRows,
   hm,
   hoursShort,
@@ -262,5 +263,21 @@ describe("year sums", () => {
     expect(yearSummary(0, 0)).toBe("Hier wächst dein Jahr: Jeder Tag mit Zeit für deine Ziele leuchtet.");
     expect(monthSummary(1440, 18)).toBe("18 Tage · 24 Std für Ziele");
     expect(monthSummary(60, 1)).toBe("1 Tag · 1 Std für Ziele");
+  });
+});
+
+describe("a Tag row's meta line", () => {
+  // the final UI check of round 3: «GANZTAGS» in the 62 px time column ran into the title at 390, 375 and 320 px;
+  // the word now leads the quiet line under the title, the time column stays empty for an all-day entry
+  const allDay = { all_day: true, location: null, series_id: null };
+  it("says «ganztags» first for an all-day entry, before the place and the rest", () => {
+    expect(dayRowMeta(allDay, null, false)).toBe("ganztags");
+    expect(dayRowMeta({ ...allDay, location: "Kreis 4" }, "Halbmarathon Zürich", false)).toBe("ganztags · Kreis 4 · Halbmarathon Zürich");
+  });
+  it("keeps the timed rows as they were: place · goal · jede Woche (one unit) · vom Trainer", () => {
+    const timed = { all_day: false, location: "Sihlwald", series_id: "s1" };
+    expect(dayRowMeta(timed, "Halbmarathon Zürich", false)).toBe("Sihlwald · Halbmarathon Zürich · jede\u00a0Woche");
+    expect(dayRowMeta({ ...timed, location: null, series_id: null }, null, true)).toBe("vom Trainer");
+    expect(dayRowMeta({ all_day: false, location: null }, null, false)).toBe("");
   });
 });

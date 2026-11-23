@@ -47,6 +47,19 @@ export function dayRows<E extends EventLike>(events: E[], day: string, today: st
   return rows;
 }
 
+/**
+ * A Tag row's quiet line under the title: «ganztags» first for an all-day entry (the word does not fit the 62 px time
+ * column beside the title, where it ran into it), then the place, the goal, «jede Woche» for a day of a weekly rhythm
+ * (one unit, never broken), «vom Trainer» for a Nolio training. Empty when there is nothing to say.
+ */
+export function dayRowMeta(
+  e: Pick<CalendarEvent, "all_day" | "location"> & { series_id?: string | null },
+  goalLabel: string | null,
+  nolio: boolean,
+): string {
+  return [e.all_day ? "ganztags" : null, e.location, goalLabel, e.series_id ? "jede\u00a0Woche" : null, nolio ? "vom Trainer" : null].filter(Boolean).join(" · ");
+}
+
 export const GAP_FROM = 7 * 60;
 export const GAP_TO = 22 * 60;
 export const GAP_MIN = 120;

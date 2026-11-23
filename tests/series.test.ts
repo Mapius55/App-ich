@@ -264,7 +264,9 @@ describe("one day in the app: «Nur diesen Termin» or «Alle kommenden», only 
     expect(form).toContain("Alle kommenden");
     expect(form).toContain('also={rhythmDay ? { label: "Alle kommenden", onConfirm: () => remove("following") } : undefined}');
     expect(form).toContain('<p className="sheet-hint">Jede Woche{event.source === "coach" ? " · vom Coach eingetragen" : ""}.</p>');
-    expect(read("../src/time/DayLevel.tsx")).toContain('const weekly = e.series_id ? "jede\\u00a0Woche" : null;');
+    // the day's row: «jede Woche» in its meta line (dayRowMeta, tests/time-layout.test.ts)
+    expect(read("../src/time/DayLevel.tsx")).toContain("const meta = planned === null ? dayRowMeta(e, goalLabel, nolio) : \"\";");
+    expect(read("../src/time/layout.ts")).toContain('e.series_id ? "jede\\u00a0Woche" : null');
     const week = read("../src/time/WeekLevel.tsx");
     expect(week).toContain('...(weekly ? [{ text: "jede\\u00a0Woche", kind: "weekly" as const, at: weeklyAt }] : []),');
     // the markers before the minutes, in the order of their entries (a trainer's earlier run keeps «vom Trainer» first)

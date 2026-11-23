@@ -36,6 +36,20 @@ export const REMINDERS_HINT =
 /** «Erinnerungen an Einträge» is on unless she switched it off (the column's default; missing before its migration) */
 export const remindersOn = (p: Pick<Profile, "notify_reminders">) => p.notify_reminders !== false;
 
+/** without the server (the demo) the rows still show and save; this note stands where the device buttons would */
+export const NOTIFY_NO_SERVER = "Nachrichten vom Coach gibt es, sobald die App mit dem Server (Supabase) verbunden ist.";
+
+/**
+ * What the section shows: the three rows and their hint whenever they can be set (also in the demo, which keeps the
+ * times in her profile like the server does), the device part (allow, test, off) only with the server; a browser
+ * that cannot receive notifications at all gets a single line.
+ */
+export function notifyParts(server: boolean, supported: boolean): { rows: boolean; device: boolean; note: string | null } {
+  if (!server) return { rows: true, device: false, note: NOTIFY_NO_SERVER };
+  if (!supported) return { rows: false, device: false, note: "Dieser Browser kann keine Benachrichtigungen empfangen." };
+  return { rows: true, device: true, note: null };
+}
+
 export function NotificationsSection({ profile, onProfile }: { profile: Profile; onProfile(patch: Partial<Profile>): void }) {
   const [pushOn, setPushOn] = useState(false);
   const [morningOn, setMorningOn] = useState(!!profile.notify_morning);
@@ -83,8 +97,8 @@ export function NotificationsSection({ profile, onProfile }: { profile: Profile;
       onProfile({ notify_reminders: on });
     });
 
-  if (!server) return <p className="pl-hint">Nachrichten vom Coach gibt es, sobald die App mit dem Server (Supabase) verbunden ist.</p>;
-  if (!pushSupported()) return <p className="pl-hint">Dieser Browser kann keine Benachrichtigungen empfangen.</p>;
+  const parts = notifyParts(server, pushSupported());
+  if (!parts.rows) return <p className="pl-hint">{parts.note}</p>;
 
   return (
     <div className="du-notify">
@@ -93,7 +107,7 @@ export function NotificationsSection({ profile, onProfile }: { profile: Profile;
           {msg}
         </p>
       )}
-      {isIos() && !isStandalone() && (
+      {parts.device && isIos() && !isStandalone() && (
         <p className="pl-hint">
           Auf dem iPhone geht das nur, wenn „Bucket List“ auf dem Home-Bildschirm liegt: in Safari auf <strong>Teilen</strong> → <strong>Zum Home-Bildschirm</strong>, dann die App von dort
           öffnen.
@@ -144,38 +158,41 @@ export function NotificationsSection({ profile, onProfile }: { profile: Profile;
       <p className="pl-hint">
         {NOTIFY_OWN} {NOTIFY_RULES}
       </p>
-      <div className="row wrap">
-        {pushOn ? (
-          <>
-            <button type="button" className="btn ghost" disabled={busy} onClick={() => run(async () => `${await backend.sendTestPush()} Nachricht(en) verschickt.`)}>
-              Test senden
+      {parts.note && <p className="pl-hint">{parts.note}</p>}
+      {parts.device && (
+        <div className="row wrap">
+          {pushOn ? (
+            <>
+              <button type="button" className="btn ghost" disabled={busy} onClick={() => run(async () => `${await backend.sendTestPush()} Nachricht(en) verschickt.`)}>
+                Test senden
+              </button>
+              <button type="button" className="btn quiet" disabled={busy} onClick={() => run(async () => (await disablePush(), setPushOn(false), "Auf diesem Gerät ausgeschaltet."))}>
+                Auf diesem Gerät aus
+              </button>
+            </>
+          ) : (
+            <button
+              type="button"
+              className="btn primary"
+              disabled={busy}
+              onClick={() =>
+                run(async () => {
+                  await enablePush();
+                  setPushOn(true);
+                  if (!morningOn && !eveningOn) {
+                    setMorningOn(true);
+                    setEveningOn(true);
+                    await saveTimes(true, morning, true, evening);
+                  }
+                  return "Benachrichtigungen sind an.";
+                })
+              }
+            >
+              Auf diesem Gerät erlauben
             </button>
-            <button type="button" className="btn quiet" disabled={busy} onClick={() => run(async () => (await disablePush(), setPushOn(false), "Auf diesem Gerät ausgeschaltet."))}>
-              Auf diesem Gerät aus
-            </button>
-          </>
-        ) : (
-          <button
-            type="button"
-            className="btn primary"
-            disabled={busy}
-            onClick={() =>
-              run(async () => {
-                await enablePush();
-                setPushOn(true);
-                if (!morningOn && !eveningOn) {
-                  setMorningOn(true);
-                  setEveningOn(true);
-                  await saveTimes(true, morning, true, evening);
-                }
-                return "Benachrichtigungen sind an.";
-              })
-            }
-          >
-            Auf diesem Gerät erlauben
-          </button>
-        )}
-      </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

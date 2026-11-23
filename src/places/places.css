@@ -366,6 +366,8 @@
 .space .du-set .row > .plain-input { flex: 1; min-width: 0; }
 .space .du-toggle { min-height: 52px; }
 .space .du-toggle input[type="time"] { min-height: 44px; }
+/* a row's name stays one line beside the time field (at 320 px «Am Abend» broke into two) */
+.space .du-toggle strong { white-space: nowrap; }
 .space .confirm-inline { flex-basis: 100%; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 8px; font-size: 0.9375rem; animation: plan-fade 0.3s ease both; }
 .space .confirm-inline .btn { min-width: 44px; }
 

@@ -163,7 +163,6 @@ html[data-tour="2"] .space .lvl-next { opacity: 0; visibility: hidden; }
   font-variant-numeric: tabular-nums;
 }
 .space .day-row.goal .day-time { color: var(--accent); }
-.space .day-time.allday { font-size: 0.6875rem; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; }
 .space .day-body { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .space .day-title { font-size: 1.0625rem; font-weight: 600; line-height: 1.375rem; overflow-wrap: anywhere; }
 .space .day-row.past .day-title { color: var(--text-dim); } /* never stack opacity on the soft meta */
