@@ -16,6 +16,7 @@ import { pressOrb } from "../lib/orbSignals";
 import type { Weather } from "../lib/weather";
 import type { CoachContext, CoachEvent, Profile } from "../lib/types";
 import { unlockAudio } from "../lib/voice";
+import { enablePush, isIos, isStandalone, pushSupported } from "../lib/push";
 import type { OrbState } from "../components/Portal";
 import { VoiceConversation } from "../components/VoiceConversation";
 import { DayLevel } from "../time/DayLevel";
@@ -792,6 +793,19 @@ export function Space(props: SpaceProps) {
     }),
     [go],
   );
+  // the coach offers once to switch notifications on (request_notifications): "Einschalten" asks this device right away
+  // (her tap); where that can't work (iPhone outside the home screen, no server) or she says no, Du › Benachrichtigungen
+  // opens with its hints
+  const notifications = useMemo(() => {
+    const settings = () => void go("du", { duSection: "notifications" });
+    return {
+      shown: () => stateRef.current.place === "du" && duOpenRef.current === "notifications",
+      open: () => {
+        if (backend.kind !== "supabase" || !pushSupported() || (isIos() && !isStandalone())) return settings();
+        enablePush().catch(settings);
+      },
+    };
+  }, [go]);
 
   // once a day, a little after the greeting, the coach quietly tidies its notes
   useEffect(() => {
@@ -907,6 +921,7 @@ export function Space(props: SpaceProps) {
           suppressToast={suppressToast}
           onOpenTarget={openTarget}
           connections={connections}
+          notifications={notifications}
           onActivity={setVoiceActive}
           onTyping={setTypedOpen}
         />

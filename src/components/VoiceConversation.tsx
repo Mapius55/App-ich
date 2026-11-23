@@ -97,6 +97,8 @@ interface Props {
   onTyping?(on: boolean): void;
   /** request_connections: a toast with "Verbindungen ansehen" (space only; none when they're already shown) */
   connections?: { shown(): boolean; open(): void };
+  /** request_notifications: a toast with "Einschalten" (space only; its tap asks the device, else opens the settings) */
+  notifications?: { shown(): boolean; open(): void };
   /** a turn of the conversation starts ("start"; byPerson: she typed or spoke) or ended ("end") */
   onTurn?(t: "start" | "end", byPerson: boolean): void;
 }
@@ -133,6 +135,7 @@ export function VoiceConversation({
   onActivity,
   onTyping,
   connections,
+  notifications,
   onTurn,
 }: Props) {
   const [phase, setPhase] = useState<Phase>("idle");
@@ -181,6 +184,8 @@ export function VoiceConversation({
   suppressRef.current = suppressToast;
   const connectionsRef = useRef(connections);
   connectionsRef.current = connections;
+  const notificationsRef = useRef(notifications);
+  notificationsRef.current = notifications;
   const onTurnRef = useRef(onTurn);
   onTurnRef.current = onTurn;
   const kickoffRun = useRef(false);
@@ -350,6 +355,10 @@ export function VoiceConversation({
           } else if (e.type === "request_connections") {
             const c = connectionsRef.current;
             if (c && !c.shown()) toast({ label: "Verbindungen", title: "Was darf ich lesen?", icon: "link", open: { label: "Verbindungen ansehen", run: c.open } });
+            onEventRef.current(e);
+          } else if (e.type === "request_notifications") {
+            const n = notificationsRef.current;
+            if (n && !n.shown()) toast({ label: "Benachrichtigungen", title: "Damit Erinnerungen ankommen", open: { label: "Einschalten", run: n.open } });
             onEventRef.current(e);
           } else if (e.type !== "done") {
             onEventRef.current(e);

@@ -25,7 +25,7 @@ import type {
   WhoopSyncResult,
 } from "./types";
 import { normaliseUsername, USERNAME_RE } from "./types";
-import { addDays, dayOf, seriesDayFollows, seriesPatchFromDay, weekStart } from "./plan";
+import { addDays, dayOf, habitTimeKey, habitTimeRow, seriesDayFollows, seriesPatchFromDay, weekStart } from "./plan";
 import { blockTimeEntry } from "./demoBackend";
 import { deviceAttribution } from "../../supabase/functions/_shared/nolio.ts";
 
@@ -525,6 +525,54 @@ export class SupabaseBackend implements Backend {
         await this.sb.from("habit_logs").upsert({ habit_id: habitId, day }, { onConflict: "habit_id,day", ignoreDuplicates: true })
       : await this.sb.from("habit_logs").delete().eq("habit_id", habitId).eq("day", day);
     if (error) throw error;
+    await this.habitTime(habitId, day, done);
+  }
+
+  /**
+   * D2, as the coach's log_habit: a tick of a habit with a goal and a length counts that length for the goal (one
+   * goal_time row, source «habit», external_id «<habit id>:<day>»; once with a block of that day that is the same thing,
+   * habitTimeRow); an untick removes it. The tick is saved already: a failure here only leaves the minutes uncounted.
+   */
+  private async habitTime(habitId: string, day: string, done: boolean): Promise<void> {
+    try {
+      if (!done) {
+        const del = await this.sb.from("goal_time").delete().eq("source", "habit").eq("external_id", habitTimeKey(habitId, day));
+        if (del.error) console.warn("habit time off:", del.error.message);
+        return;
+      }
+      // "*": minutes only after its migration
+      const h = await this.sb.from("habits").select("*").eq("id", habitId).maybeSingle();
+      const habit = h.data as (Habit & { minutes?: number | null }) | null;
+      if (h.error || !habit?.goal_id || !habit.minutes) return;
+      const start = Date.parse(`${day}T00:00:00Z`);
+      const [blocks, times] = await Promise.all([
+        this.sb
+          .from("events")
+          .select("id, title, goal_id, starts_at, all_day, kind, source, goal_time(id)")
+          .eq("goal_id", habit.goal_id)
+          .eq("kind", "block")
+          .eq("all_day", false)
+          .neq("source", "nolio")
+          .gte("starts_at", new Date(start - 86400e3).toISOString())
+          .lt("starts_at", new Date(start + 2 * 86400e3).toISOString())
+          .limit(20),
+        this.sb.from("goal_time").select("goal_id, day, minutes, source, external_id").eq("goal_id", habit.goal_id).eq("day", day).limit(100),
+      ]);
+      if (blocks.error || times.error) return;
+      type BlockRow = { id: string; title: string; goal_id: string | null; starts_at: string; all_day: boolean; kind: string; source: string; goal_time: unknown };
+      const row = habitTimeRow(habit, day, {
+        blocks: ((blocks.data ?? []) as BlockRow[]).map((b) => ({ ...b, answered: Array.isArray(b.goal_time) ? b.goal_time.length > 0 : !!b.goal_time })),
+        times: (times.data ?? []) as { goal_id: string; day: string; minutes: number; source: string; external_id: string | null }[],
+        dayOfIso: (iso) => dayOf(new Date(iso)),
+      });
+      if (!row) return;
+      const ins = await this.sb
+        .from("goal_time")
+        .upsert({ ...row, user_id: await this.uid(), note: null }, { onConflict: "user_id,source,external_id", ignoreDuplicates: true });
+      if (ins.error) console.warn("habit time:", ins.error.message);
+    } catch (e) {
+      console.warn("habit time:", e);
+    }
   }
 
   async calendarLink(): Promise<string | null> {

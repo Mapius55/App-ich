@@ -83,7 +83,7 @@ Was die Person als Tatsache nennt, speicherst du im selben Zug und ohne Rückfra
 - set_day_focus: Sobald klar ist, was heute ansteht, setzt du den Fokus selbst, höchstens sechs Wörter, und sagst ihn in einem Halbsatz. Sie kann ihn ändern. Steht unter „Heute“ schon ein Fokus, fragst du nicht nochmals danach.
 - set_nature_palette: Fünf Farben, die die Lieblingsnatur der Person einfangen. Es sollen echte, schöne Naturfarben sein, nicht grell. Dazu ein kurzer Name wie „Bergsee im Engadin“. Diese Farben fliessen in den Kreis ein.
 - update_profile: Name, mit dem du die Person ansprichst, Wohnort und Geburtsjahr (birth_year). Das Geburtsjahr speicherst du nur, wenn sie es selbst nennt. Du fragst nie danach. Will sie es nicht mehr gespeichert haben, entfernst du es sofort mit birth_year null und sagst es in einem Halbsatz.
-- create_event, update_event, delete_event: Der Kalender „Bucket List“ auf dem iPhone der Person. Nennt sie einen Termin mit Datum, etwa ein Rennen, eine Schicht, ein Training oder eine Reise, trägst du ihn direkt ein, ohne zu fragen (kind termin). Danach sagst du in einem kurzen Halbsatz, dass er im Kalender steht. Fehlt die Uhrzeit, wird er ganztägig. Rechne relative Angaben wie „nächsten Samstag um 9“ vom heutigen Datum aus um. Nennt sie feste Zeiten für diese Woche, trägst du sie als Termine ein, nicht als Erinnerung. Prüfe die Liste „Kalender“ im Kontext, damit nichts doppelt eingetragen wird. Fällt etwas aus oder verschiebt sich, passt du den Termin selbst an oder löschst ihn, damit es morgen noch stimmt. Sagt sie etwas zu, das sie erledigen will, etwa dem Trainer schreiben, bietest du an, es als kurzen Termin einzutragen. Ein Wecker ist nicht möglich: Wünscht sie einen oder eine Erinnerung, trägst du einen Termin mit reminder_minutes 0 zur gewünschten Zeit ein. Ob etwas sie erinnert, sagst du nur so, wie es unter „Verbindungen“ steht.
+- create_event, update_event, delete_event: Der Kalender „Bucket List“ auf dem iPhone der Person. Nennt sie einen Termin mit Datum, etwa ein Rennen, eine Schicht, ein Training oder eine Reise, trägst du ihn direkt ein, ohne zu fragen (kind termin). Danach sagst du in einem kurzen Halbsatz, dass er im Kalender steht. Fehlt die Uhrzeit, wird er ganztägig. Rechne relative Angaben wie „nächsten Samstag um 9“ vom heutigen Datum aus um. Nennt sie feste Zeiten für diese Woche, trägst du sie als Termine ein, nicht als Erinnerung. Prüfe die Liste „Kalender“ im Kontext, damit nichts doppelt eingetragen wird. Fällt etwas aus oder verschiebt sich, passt du den Termin selbst an oder löschst ihn, damit es morgen noch stimmt. Sagt sie etwas zu, das sie erledigen will, etwa dem Trainer schreiben, bietest du an, es als kurzen Termin einzutragen. Wünscht sie einen Wecker oder eine Erinnerung, trägst du den Eintrag mit erinnern: true ein, für einen Wecker zur gewünschten Zeit mit reminder_minutes 0. Ob und wie etwas sie erinnert, sagst du nur so, wie es unter „Erinnerungen“ steht.
 - Einträge mit dem Vermerk „vom Trainer (Nolio)“ plant ihr Trainer in Nolio. Die änderst, verschiebst und löschst du nie, auch nicht auf Wunsch: Sag ihr freundlich, dass das in Nolio geht. Nur die Erinnerung (reminder_minutes) darfst du anpassen. Erledigte Trainings aus Nolio zählen von selbst für ihre Ziele: Dafür rufst du kein log_time auf. Nennst du Werte eines Trainings mit dem Vermerk „Garmin …“, sagst du kurz, dass sie von Garmin stammen („laut deiner Garmin“).
 - Blöcke im Kalender: Zeit, die ihr gemeinsam plant, etwa eine Fokuszeit oder ein Training für ein Ziel, trägst du mit kind block ein, immer mit Ende und mit goal_id, wenn sie einem Ziel dient. Anders als Termine trägst du Blöcke erst nach einem klaren Ja ein („ja“, „passt“, „gern“, „trag es ein“); „okay, danke“, „Gut, danke“ oder „Gut. Sonst noch etwas?“ ist kein Ja, weder für einen Block noch für Zeit mit log_time: Dann fragst du kurz nach oder lässt es. Was du vorschlägst, nennt den Tag immer mit der Uhrzeit, auch für heute („heute um 18 Uhr“, „morgen um 7“, „am Dienstag um 12“), wo es zählt auch einen Ort, nie „diese Woche irgendwann“. Die Länge nimmst du aus „zuletzt geschafft“ beim Ziel, nie länger als dort steht. Kommt etwas dazwischen, etwa eine Krankheit, ein Umzug oder ein abgesagter Tag, verschiebst oder löschst du die betroffenen Blöcke und sagst es kurz.
 - create_series, update_series: Ein Wochenrhythmus sind Blöcke, die jede Woche zur selben Zeit wiederkehren (im Kalender mit „jede Woche“). Steht bei einem Ziel „Wochenrhythmus: noch keiner → einmal anbieten“, schlägst du beim Planen statt einzelner Blöcke einmal feste Zeiten aus den freien Stunden ihrer Woche vor („Dienstag und Donnerstag um 18 Uhr, je eine Stunde?“), rufst note_offer mit rhythmus auf und legst ihn erst nach ihrem klaren Ja an; bei unregelmässigen Wochen, etwa mit Schichtarbeit, nur, wenn sie danach fragt. Eine Ausnahme ist ein Satz: „Diesen Donnerstag fällt aus“ löscht nur diesen Eintrag, „am Donnerstag lieber um 19 Uhr“ verschiebt nur ihn; ändern („ab Januar nur noch dienstags“), pausieren und beenden geht mit update_series, umbenennen nur, wenn sie darum bittet. Steht beim Rhythmus „klappt selten“, bietest du einmal sanft an, ihn zu ändern oder zu pausieren, und rufst note_offer mit flaute auf.
@@ -274,6 +274,9 @@ export interface ContextConnections {
   /** her notification times (profiles.notify_morning / notify_evening, "HH:MM[:SS]", null = off) and whether a device
    *  allowed them (a push subscription; null = unknown); undefined = unknown, then no line */
   notify?: { morning: string | null; evening: string | null; device: boolean | null };
+  /** Du › Benachrichtigungen › «Erinnerungen an Einträge» (profiles.notify_reminders) and when the coach offered once to
+   *  switch notifications on (request_notifications); undefined = unknown (columns not there yet: then no reminder) */
+  reminders?: { on: boolean; askedAt: string | null };
 }
 
 /** A completed training from Nolio, already in the only shape the AI may see (see trainingsForCoach). */
@@ -926,6 +929,44 @@ function notifyLine(n: ContextConnections["notify"], hasView: boolean): string |
   return `- Benachrichtigungen: ${times.join(", ")}${n.device === false ? " · auf keinem Gerät erlaubt, es kommt also keine an" : ""} · ändern ${where}`;
 }
 
+/**
+ * How a reminder reaches her (owner decision 2), as the push dispatch decides it: «kalender» while her iPhone calendar
+ * reads the feed (its own alarm, no notification on top), «mitteilung» with a device that allowed notifications and her
+ * switch «Erinnerungen an Einträge» on, else «keine»; null when that is unknown (then the coach promises none).
+ */
+export type ReminderChannel = "mitteilung" | "kalender" | "keine";
+export function reminderChannel(c: Pick<ContextConnections, "calendarSubscribed" | "notify" | "reminders">): ReminderChannel | null {
+  if (c.calendarSubscribed === true) return "kalender";
+  const device = c.notify?.device;
+  if (device === true && c.reminders?.on === true) return "mitteilung";
+  if (c.calendarSubscribed === null || device == null || (device === true && !c.reminders)) return null;
+  return "keine";
+}
+
+/** «Erinnerungen: kommen als Mitteilung | über den iPhone-Kalender | kommen keine»: the coach promises only that. */
+export function remindersLine(c: ContextConnections, hasView: boolean): string {
+  const where = hasView ? "unter Du › Benachrichtigungen" : "im Menü unter „Einstellungen“";
+  switch (reminderChannel(c)) {
+    case "kalender":
+      return "- Erinnerungen: über den iPhone-Kalender (jeder Eintrag mit Erinnerung meldet sich dort)";
+    case "mitteilung":
+      return "- Erinnerungen: kommen als Mitteilung, kurz vor jedem Block und vor Einträgen mit erinnern: true, höchstens drei am Tag, nie für Nolio";
+    case "keine": {
+      const off = c.notify?.device === true && c.reminders?.on === false;
+      const offer = off
+        ? ` (sie hat sie ${where} ausgeschaltet)`
+        : c.reminders && !c.reminders.askedAt
+          ? hasView
+            ? "; möchte sie eine, bietest du einmal an, die Benachrichtigungen einzuschalten (request_notifications)"
+            : `; möchte sie eine, sagst du einmal, dass sie die Benachrichtigungen ${where} einschalten kann`
+          : `; einschalten ${where}`;
+      return `- Erinnerungen: kommen keine: sag „steht im Kalender“, nie „erinnert dich“${offer}`;
+    }
+    default:
+      return "- Erinnerungen: unbekannt (versprich keine)";
+  }
+}
+
 function connectionLines(c: ContextConnections | undefined, whoopLine: string | null | undefined, hasView = false): string {
   if (!c) return "(unbekannt)";
   const w = c.whoop;
@@ -943,13 +984,8 @@ function connectionLines(c: ContextConnections | undefined, whoopLine: string | 
           ? "muss neu verbunden werden"
           : "nicht verbunden";
   const nolio = !c.nolio.available ? "für dieses Konto nicht verfügbar" : c.nolio.connected ? "verbunden (erledigte Trainings und der Plan vom Trainer)" : "eingerichtet, aber noch kein Abgleich";
-  // what a reminder can promise (K1): only the subscribed calendar reminds her of an entry
-  const calendar =
-    c.calendarSubscribed === null
-      ? "unbekannt (versprich keine Erinnerung)"
-      : c.calendarSubscribed
-        ? "abonniert (Einträge mit Erinnerung melden sich über den iPhone-Kalender)"
-        : "noch nicht abonniert (es erinnert sie nichts: sag „steht im Kalender“, nie „erinnert dich“; möchte sie eine Erinnerung, bietest du einmal das Kalender-Abo an)";
+  // what a reminder can promise: the line «Erinnerungen» below (it replaces the interim rule K1)
+  const calendar = c.calendarSubscribed === null ? "unbekannt" : c.calendarSubscribed ? "abonniert" : "noch nicht abonniert";
   const ask = shouldAskConnections(c)
     ? "einmal, an einer natürlichen Stelle (noch nie gefragt, nichts verbunden)"
     : c.askedAt
@@ -965,6 +1001,7 @@ function connectionLines(c: ContextConnections | undefined, whoopLine: string | 
     `- Nolio: ${nolio}`,
     `- iPhone-Kalender: ${calendar}`,
     notifyLine(c.notify, hasView),
+    remindersLine(c, hasView),
     "- Polar, Garmin, Strava: kommen später",
     `- Nach Apps und Geräten fragen: ${ask}`,
   ]

@@ -1,6 +1,6 @@
-// Du › Benachrichtigungen: the morning and the evening message (logic copied from
-// screens/Settings.tsx, which stays for the flag-off path). What they say and when they stay out is
-// decided on the server (supabase/functions/_shared/push_text.ts); the hints here describe it.
+// Du › Benachrichtigungen: the morning and the evening message and the reminders of her entries (logic
+// copied from screens/Settings.tsx, which stays for the flag-off path). What they say and when they stay
+// out is decided on the server (supabase/functions/_shared/push_text.ts); the hints here describe it.
 import { useEffect, useState } from "react";
 import { DEFAULT_TIME, weekendTime } from "../../supabase/functions/_shared/push_text.ts";
 import { backend } from "../lib/backend";
@@ -22,9 +22,19 @@ export function notifyHint(slot: "morning" | "evening", time: string): string {
   return weekend ? `${what}, am Wochenende um ${weekend}` : what;
 }
 
+/** the first thing the hint says (owner decision 3): no message without something of her own */
+export const NOTIFY_OWN = "Nur, wenn es etwas aus deinem Tag gibt.";
+
 /** how the messages hold back, so nothing about them is a surprise */
 export const NOTIFY_RULES =
-  "Warst du heute schon da, kommt am Morgen keine Nachricht. Am Abend bleibt sie aus, wenn du am Abend schon in der App warst oder kurz vorher mit dem Coach gesprochen hast. Öffnest du die App zwei Wochen lang nicht, machen die Nachrichten von selbst Pause, bis du wieder vorbeischaust. Deine Einstellungen bleiben dabei, wie sie sind.";
+  "Warst du heute schon da, kommt am Morgen keine Nachricht. Am Abend bleibt sie aus, wenn du am Abend schon in der App warst oder kurz vorher mit dem Coach gesprochen hast. Während einer deiner Einträge läuft, kommt keine. Öffnest du die App ein paar Tage nicht, kommt noch eine einzige mit deinem nächsten Eintrag, danach ist Ruhe, bis du wieder vorbeischaust. Deine Einstellungen bleiben dabei, wie sie sind.";
+
+/** the third row: what a reminder is for, and why none comes with the calendar subscription */
+export const REMINDERS_HINT =
+  "Kurz vor deinen Blöcken und vor Einträgen, an die du erinnert werden möchtest, höchstens dreimal am Tag. Mit dem Kalender-Abo erinnert dich der iPhone-Kalender.";
+
+/** «Erinnerungen an Einträge» is on unless she switched it off (the column's default; missing before its migration) */
+export const remindersOn = (p: Pick<Profile, "notify_reminders">) => p.notify_reminders !== false;
 
 export function NotificationsSection({ profile, onProfile }: { profile: Profile; onProfile(patch: Partial<Profile>): void }) {
   const [pushOn, setPushOn] = useState(false);
@@ -32,6 +42,7 @@ export function NotificationsSection({ profile, onProfile }: { profile: Profile;
   const [eveningOn, setEveningOn] = useState(!!profile.notify_evening);
   const [morning, setMorning] = useState(hhmm(profile.notify_morning, DEFAULT_TIME.morning));
   const [evening, setEvening] = useState(hhmm(profile.notify_evening, DEFAULT_TIME.evening));
+  const [reminders, setReminders] = useState(remindersOn(profile));
   const [msg, setMsg] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const server = backend.kind === "supabase";
@@ -58,6 +69,18 @@ export function NotificationsSection({ profile, onProfile }: { profile: Profile;
       const patch = { notify_morning: mOn ? `${m}:00` : null, notify_evening: eOn ? `${e}:00` : null };
       await backend.updateProfile(patch);
       onProfile(patch);
+    });
+
+  const saveReminders = (on: boolean) =>
+    run(async () => {
+      setReminders(on);
+      try {
+        await backend.updateProfile({ notify_reminders: on });
+      } catch (e) {
+        setReminders(!on);
+        throw e;
+      }
+      onProfile({ notify_reminders: on });
     });
 
   if (!server) return <p className="pl-hint">Nachrichten vom Coach gibt es, sobald die App mit dem Server (Supabase) verbunden ist.</p>;
@@ -104,7 +127,23 @@ export function NotificationsSection({ profile, onProfile }: { profile: Profile;
           aria-label="Abendnachricht an oder aus"
         />
       </label>
-      <p className="pl-hint">{NOTIFY_RULES}</p>
+      <label className="toggle-row du-toggle">
+        <span>
+          <strong>Erinnerungen an Einträge</strong>
+          <span className="hint">{REMINDERS_HINT}</span>
+        </span>
+        <input
+          type="checkbox"
+          className="switch"
+          checked={reminders}
+          disabled={busy}
+          onChange={(e) => saveReminders(e.target.checked)}
+          aria-label="Erinnerungen an Einträge an oder aus"
+        />
+      </label>
+      <p className="pl-hint">
+        {NOTIFY_OWN} {NOTIFY_RULES}
+      </p>
       <div className="row wrap">
         {pushOn ? (
           <>

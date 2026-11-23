@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { backend } from "../lib/backend";
 import { currentSubscription, disablePush, enablePush, isIos, isStandalone, pushSupported, signOutDevice } from "../lib/push";
-import { notifyHint, NOTIFY_RULES } from "../places/NotificationsSection";
+import { notifyHint, NOTIFY_OWN, NOTIFY_RULES, REMINDERS_HINT, remindersOn } from "../places/NotificationsSection";
 import { requestCoords, type Coords } from "../lib/location";
 import type { Profile } from "../lib/types";
 
@@ -33,6 +33,7 @@ export function Settings({ profile, hasCoords, onBack, onProfile, onCoords, onOp
   const [eveningOn, setEveningOn] = useState(!!profile.notify_evening);
   const [morning, setMorning] = useState(hhmm(profile.notify_morning, "07:30"));
   const [evening, setEvening] = useState(hhmm(profile.notify_evening, "21:00"));
+  const [reminders, setReminders] = useState(remindersOn(profile));
   const [msg, setMsg] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const server = backend.kind === "supabase";
@@ -59,6 +60,18 @@ export function Settings({ profile, hasCoords, onBack, onProfile, onCoords, onOp
       const patch = { notify_morning: mOn ? `${m}:00` : null, notify_evening: eOn ? `${e}:00` : null };
       await backend.updateProfile(patch);
       onProfile(patch);
+    });
+
+  const saveReminders = (on: boolean) =>
+    run(async () => {
+      setReminders(on);
+      try {
+        await backend.updateProfile({ notify_reminders: on });
+      } catch (e) {
+        setReminders(!on);
+        throw e;
+      }
+      onProfile({ notify_reminders: on });
     });
 
   const download = () =>
@@ -173,7 +186,23 @@ export function Settings({ profile, hasCoords, onBack, onProfile, onCoords, onOp
                 aria-label="Abendnachricht an oder aus"
               />
             </label>
-            <p className="hint">{NOTIFY_RULES}</p>
+            <label className="toggle-row">
+              <span>
+                <strong>Erinnerungen an Einträge</strong>
+                <span className="hint">{REMINDERS_HINT}</span>
+              </span>
+              <input
+                type="checkbox"
+                className="switch"
+                checked={reminders}
+                disabled={busy}
+                onChange={(e) => saveReminders(e.target.checked)}
+                aria-label="Erinnerungen an Einträge an oder aus"
+              />
+            </label>
+            <p className="hint">
+              {NOTIFY_OWN} {NOTIFY_RULES}
+            </p>
             <div className="row wrap">
               {pushOn ? (
                 <>

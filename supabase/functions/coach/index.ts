@@ -42,6 +42,7 @@ import {
   NOLIO_EDIT_REFUSAL,
   NOLIO_TIME_REFUSAL,
   nolioEditAllowed,
+  NOTIFICATIONS_NOTE,
   NUDGE_NO_NOTE,
   offerNudgeKind,
   priorProblem,
@@ -57,6 +58,7 @@ import {
   whoopInMemory,
 } from "./rules.ts";
 import { zonedToUtc } from "../_shared/ics.ts";
+import { calendarSubscribed } from "../_shared/push_text.ts";
 import { trainingsForCoach } from "../_shared/nolio.ts";
 import {
   addDays,
@@ -65,7 +67,10 @@ import {
   daysBetween,
   experimentDue,
   goalEffort,
+  HABIT_MINUTES_MAX,
   habitStreak,
+  habitTimeKey,
+  habitTimeRow,
   hasPlanGoal,
   isOpenerKind,
   leansOnCoach,
@@ -679,6 +684,11 @@ const perWeek = (v: unknown): number => {
   if (typeof v !== "number" || !Number.isInteger(v) || v < 1 || v > 7) throw new ToolInputError("per_week muss eine ganze Zahl von 1 bis 7 sein");
   return v;
 };
+/** habits.minutes: the length of one time, a whole number of minutes (as its check) */
+const habitMinutes = (v: unknown): number => {
+  if (typeof v !== "number" || !Number.isInteger(v) || v < 1 || v > HABIT_MINUTES_MAX) throw new ToolInputError(`minutes muss eine ganze Zahl von 1 bis ${HABIT_MINUTES_MAX} sein`);
+  return v;
+};
 // Optional hours: undefined = unchanged; null or empty clears it where allowed.
 const optHours = (v: unknown, max: number, field: string, clearable: boolean): number | null | undefined => {
   if (v === undefined) return undefined;
@@ -870,6 +880,59 @@ async function doneDays(sb: SupabaseClient, habitId: string, today: string): Pro
 }
 
 /**
+ * D2: a tick of a habit with a goal and a length (habits.minutes) counts that length for the goal, one goal_time row
+ * (source «habit», external_id «<habit id>:<day>», so the unique index blocks a second one); counted once with a block
+ * of that day that is the same thing or the same minutes already there (habitTimeRow). An untick removes the row.
+ * Never fails the tick itself: the minutes it counted now, or 0.
+ */
+async function habitTime(sb: SupabaseClient, userId: string, habit: Row, day: string, done: boolean, tz: string): Promise<number> {
+  const key = habitTimeKey(String(habit.id), day);
+  try {
+    if (!done) {
+      const del = await sb.from("goal_time").delete().eq("user_id", userId).eq("source", "habit").eq("external_id", key);
+      if (del.error) console.error("habit time off:", del.error.code ?? "error");
+      return 0;
+    }
+    if (!habit.goal_id || !habit.minutes) return 0;
+    const goalId = String(habit.goal_id);
+    const dayStart = Date.parse(`${day}T00:00:00Z`);
+    const [blocks, times] = await Promise.all([
+      sb
+        .from("events")
+        .select("id, title, goal_id, starts_at, all_day, kind, source, goal_time(id)")
+        .eq("goal_id", goalId)
+        .eq("kind", "block")
+        .eq("all_day", false)
+        .neq("source", "nolio")
+        .gte("starts_at", new Date(dayStart - DAY_MS).toISOString())
+        .lt("starts_at", new Date(dayStart + 2 * DAY_MS).toISOString())
+        .limit(20),
+      sb.from("goal_time").select("goal_id, day, minutes, source, external_id").eq("goal_id", goalId).eq("day", day).limit(100),
+    ]);
+    if (blocks.error || times.error) {
+      console.error("habit time:", (blocks.error ?? times.error)?.code ?? "error");
+      return 0;
+    }
+    const row = habitTimeRow({ id: String(habit.id), title: String(habit.title), goal_id: goalId, minutes: Number(habit.minutes) }, day, {
+      blocks: (blocks.data ?? []).map((b) => ({ ...b, answered: Array.isArray(b.goal_time) ? b.goal_time.length > 0 : !!b.goal_time })),
+      times: times.data ?? [],
+      dayOfIso: (iso) => localDay(iso, tz),
+    });
+    if (!row) return 0;
+    const ins = await sb
+      .from("goal_time")
+      .upsert({ ...row, user_id: userId, note: null }, { onConflict: "user_id,source,external_id", ignoreDuplicates: true })
+      .select("id");
+    // 23505 on the block: it was answered in the meantime, so it counts once already
+    if (ins.error) console.error("habit time:", ins.error.code ?? "error");
+    return !ins.error && ins.data?.length ? row.minutes : 0;
+  } catch (e) {
+    console.error("habit time:", e);
+    return 0;
+  }
+}
+
+/**
  * Tools only the daily conversation runs (they answer «nur im täglichen Gespräch» elsewhere): its context brings the
  * rhythms, the Wochenblick and the «once» marks they belong to. Getting to know her, they are not offered at all, so
  * the coach never plans a call that can only fail (a rhythm she asks for then goes in as single blocks).
@@ -1021,6 +1084,15 @@ async function runTool(
       // A planned block is close at hand: a short heads-up is enough.
       const defaultReminder = (allDay: boolean, kind: unknown) => (allDay ? -480 : kind === "block" ? 10 : 30);
       const endsBeforeStart = (start: unknown, end: unknown) => typeof start === "string" && typeof end === "string" && Date.parse(end) < Date.parse(start);
+      // she asked for a reminder herself (owner decision 2): it comes as a notification, also for a termin, and may
+      // show her own title. Its own write, so a missing column (migration not applied yet) never blocks the entry.
+      const asked = input.erinnern === undefined ? undefined : bool(input.erinnern, "erinnern");
+      const markAsked = async (event: Row): Promise<Row> => {
+        if (asked === undefined || event.reminder_asked === asked) return event;
+        const res = await sb.from("events").update({ reminder_asked: asked }).eq("id", event.id).select().maybeSingle();
+        if (res.error) console.error("reminder_asked:", res.error.code ?? "error");
+        return res.data ?? event;
+      };
       if (name === "create_event") {
         if (!row.title || !row.starts_at) throw new ToolInputError("title und start sind nötig");
         if (endsBeforeStart(row.starts_at, row.ends_at)) throw new ToolInputError("end liegt vor start");
@@ -1030,11 +1102,11 @@ async function runTool(
         row.reminder_minutes = input.reminder_minutes !== undefined ? reminder(allDay) : defaultReminder(allDay, row.kind);
         const { data, error } = await sb.from("events").insert({ ...row, user_id: userId, source: "coach" }).select().single();
         if (error) throw missingGoal(error);
-        send({ type: "event_created", event: data });
+        send({ type: "event_created", event: await markAsked(data) });
         return JSON.stringify({ ok: true, id: data.id });
       }
       const id = uuid(input.id, "id");
-      if (!Object.keys(row).length && input.reminder_minutes === undefined) throw new ToolInputError("nichts zu ändern");
+      if (!Object.keys(row).length && input.reminder_minutes === undefined && asked === undefined) throw new ToolInputError("nichts zu ändern");
       // "*": series_id only after the rhythm's migration
       const cur = await sb.from("events").select("*").eq("id", id).maybeSingle();
       if (cur.error) throw cur.error;
@@ -1046,6 +1118,8 @@ async function runTool(
       if (input.reminder_minutes !== undefined) row.reminder_minutes = reminder(allDay);
       // Between timed and all-day the old offset means something else (30 min before midnight): use the default.
       else if (allDay !== all_day && reminder_minutes !== null) row.reminder_minutes = defaultReminder(allDay, row.kind ?? kind);
+      // a reminder she asks for on an entry without one (e.g. a block she said was done early): the usual lead
+      else if (asked && reminder_minutes === null) row.reminder_minutes = defaultReminder(allDay, row.kind ?? kind);
       // Moving an entry (e.g. a block) keeps its length, and the end never lands before the start.
       if (row.starts_at !== undefined && row.ends_at === undefined && ends_at) {
         if (allDay !== all_day) row.ends_at = null;
@@ -1056,9 +1130,14 @@ async function runTool(
         } else row.ends_at = new Date(Date.parse(String(row.starts_at)) + Date.parse(ends_at) - Date.parse(starts_at)).toISOString();
       }
       if (endsBeforeStart(row.starts_at ?? starts_at, row.ends_at === undefined ? ends_at : row.ends_at)) throw new ToolInputError("end liegt vor start");
-      const { data, error } = await sb.from("events").update(row).eq("id", id).select().maybeSingle();
-      if (error) throw missingGoal(error);
+      let data: Row | null = cur.data;
+      if (Object.keys(row).length) {
+        const res = await sb.from("events").update(row).eq("id", id).select().maybeSingle();
+        if (res.error) throw missingGoal(res.error);
+        data = res.data;
+      }
       if (!data) throw new ToolInputError("Termin nicht gefunden");
+      data = await markAsked(data);
       send({ type: "event_updated", event: data });
       return JSON.stringify(data.series_id ? { ok: true, notiert: SERIES_DAY_NOTE } : { ok: true });
     }
@@ -1407,6 +1486,8 @@ async function runTool(
         per_week: perWeek(input.per_week),
         goal_id: optGoalId(input.goal_id) ?? null,
         source: "coach",
+        // D2: the length she named («10 Minuten dehnen»): each tick then counts it for the goal
+        ...(input.minutes !== undefined && input.minutes !== null ? { minutes: habitMinutes(input.minutes) } : {}),
       };
       const { data, error } = await sb.from("habits").insert(row).select().single();
       if (error) throw missingGoal(error);
@@ -1419,6 +1500,7 @@ async function runTool(
       if (input.title !== undefined) patch.title = str(input.title, 120, "title");
       if (input.per_week !== undefined) patch.per_week = perWeek(input.per_week);
       if (input.active !== undefined) patch.active = bool(input.active, "active");
+      if (input.minutes !== undefined) patch.minutes = input.minutes === null ? null : habitMinutes(input.minutes);
       const goalId = optGoalId(input.goal_id);
       if (goalId !== undefined) patch.goal_id = goalId;
       if (!Object.keys(patch).length) throw new ToolInputError("nichts zu ändern");
@@ -1433,13 +1515,15 @@ async function runTool(
       const done = input.done === undefined ? true : bool(input.done, "done");
       const logDay = optDate(input.day, "day") ?? day;
       if (logDay > day) throw new ToolInputError("day liegt in der Zukunft");
-      const { data: habit, error } = await sb.from("habits").select("id, title, per_week").eq("id", habitId).maybeSingle();
+      // "*": minutes only after its migration (D2)
+      const { data: habit, error } = await sb.from("habits").select("*").eq("id", habitId).maybeSingle();
       if (error) throw error;
       if (!habit) throw new ToolInputError("Gewohnheit nicht gefunden");
       const res = done
         ? await sb.from("habit_logs").upsert({ habit_id: habitId, user_id: userId, day: logDay }, { onConflict: "habit_id,day", ignoreDuplicates: true })
         : await sb.from("habit_logs").delete().eq("habit_id", habitId).eq("day", logDay);
       if (res.error) throw res.error;
+      const counted = await habitTime(sb, userId, habit, logDay, done, ctx.tz);
       send({ type: "habit_logged", habit_id: habitId, title: habit.title, day: logDay, done });
       // Where the week and the streak stand now, so the coach can mention a nice streak.
       const h = { per_week: Number(habit.per_week), done_days: await doneDays(sb, habitId, day) };
@@ -1448,6 +1532,8 @@ async function runTool(
         // only from one on: never «0 von 3» to repeat
         ...(habitWeekLabel(h, day) ? { this_week: habitWeekLabel(h, day) } : {}),
         streak: streakLabel(habitStreak(h, day)) ?? "keine",
+        // D2: the tick counted its length for the goal (no log_time for the same minutes)
+        ...(counted ? { gezaehlt_minuten: counted } : {}),
       });
     }
     case "log_time": {
@@ -1667,6 +1753,14 @@ async function runTool(
       if (error) console.error("connections_asked_at:", error.code ?? "error"); // the app still shows the choice
       send({ type: "request_connections" });
       return JSON.stringify({ ok: true, note: "Die App zeigt jetzt, was sich verbinden lässt. Nicht nochmals fragen." });
+    }
+    case "request_notifications": {
+      if (ctx.mode === "tidy") throw new ToolInputError("nicht beim Aufräumen");
+      // offered once: the line «Erinnerungen» says so from now on (never again unless she brings it up)
+      const { error } = await sb.from("profiles").update({ notifications_asked_at: new Date().toISOString() }).eq("id", userId);
+      if (error) console.error("notifications_asked_at:", error.code ?? "error"); // the app still shows the button
+      send({ type: "request_notifications" });
+      return JSON.stringify({ ok: true, note: NOTIFICATIONS_NOTE });
     }
     case "finish_onboarding": {
       if (ctx.mode !== "onboarding") throw new ToolInputError("nur im Kennenlernen");
@@ -2024,6 +2118,7 @@ async function converse({ sb, userId, body, send }: { sb: SupabaseClient; userId
     goalsRes,
     habitsRes,
     extraProfile,
+    reminderProfile,
     pushDevice,
     whoopConn,
     nolioSync,
@@ -2096,6 +2191,14 @@ async function converse({ sb, userId, body, send }: { sb: SupabaseClient; userId
       null,
       "profile",
     ),
+    // the reminders switch and the one offer to switch notifications on (this round's columns, apart again)
+    mode === "tidy"
+      ? Promise.resolve(null)
+      : soft<{ notify_reminders?: boolean | null; notifications_asked_at?: string | null } | null>(
+          sb.from("profiles").select("notify_reminders, notifications_asked_at").eq("id", userId).maybeSingle(),
+          null,
+          "reminders",
+        ),
     // a device that allowed notifications (null: unknown)
     mode === "tidy" ? Promise.resolve(null) : soft<{ id: string }[] | null>(sb.from("push_subscriptions").select("id").limit(1), null, "push subscriptions"),
     mode === "tidy"
@@ -2225,7 +2328,8 @@ async function converse({ sb, userId, body, send }: { sb: SupabaseClient; userId
       : {
           whoop: whoopOn ? { status: whoopStatusOf(whoopConn?.status), consent_ai: whoopConn?.consent_ai === true } : null,
           nolio: { available: owner, connected: owner && !!nolioSync?.last_sync_at },
-          calendarSubscribed: extraProfile ? !!extraProfile.calendar_fetched_at : null,
+          // as the push dispatch decides it: the feed fetched within the last days (no reminder on top)
+          calendarSubscribed: extraProfile ? calendarSubscribed(extraProfile.calendar_fetched_at, new Date(now)) : null,
           // unknown (column missing) → undefined: the coach doesn't ask
           askedAt: extraProfile ? (extraProfile.connections_asked_at ?? null) : undefined,
           // the classic screens have no Verbindungen outside onboarding (only the space sends a view)
@@ -2234,6 +2338,7 @@ async function converse({ sb, userId, body, send }: { sb: SupabaseClient; userId
           notify: extraProfile
             ? { morning: extraProfile.notify_morning ?? null, evening: extraProfile.notify_evening ?? null, device: pushDevice ? pushDevice.length > 0 : null }
             : undefined,
+          reminders: reminderProfile ? { on: reminderProfile.notify_reminders === true, askedAt: reminderProfile.notifications_asked_at ?? null } : undefined,
         };
 
   const opener =

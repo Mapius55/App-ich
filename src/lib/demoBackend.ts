@@ -38,6 +38,8 @@ import {
   experimentDue,
   goalEffort,
   goalSetback,
+  habitTimeKey,
+  habitTimeRow,
   heavyLately,
   hoursLabel,
   NUDGE_NOT_NOW_DAYS,
@@ -1291,6 +1293,7 @@ export class DemoBackend implements Backend {
       per_week: h.per_week,
       goal_id: h.goal_id ?? null,
       active: h.active ?? true,
+      minutes: h.minutes ?? null,
       source,
       created_at: now(),
       done_days: [],
@@ -1326,6 +1329,20 @@ export class DemoBackend implements Backend {
       if (done) days.add(day);
       else days.delete(day);
       h.done_days = [...days].sort();
+      // D2, like the coach and the Supabase backend: the tick counts its length for the goal, the untick removes it
+      const key = habitTimeKey(h.id, day);
+      if (!done) {
+        u.goal_time = u.goal_time.filter((t) => !(t.source === "habit" && t.external_id === key));
+        return;
+      }
+      if (u.goal_time.some((t) => t.source === "habit" && t.external_id === key)) return; // like the unique index
+      const answered = new Set(u.goal_time.flatMap((t) => (t.event_id ? [t.event_id] : [])));
+      const row = habitTimeRow(h, day, {
+        blocks: u.events.filter((e) => e.kind === "block").map((e) => ({ ...e, answered: answered.has(e.id) })),
+        times: u.goal_time,
+        dayOfIso: (iso) => dayOf(new Date(iso)),
+      });
+      if (row) u.goal_time.push({ id: uuid(), ...row, note: null });
     });
   }
 

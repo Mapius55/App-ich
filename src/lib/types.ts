@@ -14,6 +14,8 @@ export interface Profile {
   timezone?: string | null;
   notify_morning?: string | null; // "07:30:00"
   notify_evening?: string | null;
+  /** Du › Benachrichtigungen › «Erinnerungen an Einträge» (default on; missing before its migration) */
+  notify_reminders?: boolean;
   /** when the coach last asked which apps and devices it may read (request_connections), null = never */
   connections_asked_at?: string | null;
   /** for «Leben» (life in weeks): only the year, null = not given (the coach never asks for it) */
@@ -37,6 +39,8 @@ export interface CalendarEvent {
   location: string | null;
   notes: string | null;
   reminder_minutes: number | null;
+  /** she asked for this reminder herself: it comes as a notification (blocks get one anyway) */
+  reminder_asked?: boolean;
   /** "nolio": planned by the trainer in Nolio (read-only here, only the reminder can change) */
   source: "coach" | "person" | "nolio";
   /** the entry's id at its source (Nolio: ptrn_… / pcmp_…), null for own entries */
@@ -139,7 +143,8 @@ export interface GoalTime {
   goal_id: string;
   day: string; // YYYY-MM-DD
   minutes: number; // 0 = a planned block that didn't happen
-  source: "person" | "coach" | "block" | "nolio" | "whoop";
+  /** habit: a tick of a habit with a length (external_id «<habit id>:<day>») */
+  source: "person" | "coach" | "block" | "nolio" | "whoop" | "habit";
   event_id: string | null;
   external_id: string | null;
   note: string | null;
@@ -154,11 +159,13 @@ export interface Habit {
   active: boolean;
   source: "coach" | "person";
   created_at: string;
+  /** how long one time takes (minutes): then a tick counts it for the goal; null/missing = counts no time */
+  minutes?: number | null;
   /** days it was done (YYYY-MM-DD, local), the last ~16 weeks, ascending */
   done_days: string[];
 }
 
-export type HabitInput = Pick<Habit, "title" | "per_week"> & Partial<Pick<Habit, "goal_id" | "active">>;
+export type HabitInput = Pick<Habit, "title" | "per_week"> & Partial<Pick<Habit, "goal_id" | "active" | "minutes">>;
 
 export type MemoryCategory = "person" | "arbeit" | "werte" | "rhythmus" | "ziel" | "termin" | "ort" | "natur" | "anderes";
 
@@ -224,6 +231,8 @@ export type CoachEvent =
   | { type: "request_location" }
   /** the coach asks which apps and devices it may read (WHOOP, Nolio, iPhone calendar …) */
   | { type: "request_connections" }
+  /** the coach offers once to switch on notifications (then reminders come as notifications) */
+  | { type: "request_notifications" }
   | { type: "onboarding_done" }
   | { type: "error"; message: string }
   | { type: "done" };

@@ -2,15 +2,18 @@
 //   GET  ?action=key        → the public VAPID key (created on first use)
 //   POST {action:"test"}    → test notification to the caller's devices (needs login)
 //   POST {action:"dispatch"} + header x-cron-secret → morning/evening messages for everyone
-//        whose time has come (called every 15 min by pg_cron 'i-am-push' and the GitHub workflow
-//        "push-cron"; the push log makes sure only one of them sends).
+//        whose time has come, and the reminders whose moment falls in the next 15 minutes (called
+//        every 15 min by pg_cron 'i-am-push' and the GitHub workflow "push-cron"; the push log makes
+//        sure only one of them sends).
 // Deploy with --no-verify-jwt (the cron call has no user; "test" checks the login itself).
 //
-// What a message says and when it stays out is decided in _shared/push_text.ts (pure, tested):
-// statements from her data instead of questions, none once she was there, Saturday and Sunday later
-// at the default times, a silent pause after 14 days without opening the app, never a dream, nothing
-// sensitive on the lock screen. The push log (public.push_log) keeps per day and slot what was decided,
-// with the template id and a fingerprint of the body (never the text) for the rotation.
+// What a message says and when it stays out is decided in _shared/push_text.ts (pure, tested): only
+// with something of her own (else nothing), none once she was there or while one of her entries runs,
+// the morning later on the weekend at the default time and after a late night, one line after a few
+// days away and then silence, reminders for her blocks and what she asked for (only without the
+// calendar subscription, at most 3 a day, never Nolio), never a dream (except a reminder she asked
+// for), nothing sensitive on the lock screen. The push log (public.push_log) keeps per day and slot (and
+// per entry for a reminder) what was decided, with the template id and fingerprints (never the text).
 
 import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2.119.0";
 import { generateVapidKeys, sendPush, type VapidKeys } from "../_shared/webpush.ts";

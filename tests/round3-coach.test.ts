@@ -32,6 +32,7 @@ import {
   MODE_TIDY,
   openerLine,
   PERSONA,
+  reminderChannel,
   type ContextConnections,
   type ContextEvent,
   type ContextGoal,
@@ -46,6 +47,8 @@ import {
   COME_BACK_NOTE,
   GREETING_WRITE_REFUSAL,
   greetingWriteRefusal,
+  nolioEditAllowed as nolioEditAllowedSrc,
+  NOTIFICATIONS_NOTE,
   TIME_ALREADY_LOGGED,
 } from "../supabase/functions/coach/rules";
 
@@ -84,27 +87,96 @@ const source = readFileSync(new URL("../supabase/functions/coach/index.ts", impo
 const tools = source.slice(source.indexOf("const TOOLS"), source.indexOf("class ToolInputError"));
 const migration = readFileSync(new URL("../supabase/migrations/20261126000100_evening_come_back.sql", import.meta.url), "utf8");
 
-describe("K1: no reminder promise without a channel", () => {
+describe("Erinnerungen (owner decision 2, replaces the interim rule K1): the coach promises only what the line says", () => {
   const conn = (c: Partial<ContextConnections> = {}): ContextConnections => ({
     whoop: null,
     nolio: { available: false, connected: false },
     calendarSubscribed: false,
     askedAt: "2026-11-01T08:00:00Z",
+    notify: { morning: "07:30:00", evening: null, device: true },
+    reminders: { on: true, askedAt: null },
     ...c,
   });
-  const line = (c: Partial<ContextConnections>) => section(contextBlock({ ...base, connections: conn(c) }), "Verbindungen").split("\n").find((l) => l.startsWith("- iPhone-Kalender"));
+  const lines = (c: Partial<ContextConnections>, view?: string) => section(contextBlock({ ...base, view, connections: conn(c) }), "Verbindungen").split("\n");
+  const line = (c: Partial<ContextConnections>, view?: string) => lines(c, view).find((l) => l.startsWith("- Erinnerungen"));
+  const SPACE = "Jetzt (Startseite mit dem Kreis)";
 
-  it("the prompt promises only what the context line says; a wake-up call is an entry", () => {
-    expect(PERSONA).toContain("Ein Wecker ist nicht möglich: Wünscht sie einen oder eine Erinnerung, trägst du einen Termin mit reminder_minutes 0 zur gewünschten Zeit ein. Ob etwas sie erinnert, sagst du nur so, wie es unter „Verbindungen“ steht.");
+  it("the prompt: a wake-up call or a reminder she asks for is an entry with erinnern: true; promised only as the line says", () => {
+    expect(PERSONA).toContain(
+      "Wünscht sie einen Wecker oder eine Erinnerung, trägst du den Eintrag mit erinnern: true ein, für einen Wecker zur gewünschten Zeit mit reminder_minutes 0. Ob und wie etwas sie erinnert, sagst du nur so, wie es unter „Erinnerungen“ steht.",
+    );
+    expect(PERSONA).not.toContain("Ein Wecker ist nicht möglich");
     // the old promise is gone
     expect(PERSONA).not.toContain("und sagst ihr das.");
     expect(PERSONA).not.toContain("als kurzen Termin mit Erinnerung einzutragen");
+    expect(tools).toContain('erinnern: { type: "boolean"');
+    expect(tools).toContain('name: "request_notifications"');
   });
 
-  it("without the calendar subscription: «steht im Kalender», never «erinnert dich», the subscription offered once when she wants a reminder", () => {
-    expect(line({})).toBe("- iPhone-Kalender: noch nicht abonniert (es erinnert sie nichts: sag „steht im Kalender“, nie „erinnert dich“; möchte sie eine Erinnerung, bietest du einmal das Kalender-Abo an)");
-    expect(line({ calendarSubscribed: true })).toBe("- iPhone-Kalender: abonniert (Einträge mit Erinnerung melden sich über den iPhone-Kalender)");
-    expect(line({ calendarSubscribed: null })).toBe("- iPhone-Kalender: unbekannt (versprich keine Erinnerung)");
+  it("kommen als Mitteilung: a device, the switch on, no calendar subscription", () => {
+    expect(line({})).toBe("- Erinnerungen: kommen als Mitteilung, kurz vor jedem Block und vor Einträgen mit erinnern: true, höchstens drei am Tag, nie für Nolio");
+    expect(reminderChannel(conn())).toBe("mitteilung");
+  });
+
+  it("über den iPhone-Kalender: the subscribed calendar reminds her (no notification on top)", () => {
+    expect(line({ calendarSubscribed: true })).toBe("- Erinnerungen: über den iPhone-Kalender (jeder Eintrag mit Erinnerung meldet sich dort)");
+    expect(lines({ calendarSubscribed: true })).toContain("- iPhone-Kalender: abonniert");
+  });
+
+  it("kommen keine: «steht im Kalender», never «erinnert dich», and once the offer to switch notifications on", () => {
+    const none = { notify: { morning: null, evening: null, device: false } };
+    expect(line(none, SPACE)).toBe(
+      "- Erinnerungen: kommen keine: sag „steht im Kalender“, nie „erinnert dich“; möchte sie eine, bietest du einmal an, die Benachrichtigungen einzuschalten (request_notifications)",
+    );
+    expect(lines(none, SPACE)).toContain("- iPhone-Kalender: noch nicht abonniert");
+    // the classic screens show no button: it says where
+    expect(line(none)).toBe("- Erinnerungen: kommen keine: sag „steht im Kalender“, nie „erinnert dich“; möchte sie eine, sagst du einmal, dass sie die Benachrichtigungen im Menü unter „Einstellungen“ einschalten kann");
+    // offered once: not again
+    expect(line({ ...none, reminders: { on: true, askedAt: "2026-11-20T08:00:00Z" } }, SPACE)).toBe(
+      "- Erinnerungen: kommen keine: sag „steht im Kalender“, nie „erinnert dich“; einschalten unter Du › Benachrichtigungen",
+    );
+    // her own switch off: said so, no offer
+    expect(line({ reminders: { on: false, askedAt: null } }, SPACE)).toBe(
+      "- Erinnerungen: kommen keine: sag „steht im Kalender“, nie „erinnert dich“ (sie hat sie unter Du › Benachrichtigungen ausgeschaltet)",
+    );
+  });
+
+  it("unknown (a query failed, a column not there yet): no promise at all", () => {
+    expect(line({ calendarSubscribed: null, notify: { morning: null, evening: null, device: null } })).toBe("- Erinnerungen: unbekannt (versprich keine)");
+    expect(line({ reminders: undefined })).toBe("- Erinnerungen: unbekannt (versprich keine)");
+    expect(line({ notify: undefined })).toBe("- Erinnerungen: unbekannt (versprich keine)");
+    expect(reminderChannel({ calendarSubscribed: null, notify: undefined, reminders: undefined })).toBeNull();
+    // the subscribed calendar is known without the rest
+    expect(reminderChannel({ calendarSubscribed: true })).toBe("kalender");
+  });
+
+  it("request_notifications notes the offer once and tells the coach nothing reminds her until she switched them on", () => {
+    expect(source).toContain("notifications_asked_at: new Date().toISOString()");
+    expect(NOTIFICATIONS_NOTE).toMatch(/kommt keine Erinnerung/);
+    expect(NOTIFICATIONS_NOTE).toMatch(/Nicht nochmals anbieten/);
+    expect(NOTIFICATIONS_NOTE).not.toMatch(/ß/);
+  });
+});
+
+describe("D2 and «erinnern» in the coach and the app (wiring; the rules themselves: tests/push-round3.test.ts)", () => {
+  const backendSrc = readFileSync(new URL("../src/lib/supabaseBackend.ts", import.meta.url), "utf8");
+  const logHabit = source.slice(source.indexOf('case "log_habit": {'), source.indexOf('case "log_time": {'));
+  it("log_habit counts the habit's minutes on a tick and removes them on an untick (never failing the tick)", () => {
+    expect(logHabit).toContain("const counted = await habitTime(sb, userId, habit, logDay, done, ctx.tz);");
+    expect(logHabit).toContain("gezaehlt_minuten: counted");
+    expect(source).toContain('.delete().eq("user_id", userId).eq("source", "habit").eq("external_id", key)');
+    expect(source).toContain('{ onConflict: "user_id,source,external_id", ignoreDuplicates: true }');
+    expect(tools).toContain('minutes: { type: "integer", minimum: 1, maximum: 720');
+  });
+  it("the app's tap does the same through habitTimeRow", () => {
+    expect(backendSrc).toContain("await this.habitTime(habitId, day, done);");
+    expect(backendSrc).toContain("const row = habitTimeRow(habit, day, {");
+    expect(backendSrc).toContain('.delete().eq("source", "habit").eq("external_id", habitTimeKey(habitId, day))');
+  });
+  it("create_event and update_event keep «erinnern» in events.reminder_asked, never on a Nolio entry", () => {
+    expect(source).toContain('const asked = input.erinnern === undefined ? undefined : bool(input.erinnern, "erinnern");');
+    expect(source).toContain(".update({ reminder_asked: asked })");
+    expect(nolioEditAllowedSrc({ id: "x", erinnern: true })).toBe(false);
   });
 });
 
@@ -116,7 +188,7 @@ describe("K2: the coach knows the notification times", () => {
 
   it("names the times, the weekend time at the default, and where she changes them", () => {
     expect(notifyLine({ morning: "07:30:00", evening: "21:00:00", device: true }, "Jetzt (Startseite mit dem Kreis)")).toBe(
-      "- Benachrichtigungen: morgens 07:30 (Sa/So 09:00), abends 21:00 (Sa/So 22:30) · ändern unter Du › Benachrichtigungen",
+      "- Benachrichtigungen: morgens 07:30 (Sa/So 09:00), abends 21:00 · ändern unter Du › Benachrichtigungen",
     );
     // a time of her own has no weekend shift; the classic screens have them under Einstellungen
     expect(notifyLine({ morning: "06:15:00", evening: null, device: true })).toBe("- Benachrichtigungen: morgens 06:15 · ändern im Menü unter „Einstellungen“");

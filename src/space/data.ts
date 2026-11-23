@@ -148,7 +148,15 @@ export const planData = {
         x.id !== h.id ? x : { ...x, done_days: done ? [...new Set([...x.done_days, day])].sort() : x.done_days.filter((d) => d !== day) },
       );
     emit();
-    backend.setHabitDone(h.id, day, done).then(ok, fail);
+    backend.setHabitDone(h.id, day, done).then(() => {
+      ok();
+      // D2: a habit with a goal and a length counts (or uncounts) its minutes: the goal's time and today's line follow
+      if (h.goal_id && h.minutes) {
+        planVersion++;
+        emit();
+        loadGoals();
+      }
+    }, fail);
   },
 };
 

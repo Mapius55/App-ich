@@ -65,6 +65,15 @@ class Query implements PromiseLike<Result> {
     this.filters.push((r) => (v === null ? r[col] == null : r[col] === v));
     return this;
   }
+  not(col: string, op: "is", v: null) {
+    if (op !== "is" || v !== null) throw new Error("FakeDb: only not(col, 'is', null)");
+    this.filters.push((r) => r[col] != null);
+    return this;
+  }
+  neq(col: string, v: unknown) {
+    this.filters.push((r) => r[col] !== v); // like SQL: a null column is no match either way, here it passes
+    return this;
+  }
   eq(col: string, v: unknown) {
     if (col === "user_id") this.userFilter = v;
     this.filters.push((r) => r[col] === v);
@@ -135,7 +144,9 @@ class Query implements PromiseLike<Result> {
     }
     if (this.sort) {
       const { col, asc } = this.sort;
-      hit = [...hit].sort((a, b) => (String(a[col]) < String(b[col]) ? -1 : String(a[col]) > String(b[col]) ? 1 : 0) * (asc ? 1 : -1));
+      // numbers as numbers (ids: 9 before 10), the rest as text (ISO times, days)
+      const key = (r: Row) => (typeof r[col] === "number" ? (r[col] as number) : String(r[col]));
+      hit = [...hit].sort((a, b) => (key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : 0) * (asc ? 1 : -1));
     }
     if (this.max !== null) hit = hit.slice(0, this.max);
     return { data: hit.map((r) => this.pick(r)), error: null };
@@ -204,8 +215,9 @@ describe("dispatch", () => {
   });
 
   it("two runs at the same time send only once (pg_cron and the GitHub workflow)", async () => {
-    const { sent, send, said, sb } = setup();
+    const { db, sent, send, said, sb } = setup();
     said("2026-11-15T20:00:00");
+    event(db, `${MON}T10:15:00`, "Vorlesung Statistik");
     const [a, b] = await Promise.all([dispatch(sb, send, at(`${MON}T07:31:00`)), dispatch(sb, send, at(`${MON}T07:31:00`))]);
     expect(a + b).toBe(1);
     expect(sent).toHaveLength(1);
@@ -261,15 +273,21 @@ describe("dispatch", () => {
     expect(db.rows("push_log").map((r) => r.reason)).toEqual(["paused", "paused"]);
     expect(db.rows("profiles")[0]).toMatchObject({ notify_morning: "07:30:00", notify_evening: "21:00:00" });
     said(`${MON}T22:00:00`); // she opens the app again
+    event(db, "2026-11-17T10:15:00", "Vorlesung Statistik");
     expect(await dispatch(sb, send, at("2026-11-17T07:31:00"))).toBe(1);
   });
 
-  it("comes 90 minutes later on Saturday at the default time", async () => {
-    const { sent, send, said, sb } = setup();
+  it("comes 90 minutes later on Saturday at the default time (only the morning)", async () => {
+    const { db, sent, send, said, sb } = setup();
     said("2026-11-20T20:00:00");
+    event(db, "2026-11-21T11:00:00", "Markt mit Jonas");
     expect(await dispatch(sb, send, at("2026-11-21T07:31:00"))).toBe(0);
     expect(await dispatch(sb, send, at("2026-11-21T09:01:00"))).toBe(1);
-    expect(sent[0].body).toBe("Einen guten Samstag.");
+    expect(sent[0].body).toBe("Heute: 11:00 Markt mit Jonas.");
+    // the evening at its usual time, not at 22:30 (it would land after bedtime)
+    db.insert("goal_time", { user_id: LEA, goal_id: "g-run", day: "2026-11-21", minutes: 45, source: "block" });
+    expect(await dispatch(sb, send, at("2026-11-21T21:01:00"))).toBe(1);
+    expect(sent[1].body).toMatch(/45 Minuten/);
   });
 
   it("comes at 09:00 summer time (CEST) on a Saturday, and names the day's entry", async () => {
@@ -305,14 +323,111 @@ describe("dispatch", () => {
     expect(sent[0].body).toBe("Heute an der Reihe: Startnummer abholen.");
   });
 
-  it("when her entries can't be read: a plain line, never «nothing planned»", async () => {
+  it("when her entries can't be read: nothing (no filler, never «nothing planned»)", async () => {
     const { db, sent, send, said, sb } = setup();
     said("2026-11-15T20:00:00");
     event(db, `${MON}T10:15:00`, "Vorlesung Statistik");
     db.erroring.add("events");
+    expect(await dispatch(sb, send, at(`${MON}T07:31:00`))).toBe(0);
+    expect(sent).toHaveLength(0);
+    expect(db.rows("push_log")[0]).toMatchObject({ slot: "morning", status: "skipped", reason: "empty", template: null });
+  });
+
+  it("nothing of her own to say: no message, decided once («empty»)", async () => {
+    const { db, sent, send, said, sb } = setup();
+    said("2026-11-15T20:00:00");
+    expect(await dispatch(sb, send, at(`${MON}T07:31:00`))).toBe(0);
+    expect(await dispatch(sb, send, at(`${MON}T21:05:00`))).toBe(0);
+    expect(sent).toHaveLength(0);
+    expect(db.rows("push_log").map((r) => [r.slot, r.reason])).toEqual([
+      ["morning", "empty"],
+      ["evening", "empty"],
+    ]);
+  });
+
+  it("the evening without a win names one of her own finished entries of the day, never work or something sensitive", async () => {
+    const { db, sent, send, said, sb } = setup();
+    said(`${MON}T08:00:00`);
+    event(db, `${MON}T08:00:00`, "Schicht Station 3", { ends_at: at(`${MON}T16:00:00`).toISOString() });
+    event(db, `${MON}T17:00:00`, "Physio Knie", { ends_at: at(`${MON}T17:45:00`).toISOString() });
+    event(db, `${MON}T18:30:00`, "Malen mit Lina", { ends_at: at(`${MON}T19:30:00`).toISOString() });
+    event(db, `${MON}T22:00:00`, "Später", { ends_at: at(`${MON}T23:00:00`).toISOString() });
+    expect(await dispatch(sb, send, at(`${MON}T21:05:00`))).toBe(1);
+    expect(sent[0].body).toBe("Heute war: 18:30 Malen mit Lina.");
+    expect(db.rows("push_log")[0].named).toEqual([fingerprint("Malen mit Lina")]);
+  });
+
+  it("waits while one of her entries runs and ends within the hour, else leaves it out («busy»)", async () => {
+    const one = setup();
+    one.said("2026-11-15T20:00:00");
+    event(one.db, `${MON}T07:00:00`, "Joggen", { ends_at: at(`${MON}T07:50:00`).toISOString() });
+    event(one.db, `${MON}T10:15:00`, "Vorlesung Statistik");
+    expect(await dispatch(one.sb, one.send, at(`${MON}T07:31:00`))).toBe(0);
+    expect(await dispatch(one.sb, one.send, at(`${MON}T07:46:00`))).toBe(0);
+    expect(one.db.rows("push_log")).toHaveLength(0); // not decided yet
+    expect(await dispatch(one.sb, one.send, at(`${MON}T08:01:00`))).toBe(1);
+    expect(one.sent[0].body).toBe("Heute: 10:15 Vorlesung Statistik.");
+
+    const two = setup();
+    two.said("2026-11-15T20:00:00");
+    event(two.db, `${MON}T06:45:00`, "Frühdienst", { ends_at: at(`${MON}T15:00:00`).toISOString() });
+    event(two.db, `${MON}T17:00:00`, "Chor");
+    expect(await dispatch(two.sb, two.send, at(`${MON}T07:31:00`))).toBe(0);
+    expect(two.db.rows("push_log")[0]).toMatchObject({ slot: "morning", status: "skipped", reason: "busy" });
+  });
+
+  it("after an entry that ended after 22:00 the morning comes two hours later, or not at all after 11:00", async () => {
+    const one = setup();
+    one.said("2026-11-15T20:00:00");
+    event(one.db, "2026-11-15T14:00:00", "Spätdienst", { ends_at: at("2026-11-15T22:30:00").toISOString() });
+    event(one.db, `${MON}T12:00:00`, "Mittag mit Sara");
+    expect(await dispatch(one.sb, one.send, at(`${MON}T07:31:00`))).toBe(0);
+    expect(one.db.rows("push_log")).toHaveLength(0);
+    expect(await dispatch(one.sb, one.send, at(`${MON}T09:31:00`))).toBe(1);
+    expect(one.sent[0].body).toBe("Heute: 12:00 Mittag mit Sara.");
+
+    // Saturday at the default time (09:00) + 2 h would be after 11:00? 11:00 itself still comes; from her own 09:30 on, none
+    const two = setup();
+    two.db.rows("profiles")[0].notify_morning = "09:30:00";
+    two.said("2026-11-15T20:00:00");
+    event(two.db, "2026-11-15T14:00:00", "Spätdienst", { ends_at: at("2026-11-15T23:00:00").toISOString() });
+    event(two.db, `${MON}T14:00:00`, "Mittag mit Sara");
+    expect(await dispatch(two.sb, two.send, at(`${MON}T09:31:00`))).toBe(0);
+    expect(two.db.rows("push_log")[0]).toMatchObject({ slot: "morning", status: "skipped", reason: "late_night" });
+  });
+
+  it("an entry of every day is named at most twice in 7 days (in the morning)", async () => {
+    const { db, sent, send, said, sb } = setup();
+    db.rows("profiles")[0].notify_morning = "07:15:00";
+    for (let i = 0; i < 14; i++) {
+      const day = addDays(MON, i);
+      said(`${addDays(day, -1)}T20:00:00`);
+      event(db, `${day}T21:30:00`, "10 Minuten dehnen");
+      await dispatch(sb, send, at(`${day}T07:16:00`));
+    }
+    expect(sent.map((s) => s.body.includes("dehnen"))).toEqual(sent.map(() => true));
+    // the first two days (not yet «every day»), then at most twice in any 7 days
+    expect(sent.length).toBe(4);
+    expect(sent[0].body).toBe("Heute Abend um 21:30: 10 Minuten dehnen.");
+  });
+
+  it("after a few days away: one line from her own data, then nothing until she opens the app", async () => {
+    const { db, sent, send, said, sb } = setup();
+    said("2026-11-13T20:00:00"); // 2½ days before the morning
+    event(db, "2026-11-17T09:00:00", "Vorlesung Statistik");
     expect(await dispatch(sb, send, at(`${MON}T07:31:00`))).toBe(1);
-    expect(db.rows("push_log")[0].template).toMatch(/^m\.plain\./);
-    expect(sent[0].body).not.toMatch(/nichts|leer|frei|Termin|geplant|Kalender/i);
+    expect(sent[0].body).toBe("Morgen: 09:00 Vorlesung Statistik.");
+    expect(sent[0].body).not.toMatch(/Pause|lange|vermiss|wieder/i);
+    expect(db.rows("push_log")[0].template).toMatch(/^p\./);
+    // the evening and the next days: silent
+    db.insert("goal_time", { user_id: LEA, goal_id: "g-run", day: MON, minutes: 45, source: "person" });
+    expect(await dispatch(sb, send, at(`${MON}T21:05:00`))).toBe(0);
+    expect(await dispatch(sb, send, at("2026-11-17T07:31:00"))).toBe(0);
+    expect(db.rows("push_log").slice(1).map((r) => r.reason)).toEqual(["paused", "paused"]);
+    // she opens the app: back to normal
+    said("2026-11-17T12:00:00");
+    event(db, "2026-11-18T10:00:00", "Chor");
+    expect(await dispatch(sb, send, at("2026-11-18T07:31:00"))).toBe(1);
   });
 
   it("when her goals can't be read: times only, so no dream slips through a free title", async () => {
@@ -329,7 +444,8 @@ describe("dispatch", () => {
     db.rows("profiles")[0].created_at = "2026-10-20T10:00:00Z";
     expect(await dispatch(sb, send, at(`${MON}T07:31:00`))).toBe(0);
     expect(db.rows("push_log")[0]).toMatchObject({ reason: "paused" });
-    db.rows("profiles")[0].created_at = "2026-11-10T10:00:00Z";
+    db.rows("profiles")[0].created_at = "2026-11-16T10:00:00Z";
+    db.insert("goal_time", { user_id: LEA, goal_id: "g-run", day: MON, minutes: 45, source: "person" });
     expect(await dispatch(sb, send, at(`${MON}T21:05:00`))).toBe(1);
     expect(sent).toHaveLength(1);
   });
@@ -337,6 +453,8 @@ describe("dispatch", () => {
   it("only asks people with a time set", async () => {
     const { db, sent, send, said, sb } = setup();
     said("2026-11-15T20:00:00");
+    event(db, `${MON}T10:15:00`, "Vorlesung Statistik");
+    event(db, `${MON}T10:15:00`, "Vorlesung", { user_id: "u-off" });
     db.insert("profiles", { ...db.rows("profiles")[0], id: "u-off", display_name: "Off", notify_morning: null, notify_evening: null });
     db.insert("push_subscriptions", { id: "s3", user_id: "u-off", endpoint: "https://push.example/3", p256dh: "k", auth: "a", app_url: null });
     expect(await dispatch(sb, send, at(`${MON}T07:31:00`))).toBe(1);
@@ -350,18 +468,19 @@ describe("dispatch", () => {
     for (let i = 0; i < 14; i++) {
       const day = addDays(MON, i);
       said(`${addDays(day, -1)}T20:00:00`);
-      event(db, `${day}T08:00:00`, "Arbeit");
+      db.insert("milestones", { user_id: LEA, goal_id: "g-run", title: "Intervalle laufen", due_date: day, done_at: null });
       await dispatch(sb, send, at(`${day}T07:16:00`));
     }
     expect(sent).toHaveLength(14);
     for (let i = 0; i < sent.length; i++) for (let j = i + 1; j < Math.min(sent.length, i + 7); j++) expect(sent[j].body).not.toBe(sent[i].body);
-    expect(sent.every((s) => s.body.includes("08:00") && !s.body.includes("?"))).toBe(true);
+    expect(sent.every((s) => s.body.includes("Intervalle laufen") && !s.body.includes("?"))).toBe(true);
   });
 
   it("still works without the log table (migration not run yet)", async () => {
     const { db, sent, send, said, sb } = setup();
     db.missing.add("push_log");
     said("2026-11-15T20:00:00");
+    event(db, `${MON}T10:15:00`, "Vorlesung Statistik");
     expect(await dispatch(sb, send, at(`${MON}T07:31:00`))).toBe(1);
     expect(await dispatch(sb, send, at(`${MON}T07:46:00`))).toBe(0); // last_morning_push still guards the day
     expect(sent).toHaveLength(1);
@@ -382,9 +501,115 @@ describe("dispatch", () => {
     db.insert("profiles", { ...db.rows("profiles")[0], id: "u-max", display_name: "Max" });
     db.insert("push_subscriptions", { id: "s2", user_id: "u-max", endpoint: "https://push.example/2", p256dh: "k", auth: "a", app_url: null });
     db.insert("messages", { user_id: "u-max", thread: "2026-11-15", role: "user", content: "…", hidden: false, created_at: at("2026-11-15T19:00:00").toISOString() });
+    event(db, `${MON}T10:15:00`, "Vorlesung", { user_id: "u-max" });
     db.failing.set("messages", LEA);
     expect(await dispatch(sb, send, at(`${MON}T07:31:00`))).toBe(1);
     expect(sent.map((s) => s.title)).toEqual(["Guten Morgen, Max"]);
+  });
+
+  describe("reminders («Blöcke und Wunsch»)", () => {
+    /** Lea with the reminders on, no calendar subscription, and the morning and evening off (only reminders) */
+    const reminderSetup = () => {
+      const t = setup();
+      Object.assign(t.db.rows("profiles")[0], { notify_morning: null, notify_evening: null, notify_reminders: true, calendar_fetched_at: null });
+      t.said("2026-11-15T20:00:00");
+      return t;
+    };
+    const block = (db: FakeDb, local: string, title: string, extra: Row = {}) =>
+      event(db, local, title, { id: `e-${title}`, kind: "block", goal_id: "g-run", reminder_minutes: 10, source: "coach", ends_at: new Date(at(local).getTime() + 30 * 60000).toISOString(), ...extra });
+
+    it("comes once, at starts_at − reminder_minutes, in the run before that moment, never late", async () => {
+      const { db, sent, send, sb } = reminderSetup();
+      block(db, `${MON}T10:00:00`, "Intervalle");
+      expect(await dispatch(sb, send, at(`${MON}T09:31:00`))).toBe(0); // 09:50 is not in this run's 15 minutes
+      expect(await dispatch(sb, send, at(`${MON}T09:46:00`))).toBe(1);
+      expect(sent).toEqual([{ to: ["s1"], title: "Um 10:00", body: "Intervalle." }]);
+      expect(await dispatch(sb, send, at(`${MON}T09:51:00`))).toBe(0); // the push log: once per entry
+      expect(await dispatch(sb, send, at(`${MON}T10:01:00`))).toBe(0); // it began: never late
+      const log = db.rows("push_log");
+      expect(log).toHaveLength(1);
+      expect(log[0]).toMatchObject({ slot: "reminder", event_id: "e-Intervalle", status: "sent", template: "r.block", devices: 1 });
+      expect(JSON.stringify(log.map(({ event_id: _, ...r }) => r))).not.toMatch(/Intervalle/); // the log keeps no text
+    });
+
+    it("a missed run a few minutes late still reminds while the entry has not begun", async () => {
+      const { db, sent, send, sb } = reminderSetup();
+      block(db, `${MON}T10:00:00`, "Intervalle");
+      expect(await dispatch(sb, send, at(`${MON}T09:53:00`))).toBe(1); // 3 minutes after 09:50
+      expect(sent[0].title).toBe("Um 10:00");
+    });
+
+    it("at most three a day", async () => {
+      const { db, sent, send, sb } = reminderSetup();
+      for (const [i, h] of ["08", "10", "12", "14"].entries()) block(db, `${MON}T${h}:00:00`, `Block ${i + 1}`);
+      for (const h of ["07:46", "09:46", "11:46", "13:46"]) await dispatch(sb, send, at(`${MON}T${h}:00`));
+      expect(sent.map((x) => x.body)).toEqual(["Block 1.", "Block 2.", "Block 3."]);
+    });
+
+    it("none with the iPhone calendar subscribed (its own alarm), with the switch off, without a device", async () => {
+      const one = reminderSetup();
+      one.db.rows("profiles")[0].calendar_fetched_at = at(`${MON}T06:00:00`).toISOString();
+      block(one.db, `${MON}T10:00:00`, "Intervalle");
+      expect(await dispatch(one.sb, one.send, at(`${MON}T09:46:00`))).toBe(0);
+      // a subscription not fetched for more than 3 days counts as gone: reminders come again
+      one.db.rows("profiles")[0].calendar_fetched_at = at("2026-11-12T06:00:00").toISOString();
+      expect(await dispatch(one.sb, one.send, at(`${MON}T09:47:00`))).toBe(1);
+
+      const two = reminderSetup();
+      two.db.rows("profiles")[0].notify_reminders = false;
+      block(two.db, `${MON}T10:00:00`, "Intervalle");
+      expect(await dispatch(two.sb, two.send, at(`${MON}T09:46:00`))).toBe(0);
+
+      const three = reminderSetup();
+      three.db.tables.push_subscriptions = [];
+      block(three.db, `${MON}T10:00:00`, "Intervalle");
+      expect(await dispatch(three.sb, three.send, at(`${MON}T09:46:00`))).toBe(0);
+      expect(three.db.rows("push_log")).toHaveLength(0);
+    });
+
+    it("never for her trainer's entries (Nolio), never for a termin she did not ask about, never for an answered block", async () => {
+      const { db, sent, send, sb } = reminderSetup();
+      block(db, `${MON}T10:00:00`, "Intervalle Nolio", { source: "nolio" });
+      event(db, `${MON}T10:00:00`, "Zahnreinigung", { id: "e-t", kind: "termin", reminder_minutes: 10, source: "coach" });
+      block(db, `${MON}T10:00:00`, "Schon gemacht");
+      db.insert("goal_time", { user_id: LEA, goal_id: "g-run", day: MON, minutes: 30, source: "block", event_id: "e-Schon gemacht" });
+      expect(await dispatch(sb, send, at(`${MON}T09:46:00`))).toBe(0);
+      expect(sent).toHaveLength(0);
+    });
+
+    it("a reminder she asked for comes for a termin too, with her own title, also a dream step's; never a sensitive one", async () => {
+      const { db, sent, send, sb } = reminderSetup();
+      event(db, `${MON}T10:00:00`, "Nachricht an die Stationsleitung", { id: "e-1", kind: "termin", goal_id: "g-island", reminder_minutes: 0, reminder_asked: true, source: "coach" });
+      event(db, `${MON}T12:00:00`, "Physio Knie", { id: "e-2", kind: "termin", reminder_minutes: 15, reminder_asked: true, source: "coach" });
+      block(db, `${MON}T14:00:00`, "Island: Flüge vergleichen", { goal_id: "g-island" });
+      await dispatch(sb, send, at(`${MON}T09:46:00`));
+      await dispatch(sb, send, at(`${MON}T11:31:00`));
+      await dispatch(sb, send, at(`${MON}T13:46:00`));
+      expect(sent.map((x) => `${x.title} · ${x.body}`)).toEqual(["Um 10:00 · Nachricht an die Stationsleitung.", "Um 12:00 · Dein Termin.", "Um 14:00 · Deine halbe Stunde."]);
+    });
+
+    it("away for a few days: her blocks rest, what she asked for still comes; after 14 days nothing", async () => {
+      const { db, sent, send, said, sb } = reminderSetup();
+      db.tables.messages = [];
+      said("2026-11-12T20:00:00");
+      block(db, `${MON}T10:00:00`, "Intervalle");
+      event(db, `${MON}T10:00:00`, "Paket abholen", { id: "e-p", kind: "termin", reminder_minutes: 10, reminder_asked: true, source: "person" });
+      expect(await dispatch(sb, send, at(`${MON}T09:46:00`))).toBe(1);
+      expect(sent.map((x) => x.body)).toEqual(["Paket abholen."]);
+      db.tables.messages = [];
+      said("2026-11-01T20:00:00");
+      event(db, `${MON}T12:00:00`, "Paket bringen", { id: "e-q", kind: "termin", reminder_minutes: 10, reminder_asked: true, source: "person" });
+      expect(await dispatch(sb, send, at(`${MON}T11:46:00`))).toBe(0);
+    });
+
+    it("without the push log (migration not run) no reminder at all, the morning still comes", async () => {
+      const { db, sent, send, sb } = reminderSetup();
+      db.missing.add("push_log");
+      Object.assign(db.rows("profiles")[0], { notify_morning: "07:30:00" });
+      block(db, `${MON}T07:50:00`, "Intervalle");
+      expect(await dispatch(sb, send, at(`${MON}T07:36:00`))).toBe(1);
+      expect(sent.map((x) => x.title)).toEqual(["Guten Morgen, Lea"]);
+    });
   });
 
   it("removes log rows after a while", async () => {

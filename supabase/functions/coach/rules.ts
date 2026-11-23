@@ -163,6 +163,10 @@ export function greetingWriteRefusal(name: string, input: Record<string, unknown
   return null;
 }
 
+/** What the coach hears back from request_notifications: until she switched them on, nothing reminds her yet. */
+export const NOTIFICATIONS_NOTE =
+  "Die App zeigt jetzt den Knopf zum Einschalten. Bis sie ihn gedrückt hat, kommt keine Erinnerung: Sag weiter „steht im Kalender“. Nicht nochmals anbieten.";
+
 /** What the coach hears back from come_back. */
 export const COME_BACK_NOTE =
   "Notiert. Wenn sie morgen hereinschaut, kommst du in der Begrüssung einmal darauf zurück. Sag es ihr in einem Halbsatz, ohne Uhrzeit und ohne mehr zu versprechen.";

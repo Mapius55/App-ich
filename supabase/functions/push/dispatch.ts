@@ -334,6 +334,8 @@ async function slotFor(r: PersonRun): Promise<number> {
       template: choice?.template ?? null,
       fingerprint: choice ? fingerprint(choice.body) : null,
       ...(named ? { named } : {}),
+      // the run's clock (the pause line counts as sent only after her last open)
+      created_at: at.toISOString(),
     },
     true,
   );
@@ -375,7 +377,7 @@ async function remindersFor(r: PersonRun, candidates: ReminderEvent[], answered:
     const m = reminderMessage(e, goals, at, tz);
     const claimed = await claim(
       sb,
-      { user_id: p.id, day: today, slot: "reminder", event_id: e.id, status: "sent", reason: null, template: m.template, fingerprint: fingerprint(m.body) },
+      { user_id: p.id, day: today, slot: "reminder", event_id: e.id, status: "sent", reason: null, template: m.template, fingerprint: fingerprint(m.body), created_at: at.toISOString() },
       false,
     );
     if (!claimed) continue;
@@ -401,6 +403,8 @@ async function reminderCandidates(sb: SupabaseClient, at: Date): Promise<{ byUse
       .from("events")
       .select(REMINDER_COLS)
       .eq("all_day", false)
+      .not("reminder_minutes", "is", null)
+      .neq("source", "nolio")
       .gte("starts_at", at.toISOString())
       .lte("starts_at", new Date(at.getTime() + (REMINDER_MAX_LEAD_MIN + REMINDER_WINDOW_MIN) * 60000).toISOString())
       .or("kind.eq.block,reminder_asked.is.true")

@@ -117,7 +117,8 @@ export function Plan({ onBack, onPlanDay, eventsVersion, planVersion, showConnec
     setHabits((hs) =>
       hs!.map((h) => (h.id !== habit.id ? h : { ...h, done_days: done ? [...new Set([...h.done_days, day])].sort() : h.done_days.filter((d) => d !== day) })),
     );
-    backend.setHabitDone(habit.id, day, done).then(ok, fail);
+    // D2: a habit with a goal and a length counts its minutes: the goal's time follows
+    backend.setHabitDone(habit.id, day, done).then(() => (habit.goal_id && habit.minutes ? changed() : ok()), fail);
   };
 
   // a sheet saved or deleted something

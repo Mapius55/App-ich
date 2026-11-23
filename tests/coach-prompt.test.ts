@@ -397,7 +397,7 @@ describe("contextBlock: connections", () => {
   it("asks once while nothing is connected and the coach never asked", () => {
     expect(shouldAskConnections(conn())).toBe(true);
     expect(section(conn())).toBe(
-      "## Verbindungen\n- WHOOP: nicht verbunden\n- Nolio: für dieses Konto nicht verfügbar\n- iPhone-Kalender: noch nicht abonniert (es erinnert sie nichts: sag „steht im Kalender“, nie „erinnert dich“; möchte sie eine Erinnerung, bietest du einmal das Kalender-Abo an)\n- Polar, Garmin, Strava: kommen später\n- Nach Apps und Geräten fragen: einmal, an einer natürlichen Stelle (noch nie gefragt, nichts verbunden)\n\n",
+      "## Verbindungen\n- WHOOP: nicht verbunden\n- Nolio: für dieses Konto nicht verfügbar\n- iPhone-Kalender: noch nicht abonniert\n- Erinnerungen: unbekannt (versprich keine)\n- Polar, Garmin, Strava: kommen später\n- Nach Apps und Geräten fragen: einmal, an einer natürlichen Stelle (noch nie gefragt, nichts verbunden)\n\n",
     );
   });
 
