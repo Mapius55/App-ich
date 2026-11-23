@@ -1365,13 +1365,24 @@ export interface HabitTimeRow {
  *   (event_id), so the block and the habit are one row (K7);
  * - that block already answered, or the same minutes for the goal that day already there (said in conversation, D1, a
  *   training): nothing more (null).
- * Never a block from her trainer (Nolio) or an all-day one. `blocks[].answered`: the block has a goal_time row.
+ * Never a block from her trainer (Nolio) or an all-day one, and a termin only with an end (one without counts for
+ * nothing, so it gets no answer). `blocks[].answered`: the block has a goal_time row.
  */
 export function habitTimeRow(
   habit: { id: string; title: string; goal_id?: string | null; minutes?: number | null },
   day: string,
   o: {
-    blocks: { id: string; title: string; goal_id?: string | null; starts_at: string; all_day?: boolean | null; kind?: string | null; source?: string | null; answered: boolean }[];
+    blocks: {
+      id: string;
+      title: string;
+      goal_id?: string | null;
+      starts_at: string;
+      ends_at?: string | null;
+      all_day?: boolean | null;
+      kind?: string | null;
+      source?: string | null;
+      answered: boolean;
+    }[];
     times: { goal_id: string; day: string; minutes: number | string | null; source?: string | null; external_id?: string | null }[];
     dayOfIso: (iso: string) => string;
   },
@@ -1384,6 +1395,7 @@ export function habitTimeRow(
     .filter(
       (b) =>
         countsLikeBlock(b) &&
+        (b.kind !== "termin" || !!b.ends_at) &&
         !b.all_day &&
         b.source !== "nolio" &&
         String(b.goal_id ?? "").toLowerCase() === goalId.toLowerCase() &&

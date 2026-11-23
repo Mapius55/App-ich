@@ -37,6 +37,27 @@ export type SeriesKind = "block" | "termin";
 export const SERIES_KINDS: readonly SeriesKind[] = ["block", "termin"];
 export const seriesKind = (s: { kind?: string | null }): SeriesKind => (s.kind === "termin" ? "termin" : "block");
 
+/**
+ * Whether a rhythm rests and ends with its goal: one of blocks. Her fixed times (termin) stay in the calendar when the
+ * goal rests, is reached, dropped or deleted; they only let go of it (goals_series, goals_series_unlink).
+ */
+export const restsWithGoal = (s: { kind?: string | null }): boolean => seriesKind(s) === "block";
+
+/**
+ * The same rhythm twice: for the same goal (or both without one), at the same start, on a shared weekday, of either
+ * kind (a training as blocks and again as her fixed time would stand twice in the calendar and count twice).
+ */
+export function sameRhythm(
+  a: { goal_id: string | null; start_time: string; weekdays: readonly number[] },
+  b: { goal_id: string | null; start_time: string; weekdays: readonly number[] },
+): boolean {
+  return (
+    (a.goal_id ?? null) === (b.goal_id ?? null) &&
+    String(a.start_time).slice(0, 5) === String(b.start_time).slice(0, 5) &&
+    a.weekdays.some((w) => b.weekdays.includes(w))
+  );
+}
+
 /** A weekly rhythm as stored (public.series). Times are local in `time_zone`. */
 export interface SeriesRule {
   id: string;
@@ -201,11 +222,17 @@ export function shiftAskDue(o: {
 
 /**
  * The rhythms that still run on `today`: active and not ended (its last day not behind). A rhythm split «ab Januar»
- * (split_series: the old part ends the day before the new one starts, same goal) counts once, as its later part.
+ * (split_series: the old part ends the day before the new one starts, same goal and kind) counts once, as its later part.
  */
-export function liveRhythms<T extends Pick<SeriesRule, "goal_id" | "active" | "start_date" | "until_date">>(series: readonly T[], today: string): T[] {
+export function liveRhythms<T extends Pick<SeriesRule, "goal_id" | "active" | "start_date" | "until_date"> & { kind?: string | null }>(
+  series: readonly T[],
+  today: string,
+): T[] {
   const live = series.filter((s) => s.active && !(s.until_date && s.until_date < today));
-  return live.filter((s) => !(s.until_date && live.some((o) => o !== s && o.goal_id === s.goal_id && o.start_date === addDays(s.until_date!, 1))));
+  return live.filter(
+    (s) =>
+      !(s.until_date && live.some((o) => o !== s && o.goal_id === s.goal_id && seriesKind(o) === seriesKind(s) && o.start_date === addDays(s.until_date!, 1))),
+  );
 }
 
 /**

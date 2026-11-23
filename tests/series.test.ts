@@ -421,8 +421,10 @@ describe("the coach's tools", () => {
     expect(tool("create_series")).toContain("Blöcke ohne until bis zum Tag vor dem Zieldatum");
     expect(source).toContain("time_zone: ctx.tz,");
     expect(source).toContain("const max = kind === \"termin\" ? TERMIN_SERIES_MAX : SERIES_MAX_ACTIVE;");
-    // an ended rhythm, or the old part of one split «ab Januar», never counts towards the limit or as a double; per kind
-    expect(source).toContain("const active = liveRhythms(((others.data ?? []) as Running[]).filter((o) => seriesKind(o) === kind), day);");
+    // an ended rhythm, or the old part of one split «ab Januar», never counts towards the limit or as a double; a double
+    // of either kind, the limit per kind
+    expect(source).toContain("const running = liveRhythms((others.data ?? []) as Running[], day);");
+    expect(source).toContain("const active = running.filter((o) => seriesKind(o) === kind);");
     expect(source).toContain('throw new ToolInputError("Diesen Rhythmus gibt es schon (siehe „Wochenrhythmus“): ändere ihn mit update_series");');
   });
 

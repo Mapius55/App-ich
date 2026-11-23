@@ -1296,8 +1296,9 @@ export class DemoBackend implements Backend {
       checkGoal(u, goalId);
       if (sameTimeLogged(u.goal_time, goalId, day, minutes)) return;
       const answered = new Set(u.goal_time.map((t) => t.event_id).filter(Boolean));
+      // like the coach's query: entries of the goal with an end (one without counts for nothing)
       const mine = u.events
-        .filter((e) => countsLikeBlock(e) && e.goal_id === goalId)
+        .filter((e) => countsLikeBlock(e) && e.goal_id === goalId && !!e.ends_at)
         .map((e) => ({ ...e, goal_time: answered.has(e.id) ? [e.id] : [] }))
         .sort((a, b) => Date.parse(a.starts_at) - Date.parse(b.starts_at));
       const block = openBlocksOn(mine, day, (iso) => dayOf(new Date(iso)))[0];

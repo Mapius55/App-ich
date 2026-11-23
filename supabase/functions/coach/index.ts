@@ -100,6 +100,8 @@ import {
   liveRhythms,
   parseClock,
   parseWeekdays,
+  restsWithGoal,
+  sameRhythm,
   SERIES_CONTEXT_DAYS,
   SERIES_KINDS,
   SERIES_MAX_ACTIVE,
@@ -745,22 +747,33 @@ type MilestoneRow = Row & { id: string; title: string; position: number; done_at
 
 // ---------- the weekly rhythm (public.series; its days are entries with series_id) ----------
 
-/** The weekly rhythms of a goal that still run on `day` (active, not ended; none before the rhythm's migration). */
-const goalRhythms = (sb: SupabaseClient, goalId: string, day: string) =>
-  soft<{ id: string; title: string }[]>(
-    sb.from("series").select("id, title").eq("goal_id", goalId).eq("active", true).or(`until_date.is.null,until_date.gte.${day}`).limit(10),
-    [],
-    "goal rhythms",
-  );
+/**
+ * The weekly rhythms of a goal that still run on `day` (active, not ended; none before the rhythm's migration) and rest
+ * or end with it: its rhythms of blocks. Her fixed times (a training every Thursday) stay in the calendar, they only
+ * let go of the goal, so nothing is said or shown as gone for them. "*": kind only after its migration.
+ */
+const goalRhythms = async (sb: SupabaseClient, goalId: string, day: string) =>
+  (
+    await soft<{ id: string; title: string; kind?: string | null }[]>(
+      sb.from("series").select("*").eq("goal_id", goalId).eq("active", true).or(`until_date.is.null,until_date.gte.${day}`).limit(20),
+      [],
+      "goal rhythms",
+    )
+  ).filter(restsWithGoal);
 /** update_goal: the goal is no longer active, so its rhythm rests. */
 const RHYTHM_RESTS = "Sein Wochenrhythmus ruht jetzt mit dem Ziel, die kommenden Tage sind aus dem Kalender: sag es in einem Halbsatz. Wird das Ziel wieder aktiv, fragst du, ob er weiterlaufen soll (update_series pausiert false).";
-/** The resting rhythms of a goal that could run again (not ended; none before the rhythm's migration). */
-const restingRhythms = (sb: SupabaseClient, goalId: string, day: string) =>
-  soft<{ id: string }[]>(
-    sb.from("series").select("id").eq("goal_id", goalId).eq("active", false).or(`until_date.is.null,until_date.gte.${day}`).limit(1),
-    [],
-    "resting rhythms",
-  );
+/**
+ * The rhythms of blocks that rested with a goal and could run again (not ended; none before the rhythm's migration);
+ * a fixed time of hers she paused herself never rested with the goal.
+ */
+const restingRhythms = async (sb: SupabaseClient, goalId: string, day: string) =>
+  (
+    await soft<{ id: string; kind?: string | null }[]>(
+      sb.from("series").select("*").eq("goal_id", goalId).eq("active", false).or(`until_date.is.null,until_date.gte.${day}`).limit(20),
+      [],
+      "resting rhythms",
+    )
+  ).filter(restsWithGoal);
 /**
  * update_goal: the goal is active again, its rhythm still rests (it rested with the goal; that note is long gone from
  * the conversation by now): the one question, at the moment it matters.
@@ -922,7 +935,7 @@ async function habitTime(sb: SupabaseClient, userId: string, habit: Row, day: st
     const [blocks, times] = await Promise.all([
       sb
         .from("events")
-        .select("id, title, goal_id, starts_at, all_day, kind, source, goal_time(id)")
+        .select("id, title, goal_id, starts_at, ends_at, all_day, kind, source, goal_time(id)")
         .eq("goal_id", goalId)
         .eq("all_day", false)
         .neq("source", "nolio")
@@ -1225,11 +1238,13 @@ async function runTool(
       if (goal?.error) throw goal.error;
       if (goal && !goal.data) throw new ToolInputError("Ziel nicht gefunden");
       if (goal?.data && goal.data.status !== "active") throw new ToolInputError("Das Ziel ist nicht aktiv: erst wieder aufnehmen (update_goal status active)");
-      // only the rhythms of this kind that still run (an ended one, or the old part of one split «ab Januar», never counts)
+      // only the rhythms that still run (an ended one, or the old part of one split «ab Januar», never counts); the same
+      // one of either kind (a training as blocks and again as her fixed time) would stand twice and count twice
       type Running = { goal_id: string | null; kind?: string | null; weekdays: number[]; start_time: string; active: boolean; start_date: string; until_date: string | null };
-      const active = liveRhythms(((others.data ?? []) as Running[]).filter((o) => seriesKind(o) === kind), day);
-      if (active.some((o) => o.goal_id === goalId && String(o.start_time).slice(0, 5) === time && o.weekdays.some((w) => weekdays.includes(w))))
+      const running = liveRhythms((others.data ?? []) as Running[], day);
+      if (running.some((o) => sameRhythm(o, { goal_id: goalId, start_time: time, weekdays })))
         throw new ToolInputError("Diesen Rhythmus gibt es schon (siehe „Wochenrhythmus“): ändere ihn mit update_series");
+      const active = running.filter((o) => seriesKind(o) === kind);
       const max = kind === "termin" ? TERMIN_SERIES_MAX : SERIES_MAX_ACTIVE;
       if (active.length >= max) throw new ToolInputError(`Höchstens ${max} solche Wochenrhythmen gleichzeitig: einen ändern oder beenden`);
       const { data, error } = await sb.from("series").insert(row).select().single();
@@ -1428,7 +1443,8 @@ async function runTool(
         const prior = priorProblem(priorHours, estimate, false);
         if (prior) throw new ToolInputError(prior);
       }
-      // reached, paused or dropped: its weekly rhythm rests with it (trigger goals_series), its coming days go
+      // reached, paused or dropped: its weekly rhythm of blocks rests with it (trigger goals_series), its coming days go;
+      // her fixed times stay (goalRhythms leaves them out)
       const resting = patch.status !== undefined && patch.status !== "active" ? await goalRhythms(sb, id, day) : [];
       // active again (it was not): a rhythm that rested with it waits for her word
       let waking = false;
@@ -1469,8 +1485,8 @@ async function runTool(
     }
     case "delete_goal": {
       const id = uuid(input.id, "id");
-      // Milestones go with it; habits and calendar entries stay, without the link; its weekly rhythm goes with
-      // its coming days (the past ones stay as plain blocks).
+      // Milestones go with it; habits and calendar entries stay, without the link; its weekly rhythm of blocks goes with
+      // its coming days (the past ones stay as plain blocks); her fixed times every week stay, without the goal.
       const rhythms = await goalRhythms(sb, id, day);
       const { data, error } = await sb.from("goals").delete().eq("id", id).select("id, title");
       if (error) throw error;

@@ -549,7 +549,7 @@ export class SupabaseBackend implements Backend {
         this.sb
           .from("events")
           // its blocks and termine (a termin with a goal counts like a block)
-          .select("id, title, goal_id, starts_at, all_day, kind, source, goal_time(id)")
+          .select("id, title, goal_id, starts_at, ends_at, all_day, kind, source, goal_time(id)")
           .eq("goal_id", habit.goal_id)
           .eq("all_day", false)
           .neq("source", "nolio")
@@ -559,7 +559,7 @@ export class SupabaseBackend implements Backend {
         this.sb.from("goal_time").select("goal_id, day, minutes, source, external_id").eq("goal_id", habit.goal_id).eq("day", day).limit(100),
       ]);
       if (blocks.error || times.error) return;
-      type BlockRow = { id: string; title: string; goal_id: string | null; starts_at: string; all_day: boolean; kind: string; source: string; goal_time: unknown };
+      type BlockRow = { id: string; title: string; goal_id: string | null; starts_at: string; ends_at: string | null; all_day: boolean; kind: string; source: string; goal_time: unknown };
       const row = habitTimeRow(habit, day, {
         blocks: ((blocks.data ?? []) as BlockRow[]).map((b) => ({ ...b, answered: Array.isArray(b.goal_time) ? b.goal_time.length > 0 : !!b.goal_time })),
         times: (times.data ?? []) as { goal_id: string; day: string; minutes: number; source: string; external_id: string | null }[],

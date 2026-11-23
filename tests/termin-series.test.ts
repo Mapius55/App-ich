@@ -14,8 +14,11 @@ import {
   dayOf,
   goalDayMinutes,
   habitTimeRow,
+  liveRhythms,
   openWeekBlocks,
   PROVISIONAL_DAYS,
+  restsWithGoal,
+  sameRhythm,
   seriesDays,
   seriesEndDay,
   seriesKeepsDay,
@@ -115,13 +118,21 @@ describe("a past termin with a goal counts like a block (provisional for a week,
     expect(openWeekBlocks(rows, ["g1"], monday, now, zurich).map((b) => b.id)).toEqual(["block", "training"]);
   });
 
-  it("a habit tick that is the training answers it (counted once)", () => {
-    const row = habitTimeRow({ id: "11111111-1111-4111-8111-111111111111", title: "Training", goal_id: "g1", minutes: 90 }, "2026-11-21", {
-      blocks: [{ id: "t1", title: "Training Halle", goal_id: "g1", starts_at: "2026-11-21T17:00:00Z", all_day: false, kind: "termin", source: "coach", answered: false }],
-      times: [],
-      dayOfIso: zurich,
-    });
-    expect(row?.event_id).toBe("t1");
+  it("a habit tick that is the training answers it (counted once); a termin without an end counts for nothing, so never", () => {
+    const habit = { id: "11111111-1111-4111-8111-111111111111", title: "Training", goal_id: "g1", minutes: 90 };
+    const training = { id: "t1", title: "Training Halle", goal_id: "g1", starts_at: "2026-11-21T17:00:00Z", ends_at: "2026-11-21T18:30:00Z", all_day: false, kind: "termin", source: "coach", answered: false };
+    expect(habitTimeRow(habit, "2026-11-21", { blocks: [training], times: [], dayOfIso: zurich })?.event_id).toBe("t1");
+    // without its end (or the end not fetched) the tick is her own time, never the termin's answer: an answer of an
+    // entry without an end goes with its next change (sync_block_answer), and the tick's minutes would go with it
+    for (const ends_at of [null, undefined]) {
+      const row = habitTimeRow(habit, "2026-11-21", { blocks: [{ ...training, ends_at }], times: [], dayOfIso: zurich });
+      expect(row).toMatchObject({ event_id: null, minutes: 90, source: "habit" });
+    }
+    // a block as before (with or without an end)
+    expect(habitTimeRow(habit, "2026-11-21", { blocks: [{ ...training, kind: "block", ends_at: undefined }], times: [], dayOfIso: zurich })?.event_id).toBe("t1");
+    // both backends fetch the end with the entries
+    expect(source).toContain('.select("id, title, goal_id, starts_at, ends_at, all_day, kind, source, goal_time(id)")');
+    expect(read("../src/lib/supabaseBackend.ts")).toContain('.select("id, title, goal_id, starts_at, ends_at, all_day, kind, source, goal_time(id)")');
   });
 
   it("the Tag answer row (Ja · Teilweise · Nein) appears for it; Woche draws and plans it as goal time", () => {
@@ -202,6 +213,60 @@ describe("a termin rhythm: her fixed times, whatever a goal does", () => {
     // its own end and pause still count
     expect(seriesDays(rule({ active: false }), { now, goal })).toEqual([]);
     expect(seriesDays(rule({ until_date: "2026-12-03" }), { now, goal }).map((d) => d.day)).toEqual(["2026-11-26", "2026-12-03"]);
+  });
+});
+
+describe("the coach tells the truth about a goal's rhythms when it rests, is reached or goes", () => {
+  it("restsWithGoal: only a rhythm of blocks rests and ends with its goal; her fixed times stay", () => {
+    expect(restsWithGoal({ kind: "block" })).toBe(true);
+    expect(restsWithGoal({})).toBe(true); // before its migration: blocks
+    expect(restsWithGoal({ kind: "termin" })).toBe(false);
+  });
+
+  it("update_goal and delete_goal name only the rhythms of blocks as resting or ended (no «aus dem Kalender» for her training)", () => {
+    const helper = (name: string) => source.slice(source.indexOf(`const ${name} = async`), source.indexOf(";\n", source.indexOf(`const ${name} = async`)));
+    for (const name of ["goalRhythms", "restingRhythms"]) {
+      // "*": the kind only after its migration; then only the ones that rest with the goal
+      expect(helper(name)).toContain('sb.from("series").select("*").eq("goal_id", goalId)');
+      expect(helper(name)).toContain(".filter(restsWithGoal)");
+    }
+    // both tool results and the app's notices go through them
+    expect(source).toContain('const resting = patch.status !== undefined && patch.status !== "active" ? await goalRhythms(sb, id, day) : [];');
+    expect(source).toContain("const rhythms = await goalRhythms(sb, id, day);");
+    expect(source).toContain("restingRhythms(sb, id, day)]);");
+  });
+});
+
+describe("create_series: the same rhythm never twice, of either kind", () => {
+  const run = (o: Partial<{ goal_id: string | null; kind: string; weekdays: number[]; start_time: string; start_date: string; until_date: string | null }> = {}) => ({
+    goal_id: "g1",
+    kind: "block",
+    weekdays: [2, 4],
+    start_time: "18:00:00",
+    active: true,
+    start_date: "2026-10-01",
+    until_date: null as string | null,
+    ...o,
+  });
+
+  it("sameRhythm: same goal (or none), same start, a shared weekday; the kind does not matter", () => {
+    expect(sameRhythm(run(), { goal_id: "g1", start_time: "18:00", weekdays: [4] })).toBe(true);
+    expect(sameRhythm(run({ kind: "termin" }), { goal_id: "g1", start_time: "18:00", weekdays: [2] })).toBe(true);
+    expect(sameRhythm(run({ goal_id: null }), { goal_id: null, start_time: "18:00", weekdays: [2] })).toBe(true);
+    expect(sameRhythm(run(), { goal_id: "g1", start_time: "19:00", weekdays: [2] })).toBe(false);
+    expect(sameRhythm(run(), { goal_id: "g1", start_time: "18:00", weekdays: [1, 3] })).toBe(false);
+    expect(sameRhythm(run(), { goal_id: "g2", start_time: "18:00", weekdays: [2] })).toBe(false);
+    expect(sameRhythm(run(), { goal_id: null, start_time: "18:00", weekdays: [2] })).toBe(false);
+    // the tool checks every rhythm that runs, of both kinds, before the limit per kind
+    expect(source).toContain("const running = liveRhythms((others.data ?? []) as Running[], day);");
+    expect(source).toContain("if (running.some((o) => sameRhythm(o, { goal_id: goalId, start_time: time, weekdays })))");
+    expect(source).toContain("const active = running.filter((o) => seriesKind(o) === kind);");
+  });
+
+  it("liveRhythms: a split «ab Januar» counts once; a rhythm of the other kind starting the next day is no split", () => {
+    const old = run({ until_date: "2026-12-31" });
+    expect(liveRhythms([old, run({ start_date: "2027-01-01" })], "2026-11-23")).toHaveLength(1);
+    expect(liveRhythms([old, run({ kind: "termin", start_date: "2027-01-01" })], "2026-11-23")).toHaveLength(2);
   });
 });
 
@@ -499,6 +564,21 @@ describe("the demo backend mirrors it", () => {
     const after = await days(series.id);
     expect(after.length).toBe(n);
     expect(after.every((e) => e.goal_id === null)).toBe(true);
+  });
+
+  it("time she names answers her training of that day only when it has an end (like the coach's log_time)", async () => {
+    const g = await b.addGoal({ title: "Halbmarathon", target_date: add(60), weekly_hours: 3 });
+    const at = (h: number) => new Date(`${today}T${String(h).padStart(2, "0")}:00:00`).toISOString();
+    const entry = (o: Partial<CalendarEvent>) =>
+      b.addEvent({ title: "Training", starts_at: at(7), ends_at: null, all_day: false, location: null, notes: null, reminder_minutes: null, kind: "termin", goal_id: g.id, ...o });
+    const open = await entry({});
+    await say("Heute 40 Minuten trainiert");
+    // a termin without an end counts for nothing: the time is hers, the termin gets no answer
+    expect(await b.blockAnswers([open.id])).toEqual({});
+    expect((await b.listGoals()).find((x) => x.id === g.id)!.time.logged_minutes).toBe(40);
+    const timed = await entry({ starts_at: at(6), ends_at: at(7) });
+    await say("Heute 50 Minuten trainiert");
+    expect(await b.blockAnswers([timed.id])).toEqual({ [timed.id]: 50 });
   });
 
   it("a reminder she asked for on a termin rhythm comes as one she asked for; a goal deleted lets its fixed times stay", async () => {
