@@ -10,7 +10,8 @@ self.skipWaiting();
 clientsClaim();
 precacheAndRoute(self.__WB_MANIFEST);
 cleanupOutdatedCaches();
-registerRoute(new NavigationRoute(createHandlerBoundToURL("index.html"), { denylist: [/\/functions\//, /\/rest\//, /\/auth\//] }));
+// /dehnen/ is a separate app (Kehrwasser) with its own service worker: never answer navigations into it
+registerRoute(new NavigationRoute(createHandlerBoundToURL("index.html"), { denylist: [/\/functions\//, /\/rest\//, /\/auth\//, /\/dehnen\//, /\/dehnen$/] }));
 
 interface PushMessage {
   title?: string;

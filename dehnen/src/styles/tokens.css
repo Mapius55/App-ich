@@ -1,0 +1,83 @@
+/* Kehrwasser design tokens: calm water in an eddy at dusk. Dark only. */
+:root {
+  color-scheme: dark;
+
+  /* colour */
+  --bg: #061214;
+  --bg-2: #0b1c20;
+  --surface: #10262b;
+  --surface-2: #173339;
+  --hair: rgba(255, 255, 255, 0.08);
+  --hair-strong: rgba(255, 255, 255, 0.16);
+  --text: #eaf4f2;
+  --text-dim: #9db4b3;
+  --text-faint: #6d8686;
+  --accent: #5fd4c4;
+  --accent-ink: #06211f;
+  --accent-soft: rgba(95, 212, 196, 0.14);
+  --accent-line: rgba(95, 212, 196, 0.42);
+  --warm: #ffc857;
+  --warm-soft: rgba(255, 200, 87, 0.14);
+  --alert: #ff7a59;
+  --alert-soft: rgba(255, 122, 89, 0.14);
+  --scrim: rgba(2, 9, 10, 0.66);
+
+  /* type */
+  --font-ui: "Inter Tight", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-display: "Bodoni Moda", "Bodoni 72", Didot, "Playfair Display", Georgia, "Times New Roman", serif;
+
+  --fs-label: 0.6875rem; /* 11: small bold uppercase labels */
+  --fs-xs: 0.8125rem; /* 13 */
+  --fs-sm: 0.9375rem; /* 15 */
+  --fs-md: 1.0625rem; /* 17: body */
+  --fs-lg: 1.25rem; /* 20 */
+  --fs-h3: 1.375rem; /* 22: display, sub screen titles */
+  --fs-h2: 1.75rem; /* 28: display, block titles */
+  --fs-h1: 2.125rem; /* 34: display, screen titles */
+  --fs-stat: 2.75rem; /* 44: display, big statistics */
+  --track-label: 0.12em;
+
+  /* space (4 px grid) */
+  --s1: 4px;
+  --s2: 8px;
+  --s3: 12px;
+  --s4: 16px;
+  --s5: 20px;
+  --s6: 24px;
+  --s8: 32px;
+  --s10: 40px;
+  --s12: 48px;
+  --gutter: 20px;
+  --column: 560px;
+
+  /* shape */
+  --r-sm: 8px;
+  --r-md: 12px;
+  --r-lg: 18px;
+  --r-xl: 24px;
+  --r-pill: 999px;
+  --tap: 44px;
+
+  /* motion: soft, short, ease-out */
+  --ease: cubic-bezier(0.22, 0.8, 0.3, 1);
+  --dur-1: 200ms;
+  --dur-2: 300ms;
+  --dur-3: 400ms;
+
+  /* safe areas */
+  --safe-t: env(safe-area-inset-top, 0px);
+  --safe-r: env(safe-area-inset-right, 0px);
+  --safe-b: env(safe-area-inset-bottom, 0px);
+  --safe-l: env(safe-area-inset-left, 0px);
+
+  /* shell */
+  --tabbar-h: 58px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dur-1: 1ms;
+    --dur-2: 1ms;
+    --dur-3: 1ms;
+  }
+}

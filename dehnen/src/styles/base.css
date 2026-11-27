@@ -1,0 +1,373 @@
+/* Reset, typography, the app column, focus styles and a few layout helpers. Class prefix: kw- */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+html {
+  background: var(--bg);
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: var(--fs-md);
+  line-height: 1.45;
+  font-weight: 400;
+  font-synthesis-weight: none;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior: none;
+  overflow: hidden;
+}
+
+h1,
+h2,
+h3,
+h4,
+p,
+ul,
+ol,
+figure,
+dl,
+dd {
+  margin: 0;
+}
+
+ul,
+ol {
+  padding: 0;
+  list-style: none;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+  letter-spacing: inherit;
+}
+
+button {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+button:disabled {
+  cursor: default;
+}
+
+img,
+svg,
+canvas {
+  display: block;
+  max-width: 100%;
+}
+
+::selection {
+  background: var(--accent-line);
+  color: var(--text);
+}
+
+/* focus: one clear ring for keyboard users, never for touch */
+:focus {
+  outline: none;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+[tabindex="-1"]:focus-visible {
+  outline: none;
+}
+
+/* ---------- the app column ---------- */
+
+.kw-app {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: var(--column);
+  margin: 0 auto;
+  background: var(--bg);
+  isolation: isolate;
+}
+
+/* the player and the onboarding use the whole window (landscape too) */
+.kw-app--full {
+  max-width: none;
+}
+
+@media (min-width: 600px) {
+  .kw-app:not(.kw-app--full) {
+    box-shadow:
+      -1px 0 0 var(--hair),
+      1px 0 0 var(--hair);
+  }
+}
+
+.kw-outlet {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.kw-view {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  animation: kw-view-fade var(--dur-2) var(--ease) both;
+}
+
+.kw-view--forward {
+  animation-name: kw-view-forward;
+}
+
+.kw-view--back {
+  animation-name: kw-view-back;
+}
+
+.kw-view--none {
+  animation: none;
+}
+
+@keyframes kw-view-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes kw-view-forward {
+  from {
+    opacity: 0;
+    transform: translate3d(18px, 0, 0);
+  }
+}
+
+@keyframes kw-view-back {
+  from {
+    opacity: 0;
+    transform: translate3d(-18px, 0, 0);
+  }
+}
+
+/* ---------- typography ---------- */
+
+/* the quiet system: small bold uppercase labels */
+.kw-label {
+  font-size: var(--fs-label);
+  font-weight: 700;
+  line-height: 1.3;
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.kw-label--accent {
+  color: var(--accent);
+}
+
+.kw-label--warm {
+  color: var(--warm);
+}
+
+/* the few big moments */
+.kw-display {
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-optical-sizing: auto;
+  line-height: 1.08;
+  letter-spacing: -0.01em;
+  font-variant-numeric: lining-nums;
+}
+
+.kw-h1 {
+  font-size: var(--fs-h1);
+}
+
+.kw-h2 {
+  font-size: var(--fs-h2);
+}
+
+.kw-h3 {
+  font-size: var(--fs-h3);
+}
+
+.kw-stat {
+  font-size: var(--fs-stat);
+  font-variant-numeric: lining-nums tabular-nums;
+}
+
+.kw-text {
+  font-size: var(--fs-md);
+  color: var(--text);
+}
+
+.kw-text--sm {
+  font-size: var(--fs-sm);
+}
+
+.kw-text--xs {
+  font-size: var(--fs-xs);
+}
+
+.kw-dim {
+  color: var(--text-dim);
+}
+
+.kw-faint {
+  color: var(--text-faint);
+}
+
+.kw-accent {
+  color: var(--accent);
+}
+
+.kw-warm {
+  color: var(--warm);
+}
+
+.kw-num {
+  font-variant-numeric: tabular-nums lining-nums;
+}
+
+.kw-truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---------- layout helpers ---------- */
+
+.kw-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s4);
+}
+
+.kw-stack--tight {
+  gap: var(--s2);
+}
+
+.kw-stack--loose {
+  gap: var(--s8);
+}
+
+.kw-cluster {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s2);
+}
+
+.kw-rowline {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+}
+
+.kw-spread {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s3);
+}
+
+.kw-grow {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.kw-hair {
+  height: 1px;
+  border: 0;
+  margin: 0;
+  background: var(--hair);
+}
+
+/* one quiet surface; use it sparingly (no card soup) */
+.kw-surface {
+  background: var(--surface);
+  border-radius: var(--r-lg);
+  box-shadow: inset 0 0 0 1px var(--hair);
+}
+
+/* a horizontal strip that scrolls and bleeds to the screen edges */
+.kw-strip {
+  display: flex;
+  gap: var(--s3);
+  margin: 0 calc(var(--gutter) * -1);
+  padding: 0 var(--gutter);
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x proximity;
+  scroll-padding-left: var(--gutter);
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+.kw-strip::-webkit-scrollbar {
+  display: none;
+}
+
+.kw-strip > * {
+  flex: 0 0 auto;
+  scroll-snap-align: start;
+}
+
+.kw-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kw-view {
+    animation: none;
+  }
+
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+  }
+}

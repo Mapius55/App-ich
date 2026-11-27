@@ -5,7 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -p tsconfig.json && tsc -p tsconfig.sw.json && vite build",
+    "dev:dehnen": "vite -c vite.dehnen.config.ts",
+    "build": "tsc -p tsconfig.json && tsc -p tsconfig.sw.json && vite build && vite build -c vite.dehnen.config.ts",
+    "build:dehnen": "vite build -c vite.dehnen.config.ts",
     "preview": "vite preview",
     "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.sw.json",
     "test": "vitest run"

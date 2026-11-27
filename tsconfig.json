@@ -22,7 +22,8 @@
     ]
   },
   "include": [
-    "src"
+    "src",
+    "dehnen/src"
   ],
   "exclude": [
     "src/sw.ts"

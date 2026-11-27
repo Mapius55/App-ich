@@ -1,0 +1,1151 @@
+[
+  {
+    "id": "gr-figur4",
+    "name": "Figur 4 in Rückenlage",
+    "alias": "Supine Figure 4",
+    "family": "gr-figur4",
+    "variant": null,
+    "kind": "statisch",
+    "position": "rueckenlage",
+    "regions": [
+      "gesaess_rotatoren"
+    ],
+    "equipment": [],
+    "unilateral": true,
+    "level": 1,
+    "seconds": 45,
+    "tags": [
+      "cooldown",
+      "abend",
+      "k1"
+    ],
+    "intro": "Der Klassiker für Gesäss und tiefe Hüftrotatoren: Der linke Knöchel liegt auf dem rechten Oberschenkel, und beide Beine kommen zur Brust.",
+    "steps": [
+      "Leg dich auf den Rücken und stell beide Füsse auf. Lege den linken Knöchel knapp über dem Knie auf den rechten Oberschenkel.",
+      "Hebe den rechten Fuss vom Boden. Greife mit der linken Hand durch die Lücke zwischen den Beinen und fasse mit beiden Händen die Rückseite des rechten Oberschenkels.",
+      "Zieh den rechten Oberschenkel zur Brust, bis du die Dehnung im linken Gesäss spürst. Kopf und Schultern bleiben liegen."
+    ],
+    "cues": [
+      "Linkes Knie zeigt nach aussen",
+      "Kreuzbein bleibt am Boden",
+      "Schultern und Nacken locker"
+    ],
+    "avoid": "Du ziehst so stark, dass das Becken vom Boden abhebt und der Rücken rund wird, dann verliert das Gesäss den Zug.",
+    "feel": "Tief im linken Gesäss, etwas aussen",
+    "slalom": "Im K1 drücken die Knie dauernd nach aussen in die Schenkelstützen, Gesäss und tiefe Rotatoren halten dabei mit und werden fest.",
+    "caution": "Zieh die linken Zehen zum Schienbein an, das stabilisiert das Knie, und geh bei Schmerz im linken Knie weniger weit.",
+    "motion": "START: supine hook-lying, knees bent about 90 degrees, feet flat on the mat hip-width apart, arms beside the body. END: the left ankle rests on the right thigh just above the right knee, the left knee points out to the left (left hip externally rotated about 60 degrees, left shin roughly horizontal and crosswise). The right foot is lifted off the floor, right hip flexed about 110 degrees, right shin roughly horizontal. Both hands are clasped behind the right thigh: the left arm passes through the triangular gap between the legs, the right arm reaches around the outside of the right thigh. Head, both shoulders and the sacrum stay on the mat. In between: the left ankle is placed on the right thigh, then the right leg lifts and the hands pull it toward the chest. Static hold in the end pose."
+  },
+  {
+    "id": "gr-figur4-gegenschulter",
+    "name": "Knie zur Gegenschulter ziehen",
+    "alias": "Knee to Opposite Shoulder",
+    "family": "gr-figur4",
+    "variant": "Knie zur Gegenschulter",
+    "kind": "statisch",
+    "position": "rueckenlage",
+    "regions": [
+      "gesaess_rotatoren",
+      "huefte_seitlich"
+    ],
+    "equipment": [],
+    "unilateral": true,
+    "level": 1,
+    "seconds": 40,
+    "tags": [
+      "cooldown",
+      "abend",
+      "morgen"
+    ],
+    "intro": "Das rechte Bein bleibt lang am Boden, das linke Knie wandert schräg zur rechten Schulter: eine einfache, gut dosierbare Dehnung für das hintere äussere Gesäss.",
+    "steps": [
+      "Leg dich auf den Rücken, das rechte Bein liegt gestreckt am Boden.",
+      "Zieh das linke Knie zur Brust. Die rechte Hand fasst das Knie von aussen, die linke das Schienbein knapp über dem Knöchel.",
+      "Führe das Knie schräg in Richtung rechte Schulter, bis du es hinten aussen im linken Gesäss spürst."
+    ],
+    "cues": [
+      "Linke Beckenseite bleibt schwer am Boden",
+      "Knie Richtung rechte Schulter",
+      "Rechtes Bein bleibt lang"
+    ],
+    "avoid": "Das Becken rollt nach rechts mit, dann wird aus der Gesässdehnung eine Drehung im Rücken.",
+    "feel": "Hinten aussen im linken Gesäss",
+    "slalom": "Das hintere äussere Gesäss führt das Becken bei jedem Kanten, nach dem Training darf es hier wieder lang werden.",
+    "caution": "Kneift es vorne in der linken Leiste, nimm den Zug zurück und führe das Knie weniger weit über die Körpermitte.",
+    "motion": "START: supine, both legs straight on the mat, arms beside the body. END: the right leg stays straight on the mat, toes pointing up. The left hip is flexed about 110 degrees and the left knee bent about 100 degrees; the left knee is pulled diagonally across the midline toward the right shoulder, so the knee sits above the right half of the chest. The right hand holds the outer side of the left knee, the left hand holds the left shin just above the ankle; the left shin runs diagonally with the foot roughly above the middle of the pelvis. The pelvis stays flat (the left side of the pelvis does not lift), both shoulder blades and the head rest on the mat. In between: the left knee comes to the chest first, then moves across toward the right shoulder. Static hold in the end pose."
+  },
+  {
+    "id": "gr-figur4-wand",
+    "name": "Figur 4 an der Wand",
+    "alias": "Wall Figure 4",
+    "family": "gr-figur4",
+    "variant": "an der Wand",
+    "kind": "statisch",
+    "position": "rueckenlage",
+    "regions": [
+      "gesaess_rotatoren"
+    ],
+    "equipment": [
+      "wand"
+    ],
+    "unilateral": true,
+    "level": 1,
+    "seconds": 60,
+    "tags": [
+      "cooldown",
+      "abend"
+    ],
+    "intro": "Die Figur 4 mit dem Fuss an der Wand: Die Arme haben Pause, und du kannst lange und entspannt in der Dehnung bleiben.",
+    "steps": [
+      "Leg dich auf den Rücken, das Gesäss etwa zwei Fusslängen von der Wand entfernt. Stell den rechten Fuss flach an die Wand, Knie und Hüfte sind rechtwinklig.",
+      "Lege den linken Knöchel knapp über dem Knie auf den rechten Oberschenkel.",
+      "Schiebe das linke Knie mit der linken Hand sanft Richtung Wand. Für mehr Dehnung rutschst du näher an die Wand."
+    ],
+    "cues": [
+      "Becken liegt schwer und gerade",
+      "Linkes Knie sanft Richtung Wand",
+      "Arme und Nacken ganz locker"
+    ],
+    "avoid": "Du liegst so nah an der Wand, dass sich das Gesäss vom Boden hebt.",
+    "feel": "Tief im linken Gesäss",
+    "slalom": "Gut für den Abend nach einem harten Training: Die Hüftrotatoren lassen los, ohne dass Arme und Schultern noch einmal arbeiten müssen.",
+    "motion": "Prop: wall across the foot end of the mat. START: supine, pelvis about 45 cm from the wall, both feet flat on the wall at knee height, hips and knees about 90 degrees (thighs vertical, shins horizontal), arms beside the body. END: the right foot stays flat on the wall, right hip and knee about 90 degrees. The left ankle rests on the right thigh just above the knee; the left knee points out to the left and toward the wall (left hip externally rotated about 60 degrees), the left shin roughly parallel to the wall. The left hand rests on the inner side of the left knee and presses it lightly toward the wall; the right arm lies relaxed on the mat. Head, whole back and sacrum flat on the mat. Static hold in the end pose."
+  },
+  {
+    "id": "gr-figur4-stuhl",
+    "name": "Figur 4 im Sitzen auf dem Stuhl",
+    "alias": "Seated Figure 4",
+    "family": "gr-figur4",
+    "variant": "auf dem Stuhl",
+    "kind": "statisch",
+    "position": "sitzend",
+    "regions": [
+      "gesaess_rotatoren"
+    ],
+    "equipment": [
+      "stuhl"
+    ],
+    "unilateral": true,
+    "level": 1,
+    "seconds": 40,
+    "tags": [
+      "cooldown",
+      "morgen",
+      "abend",
+      "k1"
+    ],
+    "intro": "Die Figur 4 im Sitzen: Sie geht überall, auf der Bank im Bootshaus genauso wie am Schreibtisch.",
+    "steps": [
+      "Setz dich auf die vordere Hälfte der Sitzfläche. Der rechte Fuss steht flach unter dem Knie.",
+      "Lege den linken Knöchel knapp über dem Knie auf den rechten Oberschenkel. Das linke Knie sinkt nach aussen.",
+      "Richte dich gross auf und kippe mit geradem Rücken aus der Hüfte nach vorne, bis du das linke Gesäss spürst."
+    ],
+    "cues": [
+      "Brustbein nach vorne, nicht nach unten",
+      "Linkes Knie sinkt ohne Druck",
+      "Beide Sitzknochen belastet"
+    ],
+    "avoid": "Du machst den Rücken rund und bringst den Kopf nach unten, statt aus der Hüfte zu kippen.",
+    "feel": "Tief im linken Gesäss, etwas aussen",
+    "slalom": "Kurz auf der Bank vor dem Einsteigen gemacht, gibt das Gesäss nach, und das Becken lässt sich im K1 leichter aufrichten.",
+    "caution": "Drück das linke Knie nicht mit der Hand nach unten, wenn es an der Innenseite des Knies zieht.",
+    "motion": "Prop: box used as a chair. Pose: sitting on the front half of the box, right foot flat on the floor under the right knee (knee about 90 degrees). The left ankle rests on the right thigh just above the knee, the left shin roughly horizontal and parallel to the front edge of the box, the left knee pointing out to the left. The left hand rests on the left knee, the right hand on the left ankle. START: torso upright. END: torso hinged forward about 35 degrees from the hips with a straight spine, the chest moving toward the left shin, head in line with the spine, both sit bones on the box. Static hold in the end pose."
+  },
+  {
+    "id": "gr-taube",
+    "name": "Taube aufrecht",
+    "alias": "Pigeon",
+    "family": "gr-taube",
+    "variant": null,
+    "kind": "statisch",
+    "position": "kniend",
+    "regions": [
+      "gesaess_rotatoren",
+      "hueftbeuger"
+    ],
+    "equipment": [],
+    "unilateral": true,
+    "level": 2,
+    "seconds": 45,
+    "tags": [
+      "cooldown",
+      "abend",
+      "k1",
+      "c1"
+    ],
+    "intro": "Die Taube dehnt das Gesäss des vorderen Beins und gleichzeitig den Hüftbeuger des hinteren: hier in der aufrechten Form.",
+    "steps": [
+      "Bring aus dem Vierfüssler das linke Knie nach vorne hinter das linke Handgelenk. Der linke Fuss liegt vor der rechten Hüfte.",
+      "Schiebe das rechte Bein gerade nach hinten, Knie und Fussrücken liegen am Boden.",
+      "Lass das Becken gerade nach unten sinken und richte den Oberkörper auf. Die Fingerspitzen stützen neben den Hüften."
+    ],
+    "cues": [
+      "Beide Hüftknochen zeigen nach vorne",
+      "Becken sinkt, Brustbein steigt",
+      "Hinteres Bein liegt gerade"
+    ],
+    "avoid": "Du kippst auf die linke Gesässhälfte, dann dreht das Becken auf und die Dehnung verschwindet.",
+    "feel": "Aussen im linken Gesäss und vorne an der rechten Hüfte",
+    "slalom": "Eine Position für zwei Baustellen: das Gesäss vom Sitzen mit nach aussen gedrückten Knien im K1 und der Hüftbeuger vom langen Sitzen oder Knien.",
+    "caution": "Spürst du Zug im linken Knie, zieh den Fuss näher zur Hüfte oder nimm die Figur 4 in Rückenlage.",
+    "motion": "START: quadruped, hands under the shoulders, knees under the hips. END: the left leg is in front: left knee on the mat just behind where the left hand was, slightly outside the line of the left hip; the left hip is externally rotated so the left shin lies diagonally on the mat (about 45 degrees to the front edge of the mat) with the left foot in front of the right hip; outer side of the left thigh and shin on the floor. The right leg is extended straight back, knee and top of the foot on the mat, right hip extended. The pelvis is square (both hip points facing forward) and lowered toward the mat, the left buttock hovering a few centimetres above the floor or just touching it. Torso upright (about 80 degrees from the floor), arms straight down, fingertips on the mat beside the hips, chest lifted, head neutral. In between: the left knee slides forward, the right leg slides back, the pelvis sinks. Static hold in the end pose."
+  },
+  {
+    "id": "gr-taube-vorbeuge",
+    "name": "Taube mit Vorbeuge",
+    "alias": "Sleeping Pigeon",
+    "family": "gr-taube",
+    "variant": "mit Vorbeuge",
+    "kind": "statisch",
+    "position": "kniend",
+    "regions": [
+      "gesaess_rotatoren"
+    ],
+    "equipment": [],
+    "unilateral": true,
+    "level": 2,
+    "seconds": 60,
+    "tags": [
+      "cooldown",
+      "abend",
+      "k1"
+    ],
+    "intro": "In der Taube legst du den Oberkörper nach vorne über das linke Schienbein ab: Die Dehnung im Gesäss wird tiefer, und der Rest des Körpers kann ruhen.",
+    "steps": [
+      "Komm in die Taube: linkes Knie vorne hinter dem linken Handgelenk, linker Fuss vor der rechten Hüfte, rechtes Bein gerade nach hinten.",
+      "Wandere mit den Händen nach vorne und senke den Oberkörper mit langem Rücken über das linke Schienbein.",
+      "Lege die Unterarme ab und die Stirn auf die Hände. Lass das Gewicht mit jedem Ausatmen sinken."
+    ],
+    "cues": [
+      "Becken bleibt gerade",
+      "Gewicht mittig, nicht nach links kippen",
+      "Lang ausatmen und sinken lassen"
+    ],
+    "avoid": "Du rutschst mit dem Becken nach links weg und liegst neben dem Bein statt darüber.",
+    "feel": "Tief und flächig im linken Gesäss",
+    "slalom": "Nach langen Einheiten im K1 gibst du dem Gesäss hier Zeit, die Dauerspannung vom Halten der Knie loszulassen.",
+    "caution": "Bei Zug im linken Knie brichst du ab und wählst die Taube an der Bank oder die Figur 4.",
+    "motion": "Same leg position as the upright pigeon: left knee forward on the mat and slightly outside the left hip, left shin diagonal with the left foot in front of the right hip, right leg straight back with knee and instep on the mat, pelvis square and low. START: torso upright, fingertips on the mat beside the hips. END: the torso is folded forward over the left shin, chest above the left shin and thigh, both forearms on the mat in front of the shin with the hands stacked, forehead resting on the hands; spine long and only gently rounded, pelvis still square. In between: the hands walk forward and the torso lowers slowly. Static hold in the end pose with a slight sinking on each exhale."
+  },
+  {
+    "id": "gr-taube-block",
+    "name": "Taube mit Block unter dem Gesäss",
+    "family": "gr-taube",
+    "variant": "leichter",
+    "kind": "statisch",
+    "position": "kniend",
+    "regions": [
+      "gesaess_rotatoren",
+      "hueftbeuger"
+    ],
+    "equipment": [
+      "block"
+    ],
+    "unilateral": true,
+    "level": 1,
+    "seconds": 45,
+    "tags": [
+      "cooldown",
+      "abend"
+    ],
+    "intro": "Ein Block oder Kissen unter der linken Gesässhälfte hält das Becken gerade: So kommt die Taube auch bei festen Hüften dort an, wo sie soll.",
+    "steps": [
+      "Komm in die Taube: linkes Knie vorne, linker Fuss vor der rechten Hüfte, rechtes Bein gerade nach hinten.",
+      "Schiebe den Block unter die linke Gesässhälfte, so dass beide Beckenseiten gleich hoch sind.",
+      "Gib Gewicht auf den Block ab, stütze die Hände neben den Hüften und richte dich auf."
+    ],
+    "cues": [
+      "Beide Beckenseiten gleich hoch",
+      "Gewicht auf den Block abgeben",
+      "Brustbein hebt sich"
+    ],
+    "avoid": "Du hältst dich mit den Armen oben, statt dich wirklich auf den Block zu setzen.",
+    "feel": "Aussen im linken Gesäss, milder als ohne Block",
+    "slalom": "Mit festen Hüften vom Sitzen im Boot kippt man in der Taube gern zur Seite, der Block macht daraus wieder eine saubere Gesässdehnung.",
+    "caution": "Zieht es im linken Knie, nimm den Fuss näher zur Hüfte.",
+    "motion": "Prop: block lying flat on the mat under the left buttock (under the left sit bone and the top of the back of the left thigh), about 8 to 10 cm high. Pose as the upright pigeon: left knee forward on the mat slightly outside the left hip, left shin diagonal, left foot in front of the right hip; right leg straight back, knee and instep on the mat. The left buttock rests with weight on the block, so the pelvis is level and square with both hip points facing forward. Torso upright, arms straight, fingertips on the mat beside the hips, chest lifted. START: the same pose with the weight carried by the hands and the buttock hovering just above the block. END: the weight settles onto the block and the torso rises to vertical. Static hold."
+  },
+  {
+    "id": "gr-taube-bank",
+    "name": "Taube an der Bank",
+    "alias": "Elevated Pigeon",
+    "family": "gr-taube",
+    "variant": "an der Bank",
+    "kind": "statisch",
+    "position": "stehend",
+    "regions": [
+      "gesaess_rotatoren"
+    ],
+    "equipment": [
+      "stuhl"
+    ],
+    "unilateral": true,
+    "level": 2,
+    "seconds": 45,
+    "tags": [
+      "cooldown",
+      "abend",
+      "k1"
+    ],
+    "intro": "Die Taube im Stehen: Das linke Schienbein liegt quer auf einer Bank, und du bestimmst über die Vorbeuge genau, wie stark es zieht.",
+    "steps": [
+      "Stell dich vor eine Bank oder einen Stuhl und lege den linken Unterschenkel quer auf die Sitzfläche: Knie links, Fuss rechts.",
+      "Das rechte Bein steht einen Schritt zurück, das Knie ist leicht gebeugt. Die Hände stützen links und rechts neben dem Schienbein.",
+      "Kippe mit langem Rücken aus der Hüfte nach vorne über das Schienbein, bis die Dehnung im linken Gesäss deutlich ist."
+    ],
+    "cues": [
+      "Rücken lang, Brustbein nach vorne",
+      "Becken bleibt gerade zur Bank",
+      "Linker Fuss bleibt angezogen"
+    ],
+    "avoid": "Du machst den Rücken rund und ziehst den Kopf zum Schienbein, statt aus der Hüfte nach vorne zu kippen.",
+    "feel": "Tief im linken Gesäss",
+    "slalom": "Die Taube für den Bootsplatz: Eine Bank genügt, und du löst das Gesäss direkt nach dem Aussteigen.",
+    "caution": "Knie und Knöchel müssen beide aufliegen, sonst entsteht Drehzug im linken Knie.",
+    "motion": "Prop: box at chair height (about 45 cm) in front of the mannequin. Pose: the left lower leg lies across the top of the box, parallel to its front edge: left knee at the left end, left foot at the right end, the whole shin from knee to ankle supported. Left hip flexed about 90 degrees and externally rotated about 70 to 80 degrees, left knee bent about 90 degrees, left ankle flexed. The right leg stands on the floor about 60 cm behind the box, knee bent about 20 degrees, foot pointing forward. Both hands on the box on either side of the left shin, arms nearly straight. START: torso leaning about 15 degrees forward. END: torso hinged forward about 45 degrees from the hips with a straight spine, chest above the left shin, elbows bending slightly, pelvis square to the box. Static hold in the end pose."
+  },
+  {
+    "id": "gr-90-90",
+    "name": "90/90 nach vorn gelehnt",
+    "alias": "90/90",
+    "family": "gr-90-90",
+    "variant": null,
+    "kind": "statisch",
+    "position": "sitzend",
+    "regions": [
+      "gesaess_rotatoren"
+    ],
+    "equipment": [],
+    "unilateral": true,
+    "level": 2,
+    "seconds": 45,
+    "tags": [
+      "cooldown",
+      "abend",
+      "k1"
+    ],
+    "intro": "Im 90/90-Sitz liegt das linke Bein rechtwinklig vor dir und das rechte seitlich hinter dir: Die Vorbeuge über das vordere Schienbein dehnt das linke Gesäss in Aussenrotation.",
+    "steps": [
+      "Setz dich hin und lege das linke Bein vor dir ab: Das Knie ist rechtwinklig, das Schienbein liegt quer vor dir, parallel zur vorderen Mattenkante.",
+      "Lege das rechte Bein seitlich ab: Der Oberschenkel zeigt nach rechts, der Unterschenkel nach hinten, das Knie ist ebenfalls rechtwinklig.",
+      "Richte dich auf, stütze die Hände links und rechts neben dem linken Schienbein und kippe mit langem Rücken nach vorne über das Schienbein."
+    ],
+    "cues": [
+      "Brustbein zur Mitte des Schienbeins",
+      "Rücken bleibt lang",
+      "Aus der Hüfte kippen"
+    ],
+    "avoid": "Du rundest den Rücken und lässt dich nach vorne fallen, statt das Becken über das linke Bein zu kippen.",
+    "feel": "Aussen im linken Gesäss",
+    "slalom": "Im K1 sitzt die Hüfte dauernd in Aussenrotation unter der Schenkelstütze, hier bekommt das Gesäss in dieser Stellung wieder Länge.",
+    "caution": "Bei Zug im linken Knie nimmst du den Fuss näher zum Körper oder lehnst dich weniger weit vor.",
+    "motion": "Pose (90/90 sit, LEFT leg in front): sitting on the mat. The left thigh points straight forward from the left hip, left knee bent 90 degrees, the left shin lies on the mat pointing to the right, parallel to the front edge of the mat; outer side of the left thigh, knee and shin on the floor. The right thigh points straight out to the right side, right knee bent 90 degrees, the right shin points straight back; inner side of the right knee and shin on the floor. START: torso upright, facing forward over the left shin, hands on the mat on either side of the left shin. END: torso hinged forward about 40 degrees from the hips with a straight spine, sternum above the middle of the left shin, hands slid forward on the floor, elbows slightly bent, head in line with the spine. Static hold in the end pose."
+  },
+  {
+    "id": "gr-90-90-hinten",
+    "name": "90/90 zum hinteren Bein gedreht",
+    "alias": "90/90 Internal Rotation Stretch",
+    "family": "gr-90-90",
+    "variant": "zum hinteren Bein",
+    "kind": "statisch",
+    "position": "sitzend",
+    "regions": [
+      "gesaess_rotatoren"
+    ],
+    "equipment": [],
+    "unilateral": true,
+    "level": 2,
+    "seconds": 45,
+    "tags": [
+      "cooldown",
+      "abend",
+      "k1",
+      "c1"
+    ],
+    "intro": "Du drehst dich im 90/90-Sitz zum hinteren, linken Bein: So bekommt die linke Hüfte Innenrotation, die Richtung, die bei vielen Paddlern eingeschränkt ist.",
+    "steps": [
+      "Setz dich in den 90/90-Sitz, diesmal mit dem rechten Bein vorne. Das linke Bein liegt seitlich: Oberschenkel nach links, Unterschenkel nach hinten.",
+      "Dreh den Oberkörper nach links, bis das Brustbein über dem linken Oberschenkel steht. Die Hände stützen links und rechts neben dem linken Knie.",
+      "Richte dich gross auf und lass den linken Sitzknochen Richtung Boden sinken."
+    ],
+    "cues": [
+      "Linker Sitzknochen sinkt",
+      "Brustbein über dem linken Oberschenkel",
+      "Aufrecht bleiben, nicht nach rechts kippen"
+    ],
+    "avoid": "Du lehnst dich nach rechts vom hinteren Bein weg und weichst damit der Innenrotation aus.",
+    "feel": "Tief in der linken Hüfte, meist hinten aussen am Gelenk",
+    "slalom": "Wenn das Becken bei der Rumpfdrehung im Sitz mitdreht, dreht jeweils eine Hüfte nach innen: Fehlt diese Innenrotation, muss der untere Rücken die Drehung übernehmen.",
+    "caution": "Ein scharfes Kneifen vorne in der Leiste ist kein Dehngefühl: Dreh dann weniger weit.",
+    "motion": "Pose (90/90 sit, RIGHT leg in front, LEFT leg behind): the right thigh points straight forward, right knee bent 90 degrees, right shin lies across in front pointing left, outer side on the floor. The left thigh points straight out to the left, left knee bent 90 degrees, the left shin points straight back; inner side of the left knee and shin on the floor. START: torso upright facing forward, hands on the floor beside the hips. END: the torso has rotated about 80 degrees to the left so that the chest faces along the left thigh toward the left knee; torso vertical, spine long. Both hands on the floor on either side of the left knee, arms nearly straight. The left sit bone presses down toward the mat (it may hover 2 to 5 cm above it); no leaning to the right. Static hold in the end pose."
+  },
+  {
+    "id": "gr-90-90-liftoff-hinten",
+    "name": "90/90 Lift-off hinterer Fuss",
+    "alias": "90/90 Hip IR Lift-Off",
+    "family": "gr-90-90",
+    "variant": "Lift-off hinten",
+    "kind": "aktiv",
+    "position": "sitzend",
+    "regions": [
+      "gesaess_rotatoren",
+      "huefte_seitlich"
+    ],
+    "equipment": [],
+    "unilateral": true,
+    "level": 3,
+    "seconds": 40,
+    "tempo": 6,
+    "tags": [
+      "aufwaermen",
+      "k1",
+      "c1"
+    ],
+    "intro": "Im 90/90-Sitz hebst du nur den hinteren, linken Fuss vom Boden: aktive Innenrotation am Ende des Bewegungswegs, klein in der Bewegung und gross in der Anstrengung.",
+    "steps": [
+      "Setz dich in den 90/90-Sitz mit dem rechten Bein vorne und dem linken seitlich hinten. Stütze die Hände vor dir neben dem rechten Schienbein.",
+      "Das linke Knie bleibt am Boden. Hebe den linken Fuss so hoch, wie es ohne Ausweichen geht, auch wenn es nur wenige Zentimeter sind.",
+      "Halte drei Sekunden, senke langsam ab und wiederhole."
+    ],
+    "cues": [
+      "Linkes Knie bleibt am Boden",
+      "Oberkörper bleibt ruhig",
+      "Langsam heben, langsam senken"
+    ],
+    "avoid": "Du lehnst dich weit nach rechts vorne, um den Fuss höher zu bekommen, dann kommt die Bewegung aus dem Rumpf statt aus der Hüfte.",
+    "feel": "Kräftige Arbeit aussen und vorne an der linken Hüfte",
+    "slalom": "Im Boot nützt dir nur der Bewegungsweg, den du auch aktiv halten kannst: Hier steuert die linke Hüfte ihre Innenrotation selbst an.",
+    "caution": "Ein Krampf aussen an der Hüfte kommt hier vor, dann kurz lösen und mit weniger Kraft weitermachen.",
+    "motion": "Pose (90/90 sit, RIGHT leg in front, LEFT leg behind): right thigh straight forward, right knee 90 degrees, right shin across in front pointing left; left thigh straight out to the left, left knee 90 degrees, left shin pointing straight back, inner side of the left knee and shin on the mat. Torso upright with a slight forward lean of about 10 to 15 degrees, both hands on the floor in front, on either side of the right shin. Cycle of 6 s: 0 to 1.5 s the left foot and lower leg lift off the mat by rotating the left hip inward; the left knee stays on the floor as the pivot and the left foot rises about 8 to 12 cm; 1.5 to 4.5 s hold; 4.5 to 6 s lower under control until the shin rests again. Torso and pelvis stay still, no lean to the right."
+  },
+  {
+    "id": "gr-90-90-liftoff-vorne",
+    "name": "90/90 Lift-off vorderer Fuss",
+    "alias": "90/90 Hip ER Lift-Off",
+    "family": "gr-90-90",
+    "variant": "Lift-off vorne",
+    "kind": "aktiv",
+    "position": "sitzend",
+    "regions": [
+      "gesaess_rotatoren"
+    ],
+    "equipment": [],
+    "unilateral": true,
+    "level": 3,
+    "seconds": 40,
+    "tempo": 6,
+    "tags": [
+      "aufwaermen",
+      "k1"
+    ],
+    "intro": "Das Gegenstück für die Aussenrotation: Im 90/90-Sitz hebst du den vorderen, linken Fuss vom Boden, während das Knie liegen bleibt.",
+    "steps": [
+      "Setz dich in den 90/90-Sitz mit dem linken Bein vorne. Lehne dich mit geradem Rücken leicht über das linke Schienbein, die Hände stützen daneben.",
+      "Das linke Knie bleibt am Boden. Hebe den linken Fuss und Knöchel an, so hoch es ohne Ausweichen geht.",
+      "Halte drei Sekunden und senke langsam ab. Hebt der Fuss noch nicht ab, zählt der Versuch mit voller Spannung genauso."
+    ],
+    "cues": [
+      "Linkes Knie drückt in den Boden",
+      "Fuss hebt, Becken bleibt still",
+      "Ruhig weiteratmen"
+    ],
+    "avoid": "Du kippst mit dem Becken nach rechts hinten, damit der Fuss abhebt: Dann rollt das ganze Bein, und die Hüfte dreht gar nicht.",
+    "feel": "Kräftige Arbeit tief im linken Gesäss",
+    "slalom": "Die Muskeln, die dein Knie im K1 nach aussen unter die Schenkelstütze drücken, arbeiten hier kontrolliert am Ende ihres Bewegungswegs.",
+    "caution": "Bei einem Krampf im Gesäss kurz lösen und mit weniger Kraft weitermachen.",
+    "motion": "Pose (90/90 sit, LEFT leg in front): left thigh straight forward, left knee 90 degrees, left shin across in front pointing right, outer side on the mat; right thigh straight out to the right, right knee 90 degrees, right shin pointing straight back. Torso leaning forward about 20 degrees over the left shin with a straight spine, hands on the floor on either side of the left shin. Cycle of 6 s: 0 to 1.5 s the left foot and ankle lift off the mat by rotating the left hip further outward; the left knee stays down as the pivot, the foot rises about 5 to 10 cm so the shin tilts up at its foot end; 1.5 to 4.5 s hold; 4.5 to 6 s lower under control. Pelvis and torso stay still, no rolling back to the right."
+  },
+  {
+    "id": "gr-90-90-wechsel",
+    "name": "90/90 Wechsel",
+    "alias": "90/90 Switches",
+    "family": "gr-90-90-wechsel",
+    "variant": null,
+    "kind": "dynamisch",
+    "position": "sitzend",
+    "regions": [
+      "gesaess_rotatoren"
+    ],
+    "equipment": [],
+    "unilateral": false,
+    "level": 1,
+    "seconds": 45,
+    "tempo": 8,
+    "tags": [
+      "aufwaermen",
+      "morgen",
+      "k1",
+      "c1"
+    ],
+    "intro": "Im Sitzen fallen beide Knie abwechselnd nach links und rechts in den 90/90-Sitz: Beide Hüften drehen dabei gleichzeitig, eine nach aussen und eine nach innen.",
+    "steps": [
+      "Setz dich hin und stell die Füsse gut schulterbreit auf, die Knie zeigen nach oben. Die Hände stützen hinter dem Gesäss.",
+      "Lass beide Knie langsam nach links sinken, bis die Beine im 90/90-Sitz am Boden liegen. Die Fersen bleiben an ihrem Platz.",
+      "Hebe die Knie zurück zur Mitte und lass sie nach rechts sinken. Der Oberkörper bleibt aufrecht."
+    ],
+    "cues": [
+      "Fersen bleiben am Platz",
+      "Brustbein bleibt oben",
+      "Gleichmässig, ohne Schwung"
+    ],
+    "avoid": "Du fällst mit Schwung in die Endposition und sackst dabei im Rücken zusammen.",
+    "feel": "Abwechselnd im Gesäss der einen und tief in der Hüfte der anderen Seite",
+    "slalom": "Vor dem Einsteigen macht der Wechsel beide Hüften in der Drehung frei, damit das Becken beim Paddelschlag im Sitz mitdrehen kann.",
+    "motion": "START (0 s): sitting on the mat, knees bent about 90 degrees and pointing up, feet flat about 70 cm apart, hands on the floor behind the pelvis with straight arms, torso leaning back about 10 degrees, chest lifted. Cycle of 8 s: 0 to 2 s both knees lower to the mannequin's LEFT; the feet pivot on the heels and roll onto their edges until the left leg lies on its outer side (left hip externally rotated, left shin across in front) and the right leg lies on its inner side (right hip internally rotated, right knee on the floor, right shin pointing back to the right), which is the 90/90 sit with the left leg in front; the torso turns about 30 degrees to the left toward the front knee. 2 to 4 s the knees rise back to the centre start position. 4 to 6 s both knees lower to the RIGHT into the mirrored 90/90. 6 to 8 s back to centre. The heels stay in place, the hands stay on the floor, smooth even speed."
+  },
+  {
+    "id": "gr-90-90-wechsel-frei",
+    "name": "90/90 Wechsel ohne Hände",
+    "family": "gr-90-90-wechsel",
+    "variant": "ohne Hände",
+    "kind": "dynamisch",
+    "position": "sitzend",
+    "regions": [
+      "gesaess_rotatoren",
+      "hueftbeuger"
+    ],
+    "equipment": [],
+    "unilateral": false,
+    "level": 2,
+    "seconds": 45,
+    "tempo": 8,
+    "tags": [
+      "aufwaermen",
+      "k1",
+      "c1"
+    ],
+    "intro": "Der 90/90 Wechsel ohne Abstützen: Die Arme sind nach vorne gestreckt, und die Hüften müssen die ganze Drehung selbst führen.",
+    "steps": [
+      "Setz dich mit gut schulterbreit aufgestellten Füssen hin und strecke beide Arme auf Schulterhöhe nach vorne.",
+      "Lass beide Knie kontrolliert nach links in den 90/90-Sitz sinken und dreh den Oberkörper leicht zum vorderen Knie mit.",
+      "Führe die Knie über die Mitte nach rechts. Der Oberkörper bleibt so aufrecht wie möglich."
+    ],
+    "cues": [
+      "Arme bleiben vorne",
+      "Gross sitzen, nicht nach hinten fallen",
+      "Knie führen, nicht fallen lassen"
+    ],
+    "avoid": "Du lehnst dich weit zurück und holst Schwung, statt aufrecht aus den Hüften zu drehen.",
+    "feel": "In beiden Hüften und vorne in den Hüftbeugern, die dich aufrecht halten",
+    "slalom": "Aufrecht sitzen und dabei die Hüften frei drehen ist die Grundaufgabe im K1, hier übst du sie ohne Stütze von aussen.",
+    "motion": "As the 90/90 switch, but without hand support. START (0 s): sitting, knees bent about 90 degrees and pointing up, feet flat about 70 cm apart, both arms straight forward at shoulder height with the hands together, torso as upright as possible (leaning back at most 15 degrees). Cycle of 8 s: 0 to 2 s both knees lower to the LEFT into the 90/90 sit (left leg on its outer side in front, right leg on its inner side with the shin pointing back to the right); torso and arms turn about 30 degrees to the left toward the front knee and the torso comes fully upright. 2 to 4 s the knees rise to the centre, the torso leans back slightly as a counterweight. 4 to 6 s the knees lower to the RIGHT (mirror image). 6 to 8 s back to centre. Heels stay in place, arms stay extended throughout, the hands never touch the floor."
+  },
+  {
+    "id": "gr-shin-box-aufstehen",
+    "name": "Shin Box Aufstehen",
+    "alias": "Shin Box Get-Up",
+    "family": "gr-90-90-wechsel",
+    "variant": "mit Aufstehen",
+    "kind": "aktiv",
+    "position": "sitzend",
+    "regions": [
+      "gesaess_rotatoren",
+      "hueftbeuger"
+    ],
+    "equipment": [],
+    "unilateral": true,
+    "level": 2,
+    "seconds": 40,
+    "tempo": 6,
+    "tags": [
+      "aufwaermen",
+      "c1",
+      "k1"
+    ],
+    "intro": "Aus dem 90/90-Sitz drückst du dich über Schienbeine und Knie hoch in den Kniestand: Die vordere Hüfte streckt sich in Aussenrotation, die hintere in Innenrotation.",
+    "steps": [
+      "Setz dich in den 90/90-Sitz mit dem linken Bein vorne, die Hände liegen vor der Brust ineinander.",
+      "Drücke beide Schienbeine in den Boden, spanne das Gesäss an und schiebe das Becken nach vorne oben, bis du aufrecht über beiden Knien bist.",
+      "Setz dich langsam und kontrolliert wieder ab und wiederhole."
+    ],
+    "cues": [
+      "Gesäss schiebt die Hüfte nach vorne",
+      "Oben ganz aufrichten",
+      "Langsam absetzen, nicht fallen"
+    ],
+    "avoid": "Du holst mit dem Oberkörper Schwung nach vorne, statt die Hüften mit dem Gesäss zu strecken.",
+    "feel": "Arbeit im linken Gesäss und tief in der rechten Hüfte",
+    "slalom": "Im C1 arbeitest du kniend aus den Hüften nach oben und vorne, hier übst du diese Hüftstreckung mit gedrehten Hüftgelenken.",
+    "caution": "Polstere die Knie und lass die Übung weg, wenn die Drehung unter Last im Knie schmerzt.",
+    "motion": "START (0 s): 90/90 sit with the LEFT leg in front: left thigh forward, left knee 90 degrees, left shin across in front on its outer side; right thigh out to the right, right knee 90 degrees, right shin pointing back on its inner side. Hands clasped in front of the chest, torso upright. Cycle of 6 s: 0 to 2 s the pelvis lifts off the floor and travels forward and up until both hips are extended and the mannequin is in tall kneeling on both knees; the knees and shins stay where they are on the floor (left shin still across in front, right shin still pointing back), both thighs end close to vertical, the torso vertical above the knees and facing the same direction as at the start. 2 to 3 s hold tall with the hips fully extended. 3 to 6 s the pelvis lowers back and down under control into the 90/90 sit. Hands stay in front of the chest, no swinging of the torso."
+  },
+  {
+    "id": "gr-scheibenwischer",
+    "name": "Scheibenwischer in Rückenlage",
+    "alias": "Windshield Wipers",
+    "family": "gr-scheibenwischer",
+    "variant": null,
+    "kind": "dynamisch",
+    "position": "rueckenlage",
+    "regions": [
+      "gesaess_rotatoren"
+    ],
+    "equipment": [],
+    "unilateral": false,
+    "level": 1,
+    "seconds": 45,
+    "tempo": 6,
+    "tags": [
+      "aufwaermen",
+      "morgen",
+      "abend"
+    ],
+    "intro": "Mit breit aufgestellten Füssen kippen beide Knie abwechselnd nach links und rechts: Die Drehung kommt aus den Hüftgelenken, nicht aus dem Rücken.",
+    "steps": [
+      "Leg dich auf den Rücken und stell die Füsse mattenbreit auf, deutlich breiter als die Hüften. Die Arme liegen seitlich.",
+      "Lass beide Knie langsam nach links sinken. Das linke Knie fällt nach aussen, das rechte nach innen.",
+      "Führe die Knie über die Mitte nach rechts und pendle gleichmässig weiter. Das Becken bleibt möglichst flach am Boden."
+    ],
+    "cues": [
+      "Füsse bleiben breit stehen",
+      "Becken bleibt schwer am Boden",
+      "Gleichmässig, ohne Schwung"
+    ],
+    "avoid": "Die Füsse stehen zu eng, dann rollt das ganze Becken mit und die Hüften drehen kaum.",
+    "feel": "Abwechselnd tief in beiden Hüften, innen und aussen",
+    "slalom": "Ein guter Einstieg vor dem Paddeln: Beide Hüften drehen locker nach innen und aussen, bevor sie im Boot unter den Schenkelstützen festsitzen.",
+    "motion": "START (0 s): supine hook-lying, knees bent about 90 degrees, feet flat on the mat about 60 to 70 cm apart (clearly wider than the hips), knees pointing up and as far apart as the feet, arms on the mat about 45 degrees from the body, head centred. Cycle of 6 s: 0 to 1.5 s both knees tilt to the mannequin's LEFT: the left hip rotates outward (left knee drops outward to about 55 degrees from vertical), the right hip rotates inward (right knee drops toward the midline to about 40 degrees from vertical); the feet stay in place and roll onto their edges. 1.5 to 3 s back to centre. 3 to 4.5 s the same to the RIGHT. 4.5 to 6 s back to centre. Unlike a lower-trunk twist, the knees stay apart and the pelvis stays nearly flat on the mat; both shoulders stay down."
+  },
+  {
+    "id": "gr-scheibenwischer-bauchlage",
+    "name": "Scheibenwischer in Bauchlage",
+    "alias": "Prone Windshield Wipers",
+    "family": "gr-scheibenwischer",
+    "variant": "in Bauchlage",
+    "kind": "dynamisch",
+    "position": "bauchlage",
+    "regions": [
+      "gesaess_rotatoren"
+    ],
+    "equipment": [],
+    "unilateral": false,
+    "level": 1,
+    "seconds": 45,
+    "tempo": 6,
+    "tags": [
+      "aufwaermen",
+      "morgen",
+      "abend"
+    ],
+    "intro": "In Bauchlage pendeln die Unterschenkel nach aussen und innen: Hüftrotation bei gestreckter Hüfte, also in der Stellung, die im Sitzen nie vorkommt.",
+    "steps": [
+      "Leg dich auf den Bauch, die Stirn auf den Händen. Die Knie liegen hüftbreit, beide Knie sind rechtwinklig gebeugt.",
+      "Lass beide Füsse langsam nach aussen sinken, so weit es geht, ohne dass sich das Becken hebt.",
+      "Führe die Füsse zurück zur Mitte und kreuze die Unterschenkel leicht. Wechsle ab, welcher Fuss vorne kreuzt."
+    ],
+    "cues": [
+      "Beide Hüftknochen bleiben am Boden",
+      "Knie bleiben hüftbreit",
+      "Langsam nach aussen, langsam zurück"
+    ],
+    "avoid": "Das Becken hebt auf einer Seite ab, damit die Füsse weiter sinken.",
+    "feel": "Tief in beiden Hüftgelenken, ohne starken Zug",
+    "slalom": "Im Boot dreht die Hüfte fast nur gebeugt und nach aussen: Hier bekommt sie die Innenrotation bei gestreckter Hüfte zurück.",
+    "caution": "Spürst du Zug an der Innenseite der Knie, mach die Bewegung kleiner.",
+    "motion": "START (0 s): prone, forehead resting on the stacked hands, elbows out to the sides; thighs flat on the mat, knees about 20 cm apart (hip-width), both knees bent 90 degrees so the shins are vertical, feet relaxed. Cycle of 6 s: 0 to 2 s both lower legs tilt outward (left shin to the left, right shin to the right), each about 35 to 40 degrees from vertical, which is internal rotation of both hips; thighs and both hip points stay on the mat. 2 to 4 s the shins return through vertical and cross slightly past the midline (each about 15 degrees inward, one shin in front of the other), which is external rotation. 4 to 6 s back to vertical. On each cycle the other shin crosses in front. Pelvis and torso do not move."
+  },
+  {
+    "id": "gr-innenrotation-rueckenlage",
+    "name": "Innenrotation in Rückenlage",
+    "alias": "Supine Hip Internal Rotation",
+    "family": "gr-innenrotation-rueckenlage",
+    "variant": null,
+    "kind": "statisch",
+    "position": "rueckenlage",
+    "regions": [
+      "gesaess_rotatoren"
+    ],
+    "equipment": [],
+    "unilateral": false,
+    "level": 1,
+    "seconds": 45,
+    "tags": [
+      "cooldown",
+      "abend",
+      "k1"
+    ],
+    "intro": "Mit weit aufgestellten Füssen fallen beide Knie nach innen und lehnen aneinander: eine ruhige Dehnung in die Innenrotation, das Gegenstück zur Sitzposition im K1.",
+    "steps": [
+      "Leg dich auf den Rücken und stell die Füsse weit auseinander auf, etwa an die Mattenränder.",
+      "Lass beide Knie nach innen fallen, bis sie sich berühren und aneinander lehnen.",
+      "Lass das Gewicht der Beine wirken. Für mehr Dehnung stellst du die Füsse noch etwas weiter auseinander."
+    ],
+    "cues": [
+      "Knie lehnen aneinander",
+      "Füsse bleiben breit stehen",
+      "Unterer Rücken bleibt entspannt"
+    ],
+    "avoid": "Du drückst die Knie mit Kraft zusammen, statt sie vom Eigengewicht sinken zu lassen.",
+    "feel": "Tief in beiden Hüften, aussen und hinten am Gelenk",
+    "slalom": "Im K1 sind die Hüften stundenlang nach aussen gedreht: Diese Lage bringt sie in die Gegenrichtung, ohne dass du etwas halten musst.",
+    "caution": "Spürst du Zug an den Innenseiten der Knie, stell die Füsse wieder enger.",
+    "motion": "START: supine hook-lying, knees bent about 90 degrees, feet flat on the mat about 80 cm apart (well wider than the hips), knees pointing up, arms relaxed on the mat about 30 degrees from the body. END: both knees have fallen inward until they touch and lean against each other above the midline; both hips internally rotated about 30 to 35 degrees, both thighs slanting inward, both shins slanting outward down to the feet; the feet stay where they are and roll slightly onto their inner edges. Pelvis and the whole back flat on the mat, head centred. In between: the knees sink inward slowly. Static hold in the end pose."
+  },
+  {
+    "id": "gr-innenrotation-rueckenlage-einseitig",
+    "name": "Innenrotation liegend, Fuss am Knie",
+    "family": "gr-innenrotation-rueckenlage",
+    "variant": "einseitig",
+    "kind": "statisch",
+    "position": "rueckenlage",
+    "regions": [
+      "gesaess_rotatoren"
+    ],
+    "equipment": [],
+    "unilateral": true,
+    "level": 2,
+    "seconds": 40,
+    "tags": [
+      "cooldown",
+      "abend",
+      "k1"
+    ],
+    "intro": "Nur das linke Knie fällt nach innen, und der rechte Fuss liegt als sanftes Gewicht von aussen darauf: die gezielte Dehnung für die Innenrotation einer Hüfte.",
+    "steps": [
+      "Leg dich auf den Rücken und stell beide Füsse weit auseinander auf.",
+      "Lass das linke Knie nach innen Richtung Boden sinken. Der linke Fuss bleibt aussen stehen.",
+      "Lege den rechten Fuss aussen an das linke Knie und lass sein Gewicht das Knie sanft weiter sinken. Die linke Beckenseite bleibt am Boden."
+    ],
+    "cues": [
+      "Linke Beckenseite bleibt am Boden",
+      "Der rechte Fuss liegt nur auf",
+      "Lang ausatmen"
+    ],
+    "avoid": "Du drückst mit dem rechten Bein kräftig nach, und das Becken hebt links vom Boden ab.",
+    "feel": "Tief in der linken Hüfte, aussen und hinten am Gelenk",
+    "slalom": "Dreht eine Hüfte schlechter nach innen als die andere, dreht auch das Becken im Sitz ungleich mit: Hier arbeitest du jede Seite für sich und merkst den Unterschied.",
+    "caution": "Bei Zug an der Innenseite des linken Knies oder Kneifen in der Leiste nimmst du das Gewicht des rechten Fusses weg.",
+    "motion": "START: supine hook-lying, knees bent about 90 degrees, feet flat about 70 cm apart, arms on the mat about 45 degrees from the body. END: the left knee has dropped inward toward the midline (left hip internally rotated about 35 to 40 degrees), the left thigh slanting inward, the left knee about 15 to 20 cm above the mat near the midline; the left foot is still out at the left side, resting on its inner edge. The right leg is lifted across: the right ankle rests on the outer side of the left knee (right knee bent and pointing up and slightly to the right), its weight pressing the left knee gently further down. The pelvis stays flat (the left side of the pelvis remains on the mat), both shoulders down, head centred. In between: first the left knee sinks inward, then the right foot is placed on it. Static hold in the end pose."
+  },
+  {
+    "id": "gr-cars-vierfuessler",
+    "name": "Hüft-CARs im Vierfüssler",
+    "alias": "Quadruped Hip CARs",
+    "family": "gr-cars-vierfuessler",
+    "variant": null,
+    "kind": "aktiv",
+    "position": "vierfuessler",
+    "regions": [
+      "gesaess_rotatoren",
+      "huefte_seitlich"
+    ],
+    "equipment": [],
+    "unilateral": true,
+    "level": 2,
+    "seconds": 60,
+    "tempo": 10,
+    "tags": [
+      "aufwaermen",
+      "morgen",
+      "k1",
+      "c1"
+    ],
+    "intro": "CARs (Controlled Articular Rotations) sind langsame, möglichst grosse Kreise mit einem Gelenk: Im Vierfüssler führst du das linke Knie durch den ganzen Bewegungsraum der Hüfte, ohne dass sich der Rumpf bewegt.",
+    "steps": [
+      "Geh in den Vierfüssler und spanne den Bauch leicht an. Das linke Knie bleibt die ganze Zeit gebeugt.",
+      "Zieh das linke Knie nach vorne zur Brust und öffne es dann weit zur Seite, bis auf Hüfthöhe.",
+      "Führe das Knie in einem grossen Bogen nach hinten, bis der Oberschenkel hinter dir gestreckt ist, und senke es zurück unter die Hüfte.",
+      "Wiederhole langsam. Nach der halben Zeit kreist du andersherum."
+    ],
+    "cues": [
+      "So gross wie möglich, so langsam wie nötig",
+      "Rücken und Becken bleiben still",
+      "Arme gestreckt, Gewicht mittig"
+    ],
+    "avoid": "Du drehst das Becken auf und kippst zur rechten Seite, damit der Kreis grösser aussieht.",
+    "feel": "Arbeit rund um die linke Hüfte, vor allem aussen und im Gesäss",
+    "slalom": "Vor dem Training fährt das Hüftgelenk einmal seinen ganzen Bewegungsraum kontrolliert ab: eine gute Vorbereitung auf Kanten und Hüftknick.",
+    "motion": "START (0 s): quadruped, hands under the shoulders, knees under the hips, back flat and horizontal. The left knee stays bent about 90 degrees throughout. Cycle of 10 s: 0 to 2.5 s the left knee lifts and travels forward under the torso toward the chest (hip flexion about 110 degrees). 2.5 to 5 s the knee opens out to the left side up to hip height (hip abducted about 60 to 70 degrees, thigh horizontal and pointing left, shin pointing back: the fire hydrant position). 5 to 7.5 s the knee sweeps in an arc backward while the hip rotates inward so the foot rises higher than the knee; then the thigh comes in line behind the hip (hip extended to about 0 to 10 degrees, knee still bent, sole of the foot facing the ceiling). 7.5 to 10 s the knee lowers down and forward to the start position under the hip without resting on the floor. Torso, pelvis and both arms stay still: no shift to the right, no rotation of the pelvis, no arching of the lower back. After half of the time the circle is reversed."
+  },
+  {
+    "id": "gr-cars-stand",
+    "name": "Hüft-CARs im Stand",
+    "alias": "Standing Hip CARs",
+    "family": "gr-cars-vierfuessler",
+    "variant": "im Stand an der Wand",
+    "kind": "aktiv",
+    "position": "stehend",
+    "regions": [
+      "gesaess_rotatoren",
+      "huefte_seitlich"
+    ],
+    "equipment": [
+      "wand"
+    ],
+    "unilateral": true,
+    "level": 2,
+    "seconds": 60,
+    "tempo": 10,
+    "tags": [
+      "aufwaermen",
+      "morgen",
+      "k1",
+      "c1"
+    ],
+    "intro": "Der grosse Hüftkreis im Stehen, mit einer Hand an der Wand: gut am Bootsplatz, weil du dafür nicht auf den Boden musst.",
+    "steps": [
+      "Stell dich seitlich zur Wand, sie ist rechts von dir. Die rechte Hand stützt auf Schulterhöhe, das Gewicht ist auf dem rechten Bein.",
+      "Hebe das linke Knie gerade nach vorne bis auf Hüfthöhe und öffne es dann so weit wie möglich nach links aussen.",
+      "Dreh den Oberschenkel nach innen, so dass der Fuss nach hinten aussen steigt, und führe das Knie nach hinten unten neben das Standbein.",
+      "Wiederhole langsam. Nach der halben Zeit kreist du andersherum."
+    ],
+    "cues": [
+      "Becken zeigt immer geradeaus",
+      "Standbein gestreckt, Gesäss fest",
+      "Langsam, mit Spannung"
+    ],
+    "avoid": "Das Becken dreht mit dem Knie auf, dann bewegt sich der Rücken statt das Hüftgelenk.",
+    "feel": "Arbeit rund um die linke Hüfte, dazu aussen an der Hüfte des Standbeins",
+    "slalom": "Direkt vor dem Einsteigen gemacht, weckt der Kreis die Muskeln rund ums Hüftgelenk, die beim Kanten das Becken führen.",
+    "motion": "Prop: wall on the mannequin's RIGHT side, about 50 cm from the right shoulder. START (0 s): standing upright on the right leg (knee straight), right hand flat on the wall at shoulder height, left hand on the left hip, left foot just off the floor beside the right foot. Cycle of 10 s: 0 to 2.5 s the left knee lifts straight forward to hip height (hip flexed 90 degrees, knee bent 90 degrees, shin vertical). 2.5 to 5 s the left thigh opens out to the left side at the same height (hip abducted about 60 to 80 degrees, knee pointing left). 5 to 7.5 s the hip rotates inward so the left foot swings out and up behind (shin roughly horizontal, pointing back) while the knee lowers and travels backward, ending with the thigh pointing down and about 10 degrees behind the body, knee bent 90 degrees, heel behind. 7.5 to 10 s the knee comes forward beside the standing knee and the foot lowers to the start. Pelvis and chest stay square to the front, the torso stays vertical, no leaning toward the wall. After half of the time the circle is reversed."
+  },
+  {
+    "id": "gr-cars-seitlage",
+    "name": "Hüft-CARs in Seitlage",
+    "alias": "Side-Lying Hip CARs",
+    "family": "gr-cars-vierfuessler",
+    "variant": "in Seitlage",
+    "kind": "aktiv",
+    "position": "seitlage",
+    "regions": [
+      "gesaess_rotatoren",
+      "huefte_seitlich"
+    ],
+    "equipment": [],
+    "unilateral": true,
+    "level": 1,
+    "seconds": 60,
+    "tempo": 10,
+    "tags": [
+      "aufwaermen",
+      "morgen"
+    ],
+    "intro": "In Seitlage trägt der Boden den Rumpf, und du kannst dich ganz auf den Kreis im linken Hüftgelenk konzentrieren: der einfachste Einstieg in die Hüft-CARs.",
+    "steps": [
+      "Leg dich auf die rechte Seite, der Kopf ruht auf dem rechten Arm. Das rechte Bein ist leicht gebeugt, die linke Hand stützt vor der Brust.",
+      "Zieh das linke Knie nach vorne zur Brust und hebe es dann Richtung Decke, so hoch es geht.",
+      "Führe das Knie in einem grossen Bogen nach hinten, bis der Oberschenkel hinter dir gestreckt ist, und senke es zurück auf das untere Bein.",
+      "Wiederhole langsam. Nach der halben Zeit kreist du andersherum."
+    ],
+    "cues": [
+      "Becken bleibt senkrecht gestapelt",
+      "Grosser Kreis, langsames Tempo",
+      "Oberkörper rollt nicht mit"
+    ],
+    "avoid": "Du rollst mit dem Becken nach hinten, sobald das Knie zur Decke geht.",
+    "feel": "Arbeit aussen an der linken Hüfte und im Gesäss",
+    "slalom": "Die seitliche Hüfte, die im Boot das Kanten hält, wird hier ohne Last durch ihren ganzen Bewegungsraum geführt.",
+    "motion": "START (0 s): lying on the RIGHT side, head resting on the bent right arm, left hand on the mat in front of the chest, shoulders and hips stacked vertically. The right (bottom) leg is bent about 45 degrees at hip and knee for stability. The left (top) leg rests on the right leg with the knee bent about 90 degrees. Cycle of 10 s: 0 to 2.5 s the left knee slides forward toward the chest (hip flexion about 100 degrees). 2.5 to 5 s the left knee lifts toward the ceiling (hip abduction about 45 to 60 degrees) while still in front of the body. 5 to 7.5 s the knee sweeps backward in a high arc while the hip rotates inward (foot higher than the knee), ending with the thigh in line with the torso or about 10 degrees behind it, knee still bent. 7.5 to 10 s the leg lowers back onto the bottom leg and returns to the start. The pelvis stays stacked and does not roll backward, the torso stays still. After half of the time the circle is reversed."
+  },
+  {
+    "id": "gr-hydrant-kreise",
+    "name": "Hydrant-Kreise im Vierfüssler",
+    "alias": "Fire Hydrant Circles",
+    "family": "gr-cars-vierfuessler",
+    "variant": "dynamisch",
+    "kind": "dynamisch",
+    "position": "vierfuessler",
+    "regions": [
+      "gesaess_rotatoren",
+      "huefte_seitlich"
+    ],
+    "equipment": [],
+    "unilateral": true,
+    "level": 1,
+    "seconds": 40,
+    "tempo": 4,
+    "tags": [
+      "aufwaermen",
+      "morgen"
+    ],
+    "intro": "Die lockere, zügigere Form des Hüftkreises: Das linke Knie zeichnet im Vierfüssler runde Kreise zur Seite, ohne dass du am Ende des Wegs Kraft hineinlegst.",
+    "steps": [
+      "Geh in den Vierfüssler, die Hände unter den Schultern, die Knie unter den Hüften.",
+      "Hebe das gebeugte linke Knie an und zeichne einen runden Kreis: nach vorne, nach aussen oben, nach hinten und zurück.",
+      "Kreise gleichmässig weiter, ohne das Knie abzusetzen. Nach der halben Zeit wechselst du die Richtung."
+    ],
+    "cues": [
+      "Runde, gleichmässige Kreise",
+      "Gewicht bleibt mittig",
+      "Nach der Hälfte Richtung wechseln"
+    ],
+    "avoid": "Du verlagerst das Gewicht weit nach rechts und knickst im rechten Ellbogen ein.",
+    "feel": "Wärme aussen an der linken Hüfte und im Gesäss",
+    "slalom": "In einer halben Minute pro Seite wird die Hüfte rundum warm: ein guter erster Schritt vor dem Einsteigen, bevor es ans Kanten geht.",
+    "motion": "START: quadruped, hands under the shoulders, knees under the hips, back flat. The left knee stays bent about 90 degrees. Cycle of 4 s, continuous: the left knee lifts about 10 cm off the floor and draws a circle of roughly 30 cm diameter beside the body: forward toward the left elbow (at 1 s), out and up to the left side to about hip height with the thigh abducted about 45 degrees (at 2 s), back behind the hip line (at 3 s), down and in to just above the start point (at 4 s), without touching the floor. Smooth, even speed, smaller and quicker than the slow hip CAR. Torso and pelvis stay level with only a minimal counter-shift to the right, arms straight. After half of the time the direction reverses."
+  },
+  {
+    "id": "gr-hocke",
+    "name": "Tiefe Hocke halten",
+    "alias": "Deep Squat Hold",
+    "family": "gr-hocke",
+    "variant": null,
+    "kind": "statisch",
+    "position": "hocke",
+    "regions": [
+      "gesaess_rotatoren",
+      "waden_sprunggelenk",
+      "adduktoren"
+    ],
+    "equipment": [],
+    "unilateral": false,
+    "level": 2,
+    "seconds": 45,
+    "tags": [
+      "morgen",
+      "cooldown",
+      "k1",
+      "c1"
+    ],
+    "intro": "Die tiefe Hocke beugt Hüften, Knie und Sprunggelenke gleichzeitig bis ans Ende: eine Ruheposition, die Gesäss, Hüftgelenke und Waden zusammen öffnet.",
+    "steps": [
+      "Stell die Füsse etwas breiter als schulterbreit, die Zehen zeigen leicht nach aussen.",
+      "Geh langsam ganz in die Hocke. Die Fersen bleiben am Boden, die Knie zeigen in Richtung der Zehen.",
+      "Strecke die Arme als Gegengewicht nach vorne, richte das Brustbein auf und bleib ruhig sitzen."
+    ],
+    "cues": [
+      "Fersen bleiben am Boden",
+      "Knie zeigen über die Zehen",
+      "Brustbein hebt sich"
+    ],
+    "avoid": "Die Fersen heben ab oder die Knie fallen nach innen.",
+    "feel": "Im Gesäss, in den Leisten und in den Waden",
+    "slalom": "Tiefe Hüftbeugung mit aufgerichtetem Oberkörper ist das, was aufrechtes Sitzen im K1 verlangt, und die starke Kniebeugung kennst du aus dem C1.",
+    "caution": "Bei Schmerz in den Knien gehst du nur so tief, wie es ohne Schmerz möglich ist.",
+    "motion": "START: standing upright, feet a little wider than shoulder-width (about 45 cm between the heels), toes turned out about 20 degrees, arms at the sides. END: full deep squat: hips well below knee height (hips flexed about 120 degrees, knees flexed about 140 degrees, ankles dorsiflexed about 30 degrees), heels flat on the floor, knees wide and pointing in the direction of the toes. Torso leaning forward about 35 degrees from vertical with a long spine, chest lifted, both arms extended forward at shoulder height as a counterweight, head neutral. In between: a slow, controlled descent of about 3 s while the arms rise forward. Static hold in the end pose."
+  },
+  {
+    "id": "gr-hocke-ellbogen",
+    "name": "Tiefe Hocke mit Ellbogendruck",
+    "alias": "Prying Squat",
+    "family": "gr-hocke",
+    "variant": "mit Ellbogendruck",
+    "kind": "statisch",
+    "position": "hocke",
+    "regions": [
+      "gesaess_rotatoren",
+      "adduktoren",
+      "waden_sprunggelenk"
+    ],
+    "equipment": [],
+    "unilateral": false,
+    "level": 2,
+    "seconds": 45,
+    "tags": [
+      "morgen",
+      "cooldown",
+      "k1"
+    ],
+    "intro": "In der tiefen Hocke liegen die Handflächen aneinander, und die Ellbogen schieben die Knie nach aussen: Das öffnet die Hüften weiter und richtet den Rücken auf.",
+    "steps": [
+      "Geh in die tiefe Hocke, die Füsse etwas breiter als schulterbreit, die Fersen am Boden.",
+      "Lege die Handflächen vor der Brust aneinander und setze die Ellbogen innen an die Knie.",
+      "Schiebe die Knie mit den Ellbogen nach aussen und drücke gleichzeitig das Brustbein nach vorne oben."
+    ],
+    "cues": [
+      "Ellbogen schieben die Knie nach aussen",
+      "Brustbein nach vorne oben",
+      "Fersen bleiben schwer"
+    ],
+    "avoid": "Du hängst mit rundem Rücken zwischen den Knien, statt dich über den Ellbogendruck aufzurichten.",
+    "feel": "In den Leisten, an den Innenseiten der Oberschenkel und tief in den Hüften",
+    "slalom": "Knie weit offen, Hüften tief gebeugt, Rücken aufrecht: Das ist die Sitzposition im K1 in ihrer extremen Form, hier ohne Boot geübt.",
+    "caution": "Bei Schmerz in den Knien bleibst du höher oder lässt die Übung weg.",
+    "motion": "Pose: full deep squat, feet a little wider than shoulder-width, toes turned out about 25 degrees, heels flat on the floor, hips below knee height. Palms pressed together in front of the chest (prayer position), the forearms forming one horizontal line, both elbows placed against the inner sides of the knees. START: knees pointing over the toes, torso leaning forward about 35 degrees, back slightly rounded. END: the elbows have pushed both knees outward about 5 to 8 cm each (knees over or slightly outside the line of the toes), the chest is lifted and the torso more upright (about 20 degrees from vertical), spine long, head neutral. Static hold in the end pose with constant gentle pressure of the elbows."
+  },
+  {
+    "id": "gr-hocke-block",
+    "name": "Tiefe Hocke mit erhöhten Fersen",
+    "alias": "Heel-Elevated Squat Hold",
+    "family": "gr-hocke",
+    "variant": "leichter",
+    "kind": "statisch",
+    "position": "hocke",
+    "regions": [
+      "gesaess_rotatoren",
+      "adduktoren"
+    ],
+    "equipment": [
+      "block"
+    ],
+    "unilateral": false,
+    "level": 1,
+    "seconds": 45,
+    "tags": [
+      "morgen",
+      "cooldown",
+      "k1"
+    ],
+    "intro": "Ein Block unter den Fersen nimmt den Sprunggelenken Arbeit ab: So kommst du auch mit steifen Waden tief in die Hocke und kannst dabei aufrecht sitzen.",
+    "steps": [
+      "Lege den Block quer hin und stell beide Fersen darauf, die Fussballen stehen am Boden. Die Füsse sind hüftbreit, die Zehen zeigen leicht nach aussen.",
+      "Geh langsam ganz in die Hocke, die Knie zeigen in Richtung der Zehen.",
+      "Strecke die Arme nach vorne und richte das Brustbein auf."
+    ],
+    "cues": [
+      "Gewicht auf dem ganzen Fuss",
+      "Knie zeigen über die Zehen",
+      "Rücken lang, Brustbein hoch"
+    ],
+    "avoid": "Du sinkst mit rundem Rücken zusammen, obwohl dir der Block das Aufrichten leicht macht.",
+    "feel": "Im Gesäss und in den Leisten, kaum in den Waden",
+    "slalom": "Steife Sprunggelenke sollen dich nicht daran hindern, die tiefe Hüftbeugung zu üben, die das aufrechte Sitzen im K1 braucht.",
+    "caution": "Bei Schmerz in den Knien gehst du weniger tief.",
+    "motion": "Prop: block lying flat on the mat with its long side across (about 23 cm wide, 8 cm high), under both heels. START: standing upright with both heels on the block and the balls of the feet on the mat, feet hip-width (heels about 18 cm apart), toes turned out about 20 degrees, arms at the sides. END: full deep squat on the raised heels: hips below knee height, knees wide and pointing over the toes; because of the raised heels the shins lean further forward and the torso is more upright than in the plain deep squat (about 15 to 20 degrees from vertical), spine long. Both arms extended forward at shoulder height. In between: a slow descent of about 3 s. Static hold in the end pose."
+  },
+  {
+    "id": "gr-hocke-pendeln",
+    "name": "Tiefe Hocke mit Pendeln",
+    "alias": "Deep Squat Rocking",
+    "family": "gr-hocke",
+    "variant": "dynamisch",
+    "kind": "dynamisch",
+    "position": "hocke",
+    "regions": [
+      "gesaess_rotatoren",
+      "waden_sprunggelenk",
+      "adduktoren"
+    ],
+    "equipment": [],
+    "unilateral": false,
+    "level": 2,
+    "seconds": 45,
+    "tempo": 6,
+    "tags": [
+      "aufwaermen",
+      "morgen",
+      "k1",
+      "c1"
+    ],
+    "intro": "In der tiefen Hocke verlagerst du das Gewicht ruhig von einem Fuss auf den anderen: Jede Hüfte und jedes Sprunggelenk geht abwechselnd etwas tiefer in die Beugung.",
+    "steps": [
+      "Geh in die tiefe Hocke, die Fersen am Boden. Die Ellbogen sind innen an den Knien, die Hände liegen locker ineinander.",
+      "Verlagere das Gewicht langsam auf den linken Fuss. Das linke Knie schiebt etwas weiter nach vorne über die Zehen.",
+      "Pendle über die Mitte nach rechts und gleichmässig weiter hin und her."
+    ],
+    "cues": [
+      "Beide Fersen bleiben am Boden",
+      "Becken bleibt tief",
+      "Gleichmässig pendeln, ohne Wippen"
+    ],
+    "avoid": "Du wippst schnell hin und her oder hebst die Ferse der belasteten Seite ab.",
+    "feel": "Abwechselnd in Gesäss, Leiste und Wade der belasteten Seite",
+    "slalom": "Das Gewicht von einer Hüfte auf die andere zu verlagern, ist im Kleinen das, was dein Becken beim Umkanten macht.",
+    "caution": "Bei Schmerz in den Knien machst du die Verlagerung kleiner oder bleibst bei der ruhigen Hocke.",
+    "motion": "START (0 s): full deep squat, feet a little wider than shoulder-width, toes turned out about 20 degrees, heels flat, hips below knee height, weight centred; elbows inside the knees, hands loosely clasped in front of the chest, torso leaning forward about 30 degrees. Cycle of 6 s: 0 to 1.5 s pelvis and torso shift about 10 cm to the mannequin's LEFT so that most of the weight is over the left foot; the left knee travels about 5 cm further forward over the toes (more dorsiflexion at the left ankle, deeper flexion at the left hip) while the right leg unloads slightly. 1.5 to 3 s back to centre. 3 to 4.5 s the same to the RIGHT. 4.5 to 6 s back to centre. Both heels stay on the floor, the hips stay at the same low height, smooth pendulum without bouncing."
+  },
+  {
+    "id": "gr-drehsitz-gesaess",
+    "name": "Gesässdehnung im Drehsitz",
+    "alias": "Seated Glute Stretch",
+    "family": "gr-drehsitz-gesaess",
+    "variant": null,
+    "kind": "statisch",
+    "position": "sitzend",
+    "regions": [
+      "gesaess_rotatoren",
+      "huefte_seitlich"
+    ],
+    "equipment": [],
+    "unilateral": true,
+    "level": 1,
+    "seconds": 40,
+    "tags": [
+      "cooldown",
+      "abend",
+      "k1"
+    ],
+    "intro": "Im Sitzen stellst du den linken Fuss über das gestreckte rechte Bein und umarmst das Knie: eine einfache Dehnung für das äussere Gesäss, ohne den Rücken zu drehen.",
+    "steps": [
+      "Setz dich mit gestreckten Beinen hin und stell den linken Fuss aussen neben das rechte Knie.",
+      "Umfasse das linke Knie mit beiden Armen und richte dich auf beiden Sitzknochen gross auf.",
+      "Zieh das Knie schräg zur rechten Schulter an die Brust. Der Brustkorb bleibt nach vorne gerichtet."
+    ],
+    "cues": [
+      "Beide Sitzknochen am Boden",
+      "Knie zur rechten Schulter",
+      "Gross sitzen, Brustbein hoch"
+    ],
+    "avoid": "Du rollst auf die rechte Gesässhälfte und wirst im Rücken rund, statt das Knie zum aufrechten Oberkörper zu ziehen.",
+    "feel": "Aussen und hinten im linken Gesäss",
+    "slalom": "Das äussere Gesäss hält dein Becken beim Kanten, und diese Dehnung geht nach dem Training auch direkt am Ufer.",
+    "motion": "START: long sitting, both legs straight forward, torso upright, hands on the floor beside the hips. END: the right leg stays straight on the mat, toes pointing up. The left knee is bent, the left foot flat on the floor on the outer side of the right knee (crossed over the right leg), left knee pointing up. Both arms wrap around the left knee, hands clasped on the front of the left shin just below the knee, and pull the left thigh diagonally toward the right side of the chest; the left thigh is adducted about 20 to 30 degrees across the midline. Torso upright and facing straight forward (no rotation of the spine), both sit bones on the mat, spine long, head neutral. Static hold in the end pose."
+  },
+  {
+    "id": "gr-drehsitz-gesaess-tief",
+    "name": "Gesässdehnung, unteres Bein gebeugt",
+    "family": "gr-drehsitz-gesaess",
+    "variant": "intensiver",
+    "kind": "statisch",
+    "position": "sitzend",
+    "regions": [
+      "gesaess_rotatoren",
+      "huefte_seitlich"
+    ],
+    "equipment": [],
+    "unilateral": true,
+    "level": 2,
+    "seconds": 40,
+    "tags": [
+      "cooldown",
+      "abend"
+    ],
+    "intro": "Wie die Gesässdehnung im Drehsitz, aber das rechte Bein liegt gebeugt am Boden: Das Becken steht stabiler, und das linke Knie kommt weiter über die Körpermitte.",
+    "steps": [
+      "Setz dich hin und lege das rechte Bein gebeugt ab, die rechte Ferse neben die linke Hüfte.",
+      "Stell den linken Fuss aussen neben das rechte Knie und verteile das Gewicht auf beide Sitzknochen.",
+      "Umfasse das linke Knie mit beiden Armen und zieh es zur rechten Brustseite, während du dich aufrichtest."
+    ],
+    "cues": [
+      "Linker Sitzknochen bleibt unten",
+      "Knie nah an die rechte Brustseite",
+      "Wirbelsäule lang"
+    ],
+    "avoid": "Der linke Sitzknochen hebt ab, sobald du das Knie heranziehst.",
+    "feel": "Aussen und hinten im linken Gesäss, bis zur Aussenseite der Hüfte",
+    "slalom": "Je weiter das Knie über die Mitte kommt, desto mehr erreichst du die äusseren Gesässfasern, die beim Kanten das Becken seitlich halten.",
+    "caution": "Zieht es im rechten Knie, streckst du das untere Bein wieder aus.",
+    "motion": "START: sitting with the right leg folded on the floor: right knee pointing forward, outer side of the right thigh and shin on the mat, right heel next to the outside of the left hip; left foot planted flat on the floor outside the right knee, left knee pointing up; hands on the left knee, torso upright. END: both arms hug the left knee, hands clasped around the front of the left shin just below the knee, pulling the left thigh against the right side of the chest; the left thigh is adducted about 30 to 40 degrees across the midline. Both sit bones on the mat, torso upright and facing straight forward (no spinal twist, which distinguishes it from the seated twist), spine long, head neutral. Static hold in the end pose."
+  },
+  {
+    "id": "gr-rolle-gesaess",
+    "name": "Gesäss ausrollen auf der Rolle",
+    "alias": "Glute Foam Roll",
+    "family": "gr-rolle-gesaess",
+    "variant": null,
+    "kind": "dynamisch",
+    "position": "sitzend",
+    "regions": [
+      "gesaess_rotatoren",
+      "huefte_seitlich"
+    ],
+    "equipment": [
+      "rolle"
+    ],
+    "unilateral": true,
+    "level": 1,
+    "seconds": 45,
+    "tempo": 6,
+    "tags": [
+      "cooldown",
+      "abend",
+      "k1"
+    ],
+    "intro": "Du sitzt in der Figur 4 auf der Rolle und rollst langsam über die linke Gesässhälfte: Das kann das Spannungsgefühl im Gesäss und in den tiefen Rotatoren senken.",
+    "steps": [
+      "Setz dich auf die Rolle und stütze die Hände hinter dir auf. Lege den linken Knöchel auf das rechte Knie.",
+      "Kippe das Gewicht leicht auf die linke Gesässhälfte.",
+      "Rolle langsam eine Handbreit vor und zurück. Über den rechten Fuss und die Hände bestimmst du den Druck."
+    ],
+    "cues": [
+      "Langsam rollen, ruhig atmen",
+      "Gewicht auf der linken Gesässhälfte",
+      "Druck bleibt gut aushaltbar"
+    ],
+    "avoid": "Du rollst schnell über die empfindlichste Stelle und hältst dabei die Luft an.",
+    "feel": "Flächiger, gut aushaltbarer Druck im linken Gesäss",
+    "slalom": "Nach langen Einheiten im K1 ist das Gesäss vom Sitzen und vom Halten der Knie fest, das Rollen nimmt Spannung heraus, bevor du dehnst.",
+    "caution": "Strahlt der Druck ins Bein aus oder kribbelt es, verlagere die Auflagestelle.",
+    "motion": "Prop: foam roller crosswise on the mat. START (0 s): the mannequin sits on the roller with the lower part of the left buttock, both hands on the floor behind the roller with straight arms, torso leaning back about 30 degrees and tilted about 15 degrees to the left so the weight rests on the left buttock. The left ankle is crossed over the right knee (figure 4), left knee pointing out to the left; the right foot is flat on the floor, right knee bent about 90 degrees. Cycle of 6 s: 0 to 3 s the body slides about 10 cm toward the feet (the right knee bends more, the arms follow) so the roller travels from the lower buttock up to the upper buttock just below the pelvic rim; 3 to 6 s the body slides back until the roller is under the lower buttock again. The roller rotates under the body, the torso keeps its lean and tilt, slow even speed."
+  }
+]

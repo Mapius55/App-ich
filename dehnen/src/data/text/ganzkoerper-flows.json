@@ -1,0 +1,897 @@
+[
+  {
+    "id": "gf-weltbeste-dehnung",
+    "name": "Ausfallschritt mit Aufdrehen",
+    "alias": "World's Greatest Stretch",
+    "family": "gf-weltbeste-dehnung",
+    "variant": null,
+    "kind": "dynamisch",
+    "position": "vierfuessler",
+    "regions": [
+      "hueftbeuger",
+      "bws_rotation",
+      "adduktoren"
+    ],
+    "equipment": [],
+    "unilateral": true,
+    "level": 2,
+    "seconds": 45,
+    "tempo": 8,
+    "tags": [
+      "aufwaermen",
+      "morgen",
+      "k1",
+      "c1"
+    ],
+    "intro": "Ein langer Ausfallschritt, in dem zuerst der Ellbogen zum Boden sinkt und dann der Arm zur Decke aufdreht: Hüftbeuger, Leiste und Brustwirbelsäule werden in einer Abfolge warm.",
+    "steps": [
+      "Geh in einen langen Ausfallschritt: rechter Fuss vorne, linkes Bein gestreckt nach hinten, beide Hände stützen innen neben dem rechten Fuss.",
+      "Lass das Becken sinken und senke den rechten Ellbogen innen am rechten Unterschenkel entlang Richtung Boden.",
+      "Dreh den Brustkorb nach rechts auf und strecke den rechten Arm zur Decke, der Blick folgt der Hand.",
+      "Setz die rechte Hand wieder ab und beginne von vorne."
+    ],
+    "cues": [
+      "Hinteres Bein bleibt lang",
+      "Linke Hand drückt in den Boden",
+      "Drehung kommt aus dem Brustkorb"
+    ],
+    "avoid": "Das Becken dreht mit auf oder das hintere Knie hängt durch, dann geht die Bewegung an Hüfte und Brustwirbelsäule vorbei.",
+    "feel": "Vorne in der linken Leiste, innen an der rechten Hüfte und beim Aufdrehen zwischen den Schulterblättern",
+    "slalom": "Du streckst die Hüfte und drehst gleichzeitig den Brustkorb weit auf: das Gegenstück zur gebeugten Sitzhaltung und die Vorbereitung für weite Bogenschläge.",
+    "motion": "Cycle of 8 s. The legs hold one pose throughout: long lunge with the right foot flat in front, right knee bent about 90 degrees above the ankle, left leg extended straight back with the knee off the floor and the weight on the ball of the left foot, pelvis low, torso sloping up from hips to shoulders at about 35 degrees to the floor. The left hand is flat on the floor under the left shoulder, just inside the right foot, left arm straight, for the whole cycle. POSITION A (start): the right hand is also on the floor, between the left hand and the right foot. POSITION B (0 to 3 s): the right elbow bends and sinks along the inside of the right shin toward the floor near the inside of the right foot, forearm roughly parallel to the mat, elbow about 10 cm above it; the chest lowers and the hips sink a few centimetres. POSITION C (3 to 6 s): the right arm sweeps out to the right and up until it points at the ceiling; thorax rotates about 70 degrees to the right so the chest faces the side of the front knee, head turns to look at the right hand. 6 to 8 s: the right arm lowers and the hand returns to the floor (A). Pelvis and legs stay still, the left knee stays straight."
+  },
+  {
+    "id": "gf-weltbeste-dehnung-kniend",
+    "name": "Ausfallschritt mit Aufdrehen, kniend",
+    "family": "gf-weltbeste-dehnung",
+    "variant": "leichter",
+    "kind": "dynamisch",
+    "position": "kniend",
+    "regions": [
+      "hueftbeuger",
+      "bws_rotation",
+      "adduktoren"
+    ],
+    "equipment": [],
+    "unilateral": true,
+    "level": 1,
+    "seconds": 45,
+    "tempo": 8,
+    "tags": [
+      "aufwaermen",
+      "morgen",
+      "k1",
+      "c1"
+    ],
+    "intro": "Die gleiche Abfolge mit dem hinteren Knie am Boden: weniger Haltearbeit, dafür mehr Ruhe für das Sinken des Beckens und für die Drehung.",
+    "steps": [
+      "Knie im tiefen Ausfallschritt: rechter Fuss vorne, linkes Knie weit hinten am Boden, beide Hände innen neben dem rechten Fuss.",
+      "Lass das Becken nach vorne unten sinken und senke den rechten Ellbogen Richtung Boden.",
+      "Dreh den Brustkorb nach rechts auf und strecke den rechten Arm zur Decke.",
+      "Setz die Hand wieder ab und wiederhole im gleichen Tempo."
+    ],
+    "cues": [
+      "Becken bleibt tief",
+      "Linke Hand stützt fest",
+      "Blick folgt der rechten Hand"
+    ],
+    "avoid": "Das Becken kommt beim Aufdrehen hoch, dann verliert die linke Leiste den Zug.",
+    "feel": "Vorne in der linken Leiste und beim Aufdrehen in der Brustwirbelsäule",
+    "slalom": "Die Hüfte bleibt gestreckt, während der Brustkorb dreht: So trennst du die Rumpfdrehung vom Becken, wie es jeder Schlag im Boot verlangt.",
+    "caution": "Polstere das linke Knie, wenn es am Boden drückt.",
+    "motion": "Same sequence and timing as the base (cycle of 8 s), but the back knee is down: left knee on the mat far behind the hips (left thigh sloping back about 40 degrees from vertical), left shin and top of the left foot flat on the mat; right foot flat in front, right knee bent about 90 to 100 degrees; pelvis low and forward. The left hand is flat on the floor inside the right foot under the left shoulder, arm straight, all the time. A (start): right hand on the floor next to the left hand. B (0 to 3 s): the right elbow bends and sinks along the inside of the right shin toward the floor, the chest lowers. C (3 to 6 s): the right arm sweeps out and up to point at the ceiling, thorax rotates about 70 degrees to the right, head follows the hand. 6 to 8 s: the right hand returns to the floor. The pelvis stays low and does not rise during the rotation."
+  },
+  {
+    "id": "gf-spiderman",
+    "name": "Spiderman-Ausfallschritt",
+    "alias": "Lizard Pose",
+    "family": "gf-spiderman",
+    "variant": null,
+    "kind": "statisch",
+    "position": "kniend",
+    "regions": [
+      "hueftbeuger",
+      "adduktoren",
+      "gesaess_rotatoren"
+    ],
+    "equipment": [],
+    "unilateral": true,
+    "level": 1,
+    "seconds": 45,
+    "tags": [
+      "cooldown",
+      "abend",
+      "k1",
+      "c1"
+    ],
+    "intro": "Ein tiefer Ausfallschritt mit beiden Händen innen neben dem vorderen Fuss: Das Becken sinkt und öffnet gleichzeitig die linke Leiste und die rechte Hüfte.",
+    "steps": [
+      "Stell aus dem Vierfüssler den rechten Fuss weit nach vorne, aussen neben die rechte Hand. Beide Hände stehen jetzt innen neben dem Fuss.",
+      "Schieb das linke Knie weit nach hinten und leg den Fussrücken ab.",
+      "Lass das Becken nach vorne unten sinken, das rechte Knie darf leicht nach aussen zeigen.",
+      "Zieh das Brustbein nach vorne und halte die Arme lang."
+    ],
+    "cues": [
+      "Becken sinkt nach vorne unten",
+      "Brustbein nach vorne, Nacken lang",
+      "Ruhig weiteratmen"
+    ],
+    "avoid": "Der Rücken wird rund und die Schultern wandern zu den Ohren, statt dass das Becken sinkt.",
+    "feel": "Vorne in der linken Leiste und innen an der rechten Hüfte",
+    "slalom": "Die hintere Hüfte kommt in die Streckung, die im Boot nie vorkommt, und die vordere öffnet sich in tiefer Beugung weiter, als es die Schenkelstützen im K1 zulassen.",
+    "caution": "Polstere das linke Knie, wenn es am Boden drückt.",
+    "motion": "START: on all fours on the mat. END: the right foot is planted flat far forward and outside the right hand, so both hands are on the floor inside the right foot, shoulder-width apart, arms straight. Right knee bent about 100 degrees and leaning outward about 20 degrees, right shin roughly vertical seen from the side. Left knee on the mat far behind the hips (left thigh sloping back about 45 degrees from vertical), left shin and top of the left foot flat. Pelvis low and forward, torso at about 35 degrees to the floor with a long straight spine, chest forward, head in line with the spine. MOVE: the right foot steps forward outside the right hand (2 s), the left knee slides back and the pelvis sinks forward and down (3 s), then static hold. Compared with a plain low lunge both hands are inside the front foot and the front knee points outward."
+  },
+  {
+    "id": "gf-spiderman-dynamisch",
+    "name": "Spiderman-Ausfallschritt, dynamisch",
+    "alias": "Spiderman Lunge",
+    "family": "gf-spiderman",
+    "variant": "dynamisch",
+    "kind": "dynamisch",
+    "position": "vierfuessler",
+    "regions": [
+      "hueftbeuger",
+      "adduktoren",
+      "gesaess_rotatoren"
+    ],
+    "equipment": [],
+    "unilateral": true,
+    "level": 2,
+    "seconds": 45,
+    "tempo": 6,
+    "tags": [
+      "aufwaermen",
+      "morgen",
+      "k1",
+      "c1"
+    ],
+    "intro": "Die bewegte Form mit abgehobenem hinterem Knie: Das Becken sinkt tief zwischen Händen und Fuss und hebt sich wieder, ruhig und ohne Federn.",
+    "steps": [
+      "Komm in die hohe Stützposition, die Arme gestreckt wie oben im Liegestütz, und stell den rechten Fuss aussen neben die rechte Hand.",
+      "Halte das linke Bein lang gestreckt, das Knie bleibt in der Luft.",
+      "Lass das Becken in drei Sekunden nach vorne unten sinken.",
+      "Schieb es im gleichen Tempo zurück nach hinten oben."
+    ],
+    "cues": [
+      "Drei Sekunden senken, drei heben",
+      "Linkes Bein bleibt gestreckt",
+      "Unten nicht nachfedern"
+    ],
+    "avoid": "Du federst am tiefsten Punkt nach, statt die Bewegung ruhig umzukehren.",
+    "feel": "Vorne in der linken Leiste und innen an der rechten Hüfte, dazu Haltearbeit in Schultern und Bauch",
+    "slalom": "Vor dem Einsteigen macht das beide Hüften warm und beweglich, und der Rumpf hält dabei schon Spannung wie später im Boot.",
+    "caution": "Wenn die Handgelenke in der Stützposition schmerzen, nimm die gehaltene Form mit dem Knie am Boden.",
+    "motion": "Cycle of 6 s. Foot and hand placement stay fixed: right foot flat on the floor outside the right hand, both hands flat inside the right foot under the shoulders, arms straight; left leg extended straight back, knee off the floor, on the ball of the foot. POSITION A (high, start): hips shifted back and up, right knee bent about 80 degrees, body from left heel to head in one straight line sloping up at about 20 degrees. POSITION B (low): the pelvis has sunk about 12 cm forward and down toward the floor between the hands and the right foot, right knee bent about 110 degrees, travelling forward over the toes and slightly outward, left hip fully extended, chest lifted forward, slight arch in the lower back. 0 to 3 s: A to B. 3 to 6 s: B to A. Smooth, no bounce at the bottom, the left knee never touches the floor."
+  },
+  {
+    "id": "gf-inchworm",
+    "name": "Raupengang am Platz",
+    "alias": "Inchworm",
+    "family": "gf-inchworm",
+    "variant": null,
+    "kind": "dynamisch",
+    "position": "stehend",
+    "regions": [
+      "hamstrings",
+      "waden_sprunggelenk",
+      "schulter_lat"
+    ],
+    "equipment": [],
+    "unilateral": false,
+    "level": 2,
+    "seconds": 60,
+    "tempo": 12,
+    "tags": [
+      "aufwaermen",
+      "morgen",
+      "k1"
+    ],
+    "intro": "Aus der Vorbeuge laufen die Hände nach vorne bis in die Stützposition und wieder zurück zu den Füssen: Beinrückseite, Waden, Schultern und Rumpf werden in einem Durchgang wach.",
+    "steps": [
+      "Steh hüftbreit, beuge dich vor und setz die Hände vor den Füssen auf, die Knie dürfen leicht gebeugt sein.",
+      "Lauf mit den Händen in kleinen Schritten nach vorne, bis der Körper von Kopf bis Fersen eine gerade Linie bildet.",
+      "Lauf mit den Händen zurück zu den Füssen, die Beine bleiben so gestreckt wie möglich.",
+      "Richte dich auf und beginne von vorne."
+    ],
+    "cues": [
+      "Kleine Schritte mit den Händen",
+      "Bauch fest in der Stützposition",
+      "Fersen schieben Richtung Boden"
+    ],
+    "avoid": "In der Stützposition hängt das Becken durch oder die Hände machen grosse, hastige Schritte.",
+    "feel": "Hinten an Oberschenkeln und Waden, in der Stützposition in Schultern und Bauch",
+    "slalom": "Eine lange Beinrückseite lässt dich im K1 aufrecht sitzen, und der feste Rumpf zwischen Händen und Füssen ist derselbe, der den Zug vom Paddel ins Boot überträgt.",
+    "caution": "Wenn die Handgelenke in der Stützposition schmerzen, lauf nur so weit hinaus, wie es angenehm bleibt.",
+    "motion": "Cycle of 12 s. START: standing upright, feet hip-width, arms at the sides. 0 to 2 s: hinge forward into a forward fold, knees slightly bent (about 15 degrees), hands placed on the floor about 20 cm in front of the toes. 2 to 6 s: the hands walk forward alternately in 4 short steps (left, right, left, right), the feet stay in place and the heels lift as the body lengthens, until HIGH PLANK: hands under the shoulders, arms straight, body in one straight line from head to heels, on the balls of the feet. 6 to 7 s: brief hold. 7 to 11 s: the hands walk back toward the feet in 4 steps, the hips rise high (inverted V on the way), legs nearly straight, heels sink back to the floor. 11 to 12 s: roll up to standing. The feet never move."
+  },
+  {
+    "id": "gf-hund-kobra",
+    "name": "Hund zu Kobra",
+    "alias": "Down Dog to Cobra",
+    "family": "gf-hund-kobra",
+    "variant": null,
+    "kind": "dynamisch",
+    "position": "vierfuessler",
+    "regions": [
+      "schulter_lat",
+      "hueftbeuger",
+      "hamstrings"
+    ],
+    "equipment": [],
+    "unilateral": false,
+    "level": 2,
+    "seconds": 60,
+    "tempo": 8,
+    "tags": [
+      "aufwaermen",
+      "morgen",
+      "k1",
+      "c1"
+    ],
+    "intro": "Du gleitest aus dem herabschauenden Hund nach vorne unten in die Kobra und wieder zurück: Rückseite und Vorderseite des Körpers werden im Wechsel lang.",
+    "steps": [
+      "Starte im herabschauenden Hund: Hände schulterbreit, Gesäss hoch, Rücken lang, Fersen Richtung Boden.",
+      "Schieb die Schultern nach vorne über die Hände und lass das Becken sinken, bis du mit gestreckten Armen in der Kobra bist.",
+      "Heb das Brustbein nach vorne oben, das Gesäss spannt leicht an.",
+      "Schieb das Gesäss zurück nach hinten oben in den Hund."
+    ],
+    "cues": [
+      "Vier Sekunden hin, vier zurück",
+      "Schultern weg von den Ohren",
+      "In der Kobra Gesäss leicht anspannen"
+    ],
+    "avoid": "Du lässt dich in der Kobra ins Hohlkreuz fallen und hängst in den Schultern.",
+    "feel": "Im Hund in Schultern, Rücken und Beinrückseite, in der Kobra vorne an Hüften und Bauch",
+    "slalom": "Der Wechsel von der langen Rückseite zur offenen Vorderseite löst die gebeugte Haltung aus dem Boot und bereitet die Schultern auf lange Züge und hohe Stützen vor.",
+    "caution": "Bei Beschwerden im unteren Rücken halte die Kobra flach oder nimm die Variante zum Bären.",
+    "motion": "Cycle of 8 s. POSITION A (downward dog, start): hands flat and shoulder-width, feet hip-width about 100 cm behind the hands, hips high so the body forms an inverted V, arms and back in one straight line at about 50 degrees to the floor, legs nearly straight, heels low, head between the upper arms. POSITION B (cobra with straight arms): shoulders moved forward to above the wrists, arms straight and vertical, hips lowered to just above the mat, legs straight behind with the toes still tucked under, thighs just above or lightly touching the mat, spine in a smooth backward arch, chest lifted and facing forward, head upright looking ahead. 0 to 4 s: A to B, the shoulders glide forward through a plank-like line while the hips sink. 4 to 8 s: B to A, the hips push back and up. Hands and feet never move. Smooth, no pauses."
+  },
+  {
+    "id": "gf-baer-hund",
+    "name": "Bär zu Hund",
+    "alias": "Bear to Down Dog",
+    "family": "gf-hund-kobra",
+    "variant": "zum Bären",
+    "kind": "dynamisch",
+    "position": "vierfuessler",
+    "regions": [
+      "schulter_lat",
+      "waden_sprunggelenk",
+      "hamstrings"
+    ],
+    "equipment": [],
+    "unilateral": false,
+    "level": 2,
+    "seconds": 45,
+    "tempo": 6,
+    "tags": [
+      "aufwaermen",
+      "morgen",
+      "c1"
+    ],
+    "intro": "Aus dem Bären, dem Vierfüssler mit schwebenden Knien, schiebst du das Gesäss nach hinten oben in den Hund und kommst wieder zurück: ein Flow ohne Rückbeuge für Schultern, Rücken und Waden.",
+    "steps": [
+      "Geh in den Vierfüssler, stell die Zehen auf und heb die Knie eine Handbreit vom Boden: Das ist der Bär.",
+      "Schieb das Gesäss nach hinten oben und strecke die Beine, bis Arme und Rücken eine Linie bilden.",
+      "Beuge die Knie und senke sie langsam zurück, bis sie wieder knapp über dem Boden schweben."
+    ],
+    "cues": [
+      "Knie schweben knapp über dem Boden",
+      "Hände schieben den Boden weg",
+      "Rücken bleibt lang"
+    ],
+    "avoid": "Im Bären wird der Rücken rund oder die Knie wandern weit nach oben, statt knapp über dem Boden zu bleiben.",
+    "feel": "In Schultern und seitlichem Rücken, im Hund hinten an Waden und Oberschenkeln",
+    "slalom": "Die Schultern drücken mit langem Arm über Kopfhöhe, so wie bei einer hohen Stütze, und die Sprunggelenke beugen sich als Ausgleich zur gestreckten Fusshaltung im C1.",
+    "motion": "Cycle of 6 s. POSITION A (bear, start): on hands and feet, hands flat under the shoulders, knees bent 90 degrees under the hips and hovering about 5 cm above the mat, toes tucked under, back flat and horizontal, head in line with the spine. POSITION B (downward dog): hips pushed back and up so the body forms an inverted V, legs nearly straight (knees about 10 degrees bent), heels sinking toward the floor, arms and back in one straight line at about 50 degrees to the floor, head between the upper arms. 0 to 3 s: A to B, the knees straighten while the hips travel back and up. 3 to 6 s: B to A, the knees bend and lower until they hover just above the mat again. Hands and feet never move, the knees never touch the floor."
+  },
+  {
+    "id": "gf-hocke-vorbeuge",
+    "name": "Hocke zu Vorbeuge",
+    "alias": "Squat to Stand",
+    "family": "gf-hocke-vorbeuge",
+    "variant": null,
+    "kind": "dynamisch",
+    "position": "hocke",
+    "regions": [
+      "hamstrings",
+      "adduktoren",
+      "waden_sprunggelenk"
+    ],
+    "equipment": [],
+    "unilateral": false,
+    "level": 2,
+    "seconds": 45,
+    "tempo": 6,
+    "tags": [
+      "aufwaermen",
+      "morgen",
+      "k1",
+      "c1"
+    ],
+    "intro": "Du hältst die Fussspitzen fest und wechselst zwischen tiefer Hocke und Vorbeuge mit gestreckten Beinen: Sprunggelenke, Hüften und Beinrückseite werden im Wechsel bewegt.",
+    "steps": [
+      "Steh etwas breiter als hüftbreit, die Füsse leicht nach aussen gedreht, und geh in die tiefe Hocke.",
+      "Greif die Fussspitzen, die Ellbogen drücken die Knie sanft nach aussen, die Brust hebt sich.",
+      "Schieb das Gesäss nach oben und strecke die Beine, so weit es geht, die Hände bleiben an den Füssen.",
+      "Sink zurück in die Hocke und richte die Brust wieder auf."
+    ],
+    "cues": [
+      "Fersen bleiben am Boden",
+      "In der Hocke: Brust hoch",
+      "Oben: Gesäss zur Decke"
+    ],
+    "avoid": "Die Fersen heben ab oder die Knie fallen in der Hocke nach innen.",
+    "feel": "In der Hocke in Leisten und Sprunggelenken, in der Vorbeuge hinten an den Oberschenkeln",
+    "slalom": "Tiefe Hüftbeugung mit geöffneten Knien und eine lange Beinrückseite: Beides zusammen ergibt die aufrechte Sitzposition im K1.",
+    "caution": "Bei Knieschmerzen in der tiefen Hocke geh nur so tief, wie es schmerzfrei bleibt.",
+    "motion": "Cycle of 6 s. POSITION A (deep squat, start): feet about 45 cm apart, toes turned out about 20 degrees, heels flat on the floor, knees fully bent (about 135 degrees) and pointing out over the toes, hips low between the heels, torso inclined forward about 30 degrees with the chest lifted, both hands holding the toes, elbows inside the knees pressing them gently outward, head upright. POSITION B (forward fold): hips raised high, knees nearly straight (about 10 degrees bent), torso hanging forward and down over the legs, hands still holding the toes, head hanging. 0 to 3 s: A to B, the hips rise while the hands keep hold of the feet. 3 to 6 s: B to A, the hips sink and the chest lifts. Feet and hands never move."
+  },
+  {
+    "id": "gf-hocke-vorbeuge-rotation",
+    "name": "Hocke mit Aufdrehen zu Vorbeuge",
+    "alias": "Squat to Stand with Reach",
+    "family": "gf-hocke-vorbeuge",
+    "variant": "mit Rotation",
+    "kind": "dynamisch",
+    "position": "hocke",
+    "regions": [
+      "bws_rotation",
+      "adduktoren",
+      "hamstrings"
+    ],
+    "equipment": [],
+    "unilateral": false,
+    "level": 2,
+    "seconds": 60,
+    "tempo": 10,
+    "tags": [
+      "aufwaermen",
+      "morgen",
+      "k1"
+    ],
+    "intro": "In der tiefen Hocke dreht zuerst ein Arm und dann der andere zur Decke auf, danach strecken sich die Beine zur Vorbeuge: Brustwirbelsäule, Leisten und Beinrückseite in einer Schleife.",
+    "steps": [
+      "Geh in die tiefe Hocke und greif mit beiden Händen die Fussspitzen.",
+      "Strecke den linken Arm zur Decke und dreh den Brustkorb nach links auf, der rechte Ellbogen drückt das rechte Knie nach aussen. Dann das Gleiche nach rechts.",
+      "Greif wieder beide Füsse, schieb das Gesäss hoch und strecke die Beine zur Vorbeuge.",
+      "Sink zurück in die Hocke."
+    ],
+    "cues": [
+      "Blick folgt der Hand nach oben",
+      "Fersen bleiben am Boden",
+      "Knie zeigen nach aussen"
+    ],
+    "avoid": "Du lehnst dich beim Aufdrehen zur Seite, statt um die Wirbelsäule zu drehen.",
+    "feel": "Beim Aufdrehen zwischen den Schulterblättern, in der Hocke in den Leisten, in der Vorbeuge hinten an den Oberschenkeln",
+    "slalom": "Drehen mit gebeugten, geöffneten Hüften: So arbeitet der Oberkörper im K1 bei jedem Schlag über dem verkeilten Becken.",
+    "caution": "Bei Knieschmerzen in der tiefen Hocke geh nur so tief, wie es schmerzfrei bleibt.",
+    "motion": "Cycle of 10 s. POSITION A (start): deep squat as in the base (feet about 45 cm apart, toes out about 20 degrees, heels flat, hips low between the heels, knees pointing out over the toes, torso inclined forward about 30 degrees), both hands holding the toes, elbows inside the knees. 0 to 2 s: the left hand lets go and the left arm sweeps out and up to point at the ceiling, thorax rotates about 50 degrees to the left, head turns to look at the left hand; the right hand keeps hold of the right toes and the right elbow presses against the inside of the right knee. 2 to 3 s: the left hand returns to the left toes. 3 to 5 s: mirror image with the right arm, thorax rotates about 50 degrees to the right. 5 to 6 s: the right hand returns to the toes. 6 to 8 s (POSITION B): the hips rise, the knees straighten to nearly straight, the torso hangs forward over the legs, hands stay at the toes, head hangs. 8 to 10 s: back down to A, the chest lifts. Feet never move."
+  },
+  {
+    "id": "gf-vorbeuge-halb",
+    "name": "Vorbeuge zu halber Aufrichtung",
+    "alias": "Half Lift",
+    "family": "gf-vorbeuge-halb",
+    "variant": null,
+    "kind": "dynamisch",
+    "position": "stehend",
+    "regions": [
+      "hamstrings",
+      "lws_ql"
+    ],
+    "equipment": [],
+    "unilateral": false,
+    "level": 1,
+    "seconds": 45,
+    "tempo": 6,
+    "tags": [
+      "aufwaermen",
+      "morgen",
+      "k1"
+    ],
+    "intro": "Aus der Vorbeuge hebst du den Oberkörper mit langem, geradem Rücken bis in die Waagrechte und sinkst wieder ab: Die Beinrückseite wird warm und der Rücken übt, aus der Hüfte zu kippen.",
+    "steps": [
+      "Steh hüftbreit und beuge dich mit leicht gebeugten Knien nach vorne, die Arme hängen zum Boden.",
+      "Setz die Fingerspitzen an die Schienbeine und heb den Oberkörper, bis der Rücken gerade und etwa waagrecht ist.",
+      "Zieh das Brustbein nach vorne, das Gesäss schiebt nach hinten.",
+      "Lass den Oberkörper wieder locker nach unten sinken."
+    ],
+    "cues": [
+      "Rücken lang und gerade",
+      "Gesäss nach hinten, Brustbein nach vorne",
+      "Nacken in der Verlängerung"
+    ],
+    "avoid": "Du hebst nur den Kopf und der Rücken bleibt rund, statt aus der Hüfte zu kippen.",
+    "feel": "Hinten an beiden Oberschenkeln, beim Anheben in den Rückenstreckern",
+    "slalom": "Das Kippen aus der Hüfte mit geradem Rücken ist die Vorlage, die du im K1 für einen langen Schlag weit vorne brauchst.",
+    "motion": "Cycle of 6 s. POSITION A (forward fold, start): standing with feet hip-width, knees about 15 degrees bent, torso hanging forward and down over the legs (nearly vertical, head down), spine rounded, arms hanging, fingertips at the floor in front of the toes. POSITION B (half lift): torso raised until it is parallel to the floor, spine straight from tailbone to the crown of the head, hips pushed back about 10 cm, fingertips resting on the shins just below the knees, arms straight, head in line with the spine looking at the floor. 0 to 3 s: A to B, the back straightens as the chest moves forward. 3 to 6 s: B to A, the torso folds down and the spine relaxes into the rounded hang. Knees stay slightly bent, feet never move."
+  },
+  {
+    "id": "gf-seitschritt-armbogen",
+    "name": "Seitschritt mit Armbogen im Wechsel",
+    "alias": "Lateral Lunge with Overhead Reach",
+    "family": "gf-seitschritt-armbogen",
+    "variant": null,
+    "kind": "dynamisch",
+    "position": "stehend",
+    "regions": [
+      "lws_ql",
+      "adduktoren",
+      "huefte_seitlich"
+    ],
+    "equipment": [],
+    "unilateral": false,
+    "level": 2,
+    "seconds": 60,
+    "tempo": 8,
+    "tags": [
+      "aufwaermen",
+      "morgen",
+      "k1",
+      "c1"
+    ],
+    "intro": "Ein grosser Schritt zur Seite in den seitlichen Ausfallschritt, dazu zieht der gegenüberliegende Arm in einem Bogen über den Kopf: Vom Fuss bis zur Hand wird die ganze Seitenlinie lang.",
+    "steps": [
+      "Steh aufrecht, die Füsse hüftbreit, die Arme hängen.",
+      "Mach einen grossen Schritt nach links, beuge das linke Knie und schieb das Gesäss nach hinten, das rechte Bein bleibt gestreckt.",
+      "Führ dabei den rechten Arm seitlich in einem Bogen über den Kopf nach links, die linke Hand stützt auf dem linken Oberschenkel.",
+      "Drück dich vom linken Fuss zurück in den Stand und geh zur anderen Seite."
+    ],
+    "cues": [
+      "Langer Bogen vom Fuss bis zur Hand",
+      "Knie zeigt über die Zehen",
+      "Brust zeigt nach vorne"
+    ],
+    "avoid": "Der Oberkörper dreht zum Boden oder das gebeugte Knie fällt nach innen.",
+    "feel": "In der Flanke und an der Beininnenseite der gestreckten Seite, seitlich im Gesäss der gebeugten Seite",
+    "slalom": "Gewicht auf eine Hüfte verlagern und die andere Seite lang machen: Das ist der Hüftknick beim Kanten, hier gross und langsam geübt.",
+    "caution": "Beuge das Knie nur so tief, wie es schmerzfrei geht.",
+    "motion": "Cycle of 8 s. START: standing upright, feet hip-width, arms hanging. 0 to 2.5 s: the left foot lifts and steps about 80 cm out to the left (stance now about 100 cm wide, toes nearly forward), the left knee bends to about 80 degrees over the left toes, the hips move back and to the left, the right leg stays straight with the foot flat; at the same time the right arm sweeps out to the side and up overhead and reaches to the left, the torso side-bends about 25 degrees to the left with no more than 15 degrees of forward lean, chest facing forward, the left hand rests on the left thigh; the right side from foot to fingertips forms one long curved line. 2.5 to 4 s: push off the left foot, the left foot returns next to the right (hip-width), torso upright, the right arm lowers the same way. 4 to 6.5 s: mirror image to the right (right foot steps out, right knee bends, left arm sweeps overhead and reaches to the right). 6.5 to 8 s: back to the start. Unlike the wide-stance weight shift, the feet come back together after every repetition."
+  },
+  {
+    "id": "gf-seitschritt-armbogen-paddel",
+    "name": "Seitschritt mit Paddel über Kopf",
+    "family": "gf-seitschritt-armbogen",
+    "variant": "mit Paddel",
+    "kind": "dynamisch",
+    "position": "stehend",
+    "regions": [
+      "lws_ql",
+      "schulter_lat",
+      "adduktoren"
+    ],
+    "equipment": [
+      "paddel"
+    ],
+    "unilateral": false,
+    "level": 2,
+    "seconds": 60,
+    "tempo": 8,
+    "tags": [
+      "aufwaermen",
+      "k1",
+      "c1"
+    ],
+    "intro": "Der Seitschritt mit dem Paddel in beiden Händen über dem Kopf: Die Neigung zur gebeugten Seite zieht Flanke und breiten Rückenmuskel der Gegenseite lang.",
+    "steps": [
+      "Fass das Paddel etwas breiter als schulterbreit und strecke es mit langen Armen über den Kopf.",
+      "Mach einen grossen Schritt nach links und beuge das linke Knie, das rechte Bein bleibt gestreckt.",
+      "Neige dich mit dem Paddel nach links, die Arme bleiben neben den Ohren.",
+      "Drück dich zurück in den Stand und geh zur anderen Seite."
+    ],
+    "cues": [
+      "Arme bleiben lang neben den Ohren",
+      "Rippen nicht nach vorne schieben",
+      "Gleichmässig links und rechts"
+    ],
+    "avoid": "Du fällst ins Hohlkreuz und die Arme sinken vor das Gesicht.",
+    "feel": "Von der Hüfte über die Flanke bis unter die Achsel der gestreckten Seite",
+    "slalom": "Seitlich lang werden mit dem Paddel über dem Kopf: So biegst du den Oberkörper an einem Torstab vorbei, ohne die Kante zu verlieren.",
+    "caution": "Bei Schulterbeschwerden halte das Paddel tiefer, etwa auf Stirnhöhe vor dir.",
+    "motion": "Same stepping pattern and timing as the base (cycle of 8 s). The stick is held overhead in both hands, grip about 80 cm wide, palms forward, arms straight beside the ears, stick horizontal. START: standing upright, feet hip-width, stick overhead. 0 to 2.5 s: the left foot steps about 80 cm out to the left, the left knee bends to about 80 degrees over the toes, hips back and to the left, right leg straight with the foot flat; the torso side-bends about 25 degrees to the left so the stick tilts with the shoulders (left end lower), arms stay straight and in line with the torso; forward lean no more than 15 degrees. 2.5 to 4 s: push back to standing, feet hip-width, stick horizontal overhead. 4 to 6.5 s: mirror image to the right. 6.5 to 8 s: back to standing. No arching of the lower back, the arms never drop in front of the face."
+  },
+  {
+    "id": "gf-halbmond-kniestand",
+    "name": "Halbmond-Flow im Kniestand",
+    "family": "gf-halbmond-kniestand",
+    "variant": null,
+    "kind": "dynamisch",
+    "position": "kniend",
+    "regions": [
+      "lws_ql",
+      "huefte_seitlich",
+      "schulter_lat"
+    ],
+    "equipment": [],
+    "unilateral": false,
+    "level": 1,
+    "seconds": 60,
+    "tempo": 8,
+    "tags": [
+      "aufwaermen",
+      "morgen",
+      "k1",
+      "c1"
+    ],
+    "intro": "Im aufrechten Kniestand neigst du dich im Wechsel nach rechts und links, ein Arm zieht über den Kopf und das Becken schiebt zur Gegenseite: So werden beide Flanken und die seitlichen Hüften warm.",
+    "steps": [
+      "Knie auf beiden Knien, hüftbreit, die Hüften sind gestreckt, das Gesäss ist leicht angespannt.",
+      "Führ den linken Arm über den Kopf und neige dich nach rechts, das Becken schiebt dabei leicht nach links.",
+      "Komm durch die Mitte zurück und wechsle: rechter Arm über den Kopf, Neigung nach links, Becken nach rechts."
+    ],
+    "cues": [
+      "Becken schiebt zur Gegenseite",
+      "Hüften bleiben gestreckt",
+      "Brust zeigt nach vorne"
+    ],
+    "avoid": "Du knickst in der Hüfte nach hinten ab oder drehst die Brust zum Boden.",
+    "feel": "Abwechselnd in der linken und rechten Flanke bis aussen an die Hüfte",
+    "slalom": "Jede Kante kommt aus diesem seitlichen Biegen zwischen Rippen und Becken, und im C1 kniest du dabei genau so über den Hüften.",
+    "caution": "Polstere die Knie, wenn sie am Boden drücken.",
+    "motion": "Cycle of 8 s. START: tall kneeling, both knees on the mat hip-width apart, shins pointing straight back, tops of the feet flat, hips extended so thighs and torso are vertical, arms at the sides. 0 to 3 s: the left arm sweeps out to the side and up overhead and reaches to the right, the torso side-bends about 30 degrees to the right, the pelvis glides about 6 cm to the left, the right hand slides down the outside of the right thigh. 3 to 4 s: back to upright, the left arm lowers sideways. 4 to 7 s: mirror image: the right arm sweeps overhead and reaches to the left, torso side-bends about 30 degrees to the left, pelvis glides about 6 cm to the right. 7 to 8 s: back to upright. Pure frontal-plane movement, no rotation and no forward lean, the hips stay extended."
+  },
+  {
+    "id": "gf-halbmond-kniestand-fersensitz",
+    "name": "Halbmond-Flow aus dem Fersensitz",
+    "family": "gf-halbmond-kniestand",
+    "variant": "mit Absitzen",
+    "kind": "dynamisch",
+    "position": "kniend",
+    "regions": [
+      "lws_ql",
+      "huefte_seitlich",
+      "quadrizeps"
+    ],
+    "equipment": [],
+    "unilateral": false,
+    "level": 2,
+    "seconds": 60,
+    "tempo": 10,
+    "tags": [
+      "aufwaermen",
+      "c1"
+    ],
+    "intro": "Aus dem Fersensitz hebst du dich in den Kniestand und in die Seitneigung, dann setzt du dich wieder ab: Zur Flanke kommen Hüftstreckung, Oberschenkel und Fussrücken dazu.",
+    "steps": [
+      "Setz dich auf die Fersen, die Fussrücken liegen flach, der Oberkörper ist aufrecht.",
+      "Schieb die Hüften nach vorne oben in den Kniestand und führ gleichzeitig den linken Arm über den Kopf nach rechts.",
+      "Setz dich ruhig zurück auf die Fersen, der Arm sinkt.",
+      "Heb dich wieder an, jetzt mit dem rechten Arm über den Kopf nach links."
+    ],
+    "cues": [
+      "Hüften oben ganz strecken",
+      "Ruhig absetzen, nicht fallen lassen",
+      "Arm lang über den Kopf"
+    ],
+    "avoid": "Du bleibst in der Hüfte gebeugt und neigst dich nach vorne statt zur Seite.",
+    "feel": "In der Flanke der Armseite, vorne an den Hüften und beim Absitzen an Oberschenkeln und Fussrücken",
+    "slalom": "Das ist die Kniehaltung im C1 in Bewegung: Die Füsse bleiben gestreckt, die Hüften strecken sich aus der tiefen Beugung und der Rumpf biegt sich zur Seite.",
+    "caution": "Wenn der Fersensitz in den Knien schmerzt, bleib bei der Form im Kniestand.",
+    "motion": "Cycle of 10 s. POSITION A (start): sitting on the heels, knees hip-width on the mat, tops of the feet flat (feet pointed), torso upright, hands resting on the thighs. 0 to 3 s: the hips push forward and up into tall kneeling (thighs and torso vertical, hips fully extended); during the rise the left arm sweeps out to the side and overhead and reaches to the right, the torso side-bends about 25 degrees to the right, the right arm hangs beside the right thigh. 3 to 5 s: the torso returns to upright, the arm lowers sideways and the hips sink back down onto the heels (A). 5 to 8 s: rise again, now the right arm sweeps overhead and the torso side-bends about 25 degrees to the left. 8 to 10 s: back down to A. Knees and feet never move, the lowering is controlled, no dropping."
+  },
+  {
+    "id": "gf-rockback-rotation",
+    "name": "Vierfüssler-Rock-back mit Rotation",
+    "alias": "Rock Back with T-Spine Rotation",
+    "family": "gf-rockback-rotation",
+    "variant": null,
+    "kind": "dynamisch",
+    "position": "vierfuessler",
+    "regions": [
+      "bws_rotation",
+      "schulter_lat",
+      "brust"
+    ],
+    "equipment": [],
+    "unilateral": true,
+    "level": 1,
+    "seconds": 45,
+    "tempo": 8,
+    "tags": [
+      "aufwaermen",
+      "morgen",
+      "k1",
+      "c1"
+    ],
+    "intro": "Du schiebst das Gesäss zu den Fersen, fädelst dort den linken Arm unter dem Körper durch und drehst ihn weit zur Decke auf, dann kommst du zurück in den Vierfüssler.",
+    "steps": [
+      "Starte im Vierfüssler und schieb das Gesäss nach hinten Richtung Fersen, die Hände bleiben stehen, die Arme werden lang.",
+      "Fädle den linken Arm unter dem rechten durch, die linke Schulter sinkt Richtung Boden.",
+      "Zieh den Arm zurück und strecke ihn in einem Bogen zur Decke, Brust und Blick drehen nach links mit.",
+      "Setz die Hand ab und schieb dich nach vorne in den Vierfüssler."
+    ],
+    "cues": [
+      "Gesäss bleibt hinten beim Drehen",
+      "Rechte Hand drückt in den Boden",
+      "Blick folgt der linken Hand"
+    ],
+    "avoid": "Das Becken weicht beim Aufdrehen zur Seite aus, statt ruhig über den Fersen zu bleiben.",
+    "feel": "Beim Zurückschieben unter den Achseln und im unteren Rücken, beim Drehen zwischen den Schulterblättern und vorne an der linken Brust",
+    "slalom": "Tief gebeugte Hüften und ein Brustkorb, der trotzdem frei dreht: Das verlangt jeder Schlag im Boot, im C1 sogar in fast derselben Kniehaltung.",
+    "caution": "Wenn die tiefe Kniebeugung schmerzt, schieb das Gesäss nur so weit zurück, wie es angenehm ist.",
+    "motion": "Cycle of 8 s. POSITION A (start): quadruped, hands under the shoulders, knees under the hips, tops of the feet flat, back horizontal. POSITION B (0 to 2 s): the hips travel back and down toward the heels (hips resting on or just above the heels), knees deeply bent, the hands stay planted so the arms are long in front and the torso slopes down from the hips to the shoulders by about 20 degrees, head between the arms. POSITION C (2 to 4 s): staying back, the left hand slides along the floor under the chest to the right, palm up, passing behind the right wrist; the left shoulder lowers to about 10 cm above the mat, thorax rotates about 35 degrees to the right, the right elbow bends slightly. POSITION D (4 to 6 s): the left arm pulls out and sweeps to the left and up to point at the ceiling, the right arm straightens, thorax rotates about 50 degrees to the left, head turns to look at the left hand; the hips stay back and centred over the heels. 6 to 8 s: the left hand returns to its place on the floor and the body rocks forward to A."
+  },
+  {
+    "id": "gf-paddel-rotation-stand",
+    "name": "Rumpfrotation im Stand mit Paddel",
+    "family": "gf-paddel-rotation-stand",
+    "variant": null,
+    "kind": "dynamisch",
+    "position": "stehend",
+    "regions": [
+      "bws_rotation",
+      "lws_ql"
+    ],
+    "equipment": [
+      "paddel"
+    ],
+    "unilateral": false,
+    "level": 1,
+    "seconds": 60,
+    "tempo": 6,
+    "tags": [
+      "aufwaermen",
+      "k1",
+      "c1"
+    ],
+    "intro": "Du hältst das Paddel wie im Boot vor der Brust und drehst den Oberkörper im Stand ruhig nach links und rechts: Arme und Paddel bleiben ein festes Viereck, die Drehung kommt aus dem Rumpf.",
+    "steps": [
+      "Steh schulterbreit mit weichen Knien und halte das Paddel mit deinem gewohnten Griff auf Brusthöhe vor dir, die Arme sind fast gestreckt.",
+      "Dreh den Brustkorb nach links, das Paddel bleibt vor dem Brustbein, die rechte Ferse darf sich mitdrehen.",
+      "Dreh ohne Pause durch die Mitte nach rechts."
+    ],
+    "cues": [
+      "Paddel bleibt vor dem Brustbein",
+      "Drehen aus dem Rumpf, nicht aus den Armen",
+      "Knie bleiben weich"
+    ],
+    "avoid": "Die Arme schwingen das Paddel herum, während der Brustkorb fast still bleibt.",
+    "feel": "Rund um die Taille und in der mittleren Wirbelsäule",
+    "slalom": "Das feste Viereck aus Armen, Brust und Paddel, das mit dem Rumpf dreht, ist die Grundlage für jeden kräftigen Zug und jeden Bogenschlag.",
+    "motion": "START: standing, feet shoulder-width, knees soft (about 10 degrees bent), torso upright. The stick is held horizontally in front of the chest at sternum height with both hands about 70 cm apart, palms down, arms pointing forward and nearly straight (elbows bent about 20 degrees): seen from above, arms, chest and stick form a rectangle. MOVE: thorax rotates about 60 degrees to the left, the pelvis follows about 20 degrees, the right heel lifts and the right foot pivots on the ball; the rectangle of arms and stick stays rigid and turns with the chest, the stick stays horizontal and in front of the sternum, head turns with the chest. Then through the centre to about 60 degrees to the right, with the left heel pivoting. CYCLE 6 s: centre to left 1.5 s, back to centre 1.5 s, centre to right 1.5 s, back to centre 1.5 s, smooth like a pendulum, no jerk at the ends."
+  },
+  {
+    "id": "gf-paddel-rotation-stand-vorgebeugt",
+    "name": "Rumpfrotation vorgebeugt mit Paddel",
+    "alias": "Bent-Over Twist",
+    "family": "gf-paddel-rotation-stand",
+    "variant": "vorgebeugt",
+    "kind": "dynamisch",
+    "position": "stehend",
+    "regions": [
+      "bws_rotation",
+      "hamstrings",
+      "lws_ql"
+    ],
+    "equipment": [
+      "paddel"
+    ],
+    "unilateral": false,
+    "level": 2,
+    "seconds": 45,
+    "tempo": 6,
+    "tags": [
+      "aufwaermen",
+      "k1"
+    ],
+    "intro": "Mit dem Paddel auf den Schultern kippst du mit geradem Rücken aus der Hüfte nach vorne und drehst langsam, bis die Paddelenden abwechselnd zum Boden zeigen: Rotation und Beinrückseite arbeiten zusammen.",
+    "steps": [
+      "Steh etwas breiter als schulterbreit, leg das Paddel quer über die Schultern und fass es weit aussen.",
+      "Kipp mit geradem Rücken aus der Hüfte nach vorne, etwa bis zur halben Vorbeuge, die Knie sind leicht gebeugt.",
+      "Dreh den Brustkorb langsam nach links, bis das rechte Paddelende zum Boden zeigt, dann durch die Mitte nach rechts."
+    ],
+    "cues": [
+      "Rücken bleibt gerade",
+      "Becken und Knie bleiben ruhig",
+      "Langsam drehen, ohne Schwung"
+    ],
+    "avoid": "Der Rücken wird rund und das Paddel schwingt mit Tempo von Seite zu Seite.",
+    "feel": "In der Brustwirbelsäule und der Taille, dazu hinten an den Oberschenkeln",
+    "slalom": "Vorlage und Rotation zugleich: So greifst du im K1 weit nach vorne ins Wasser, ohne im unteren Rücken einzusinken.",
+    "caution": "Bei Beschwerden im unteren Rücken bleib bei der aufrechten Form.",
+    "motion": "START: standing with the feet a little wider than shoulder-width, knees bent about 15 degrees, stick across the shoulders behind the neck, hands wide near the ends, elbows bent. The torso hinges forward from the hips with a straight back to about 50 degrees from vertical (hips pushed back) and keeps this inclination for the whole exercise. MOVE: thorax rotates about 50 degrees to the left around the inclined spine: the left end of the stick rises toward the ceiling, the right end sinks toward the floor in front of the feet; head stays in line with the chest. Then through the centre (stick parallel to the floor) to about 50 degrees to the right: the left end sinks toward the floor, the right end rises. Pelvis and legs stay still, the back stays straight. CYCLE 6 s: centre to left 1.5 s, back to centre 1.5 s, centre to right 1.5 s, back to centre 1.5 s, slow and even, no swing."
+  },
+  {
+    "id": "gf-paddel-acht",
+    "name": "Paddel-Acht im Stand",
+    "family": "gf-paddel-acht",
+    "variant": null,
+    "kind": "dynamisch",
+    "position": "stehend",
+    "regions": [
+      "bws_rotation",
+      "schulter_lat"
+    ],
+    "equipment": [
+      "paddel"
+    ],
+    "unilateral": false,
+    "level": 1,
+    "seconds": 60,
+    "tempo": 4,
+    "tags": [
+      "aufwaermen",
+      "k1"
+    ],
+    "intro": "Trockenpaddeln im Stand: Das Paddel zieht links und rechts am Körper vorbei, die Hände zeichnen eine liegende Acht, Rumpf und Hüften drehen bei jedem Zug mit.",
+    "steps": [
+      "Steh schulterbreit mit weichen Knien und halte das Paddel mit deinem gewohnten Griff vor der Brust.",
+      "Dreh die linke Schulter vor, führ das linke Ende vorne tief und zieh es mit der Rumpfdrehung bis neben die linke Hüfte, die rechte Hand schiebt auf Augenhöhe nach vorne.",
+      "Heb die linke Hand an und geh fliessend in den Zug auf der rechten Seite über.",
+      "Verlagere das Gewicht bei jedem Zug leicht auf das Bein der Zugseite."
+    ],
+    "cues": [
+      "Der Zug kommt aus der Drehung",
+      "Obere Hand auf Augenhöhe",
+      "Rund und ohne Stopp"
+    ],
+    "avoid": "Die Arme ziehen allein und der Brustkorb bleibt starr nach vorne gerichtet.",
+    "feel": "In der Taille, zwischen den Schulterblättern und rund um die Schultern",
+    "slalom": "Du wärmst genau die Bewegung auf, die gleich im Boot kommt: Zug aus der Rumpfdrehung, lange Arme, runder Rhythmus.",
+    "motion": "START: standing, feet shoulder-width, knees bent about 15 degrees, stick held in front of the chest, hands about 70 cm apart, palms down. CYCLE 4 s, a continuous kayak forward-paddling motion in the air. 0 s (left catch): thorax rotated about 40 degrees to the right so the left shoulder is forward; left arm almost straight, reaching forward and down to the left, left hand at about hip height 50 cm in front of the body; right hand close to the right shoulder at eye height; the stick slopes down to the left, its left end pointing at the floor in front of the left foot. 0 to 1.5 s (left pull): thorax rotates to about 40 degrees left, the left hand travels back to beside the left hip, the right hand pushes forward and across at eye level until the right arm is nearly straight; the pelvis follows about 15 degrees, the weight shifts slightly onto the left leg. 1.5 to 2 s (transition): the left hand lifts up and out to shoulder height while the right hand drops forward and down to the right: right catch, the mirror image of 0 s. 2 to 3.5 s: right pull, mirror image. 3.5 to 4 s: transition back to the left catch. Seen from the front each hand traces a flat figure of eight. Head keeps facing forward, feet stay planted."
+  },
+  {
+    "id": "gf-paddel-acht-sitz",
+    "name": "Paddel-Acht im Sitzen",
+    "family": "gf-paddel-acht",
+    "variant": "im Sitzen",
+    "kind": "dynamisch",
+    "position": "sitzend",
+    "regions": [
+      "bws_rotation",
+      "schulter_lat"
+    ],
+    "equipment": [
+      "paddel"
+    ],
+    "unilateral": false,
+    "level": 2,
+    "seconds": 60,
+    "tempo": 4,
+    "tags": [
+      "aufwaermen",
+      "k1"
+    ],
+    "intro": "Trockenpaddeln in der Sitzhaltung des K1: Beine vorne, Knie leicht gebeugt und geöffnet, das Becken aufgerichtet, der Rumpf dreht über den ruhigen Beinen.",
+    "steps": [
+      "Setz dich auf den Boden, die Beine vorne, die Knie leicht gebeugt und nach aussen geöffnet wie im Boot, die Fersen am Boden.",
+      "Richte das Becken auf, bis du auf den Sitzbeinhöckern sitzt, und halte das Paddel vor der Brust. Fällt das schwer, setz dich auf ein Kissen.",
+      "Paddle in ruhigen Zügen links und rechts, der Brustkorb dreht bei jedem Zug mit, die Knie bleiben still."
+    ],
+    "cues": [
+      "Auf den Sitzbeinhöckern bleiben",
+      "Brustbein hoch",
+      "Knie bleiben ruhig"
+    ],
+    "avoid": "Das Becken kippt nach hinten und der Rücken wird rund, sobald du drehst.",
+    "feel": "In der Taille und im mittleren Rücken, dazu Haltearbeit in Hüftbeugern und unterem Rücken",
+    "slalom": "Das ist deine Bootshaltung ohne Boot: Du übst, aufrecht zu sitzen und frei zu drehen, bevor Wasser und Tore dazukommen.",
+    "motion": "START: sitting on the mat with the legs in front, knees bent about 30 degrees and opened outward about 25 degrees each (heels on the floor about 30 cm apart, feet turned out as on a kayak footrest), pelvis upright, spine tall and vertical. Stick held in front of the chest, hands about 70 cm apart, palms down. CYCLE 4 s, the same kayak paddling motion as the standing base. 0 s (left catch): thorax rotated about 40 degrees to the right, left arm almost straight reaching forward and down beside the left shin, right hand near the right shoulder at eye height. 0 to 1.5 s (left pull): thorax rotates to about 40 degrees left, the left hand travels back to beside the left hip about 15 cm above the floor, the right hand pushes forward and across at eye level. 1.5 to 2 s: transition to the right catch. 2 to 3.5 s: right pull, mirror image. 3.5 to 4 s: transition back. Pelvis and legs stay completely still, the torso stays vertical, no leaning back and no rounding."
+  },
+  {
+    "id": "gf-paddel-acht-kniend",
+    "name": "Paddel-Acht kniend mit Übergreifen",
+    "family": "gf-paddel-acht",
+    "variant": "kniend mit Übergreifen",
+    "kind": "dynamisch",
+    "position": "kniend",
+    "regions": [
+      "bws_rotation",
+      "schulter_lat",
+      "lws_ql"
+    ],
+    "equipment": [
+      "paddel"
+    ],
+    "unilateral": true,
+    "level": 2,
+    "seconds": 45,
+    "tempo": 6,
+    "tags": [
+      "aufwaermen",
+      "c1"
+    ],
+    "intro": "Trockenpaddeln in der Kniehaltung des C1: ein Zug auf der linken Seite, dann greifst du ohne Griffwechsel vorne über und ziehst rechts.",
+    "steps": [
+      "Knie breit auf beiden Knien, der Oberkörper ist aufrecht. Die rechte Hand hält das Paddel oben am Griff, die linke tiefer am Schaft.",
+      "Zieh das Paddel links am Körper vorbei nach hinten, der Rumpf dreht mit dem Zug nach links.",
+      "Heb das Paddel vorne über und dreh den Oberkörper weit nach rechts, bis die linke Hand rechts vorne tief ist, und zieh dort einen Zug.",
+      "Komm vorne herum zurück auf die linke Seite."
+    ],
+    "cues": [
+      "Brustkorb dreht, Becken bleibt ruhig",
+      "Obere Hand bleibt hoch",
+      "Weit drehen statt nur hinübergreifen"
+    ],
+    "avoid": "Du greifst nur mit den Armen hinüber und der Brustkorb dreht kaum mit.",
+    "feel": "In der Taille und der Brustwirbelsäule, beim Übergreifen hinten an der linken Schulter",
+    "slalom": "Das Übergreifen ohne Griffwechsel verlangt im C1 die grösste Rumpfdrehung überhaupt, hier bereitest du sie ohne Wasserdruck vor.",
+    "caution": "Polstere die Knie, wenn sie am Boden drücken.",
+    "motion": "START: tall kneeling with the knees about 50 cm apart (wider than the hips), shins pointing straight back, tops of the feet flat, torso upright, as when kneeling in a C1. Grip like a single-blade paddle: the right hand holds the top end of the stick, the left hand holds the shaft about 70 cm lower. CYCLE 6 s. 0 s (catch on the left): the stick is steep, almost vertical, on the left side in front of the body, its lower end pointing at the floor about 50 cm in front of and 30 cm to the left of the left knee; the right (top) hand is at forehead height in front of the head, the left arm reaches forward and down, thorax rotated about 30 degrees to the right (left shoulder forward). 0 to 2 s (stroke on the left): the lower end travels back to beside the left hip, thorax rotates to about 20 degrees left, the top hand stays at forehead height and pushes forward. 2 to 3 s (cross over): the lower end lifts forward and swings in a low arc over the front to the right side, the hands do not change their grip; thorax rotates to about 60 degrees to the right, the left arm reaches across the body so the left hand is forward and low on the right side, the right hand is high above the right shoulder, the lower end points at the floor in front of and to the right of the right knee. 3 to 5 s (stroke on the right): the lower end travels back toward the right hip, thorax stays rotated at least 45 degrees to the right. 5 to 6 s: the lower end lifts and swings back over the front to the catch on the left. Pelvis and knees stay still and face forward the whole time; seen from above the lower end traces a figure of eight across the front."
+  },
+  {
+    "id": "gf-ausfallschritt-rueck",
+    "name": "Ausfallschritt zurück, Seitneigung",
+    "alias": "Reverse Lunge with Side Bend",
+    "family": "gf-ausfallschritt-rueck",
+    "variant": null,
+    "kind": "dynamisch",
+    "position": "stehend",
+    "regions": [
+      "hueftbeuger",
+      "huefte_seitlich",
+      "lws_ql"
+    ],
+    "equipment": [],
+    "unilateral": true,
+    "level": 2,
+    "seconds": 45,
+    "tempo": 6,
+    "tags": [
+      "aufwaermen",
+      "morgen",
+      "k1",
+      "c1"
+    ],
+    "intro": "Ein grosser Schritt zurück mit dem linken Bein, dazu zieht der linke Arm über den Kopf nach rechts: Hüftbeuger, seitliche Hüfte und Flanke der linken Seite werden in einer Bewegung lang.",
+    "steps": [
+      "Steh aufrecht, die Füsse hüftbreit.",
+      "Mach mit dem linken Bein einen grossen Schritt zurück und senke das Knie bis knapp über den Boden, das rechte Knie bleibt über dem Fuss.",
+      "Führ den linken Arm über den Kopf und neige dich leicht nach rechts, das linke Gesäss spannt an.",
+      "Senke den Arm und drück dich über das rechte Bein zurück in den Stand."
+    ],
+    "cues": [
+      "Linkes Gesäss anspannen",
+      "Arm lang über den Kopf nach rechts",
+      "Vorderes Knie über dem Fuss"
+    ],
+    "avoid": "Du fällst ins Hohlkreuz, statt das Becken aufzurichten und die linke Hüfte nach vorne zu schieben.",
+    "feel": "Von der linken Leiste über die Hüfte aussen bis in die linke Flanke",
+    "slalom": "Die Linie von der Leiste über die seitliche Hüfte zur Flanke ist im Boot dauernd gebeugt und unter Spannung, hier wird sie vor dem Training einmal ganz lang.",
+    "caution": "Wenn das vordere Knie schmerzt, mach den Schritt kürzer und geh weniger tief.",
+    "motion": "Cycle of 6 s. START: standing upright, feet hip-width, arms at the sides. 0 to 2.5 s: the left foot steps about 90 cm straight back and lands on the ball of the foot; both knees bend to about 90 degrees, the left knee stops about 5 cm above the mat, the right shin stays vertical, torso upright, pelvis tucked under; on the way down the left arm rises out to the side and overhead, the right hand goes to the right hip. 2.5 to 3.5 s: the left arm reaches up and to the right, the torso side-bends about 20 degrees to the right, the pelvis shifts a little to the left, so the left side from knee to fingertips forms one long curve. 3.5 to 6 s: the torso returns to upright, the arm lowers, the right leg pushes up and the left foot returns next to the right foot, standing tall. No forward lean and no arching of the lower back."
+  },
+  {
+    "id": "gf-ausfallschritt-rueck-rotation",
+    "name": "Ausfallschritt zurück mit Rotation",
+    "alias": "Reverse Lunge with Twist",
+    "family": "gf-ausfallschritt-rueck",
+    "variant": "mit Rotation",
+    "kind": "dynamisch",
+    "position": "stehend",
+    "regions": [
+      "hueftbeuger",
+      "bws_rotation"
+    ],
+    "equipment": [],
+    "unilateral": true,
+    "level": 2,
+    "seconds": 45,
+    "tempo": 6,
+    "tags": [
+      "aufwaermen",
+      "morgen",
+      "k1",
+      "c1"
+    ],
+    "intro": "Der Schritt zurück mit dem linken Bein, dazu dreht der Oberkörper über das vordere rechte Bein: Die linke Hüfte streckt sich, während der Brustkorb dreht.",
+    "steps": [
+      "Steh aufrecht und strecke die Arme auf Brusthöhe nach vorne, die Handflächen liegen aneinander.",
+      "Mach mit dem linken Bein einen grossen Schritt zurück und senke das Knie bis knapp über den Boden.",
+      "Dreh Brustkorb und Arme nach rechts über das vordere Bein, das Becken zeigt weiter nach vorne.",
+      "Dreh zurück zur Mitte und drück dich in den Stand."
+    ],
+    "cues": [
+      "Becken zeigt nach vorne",
+      "Vorderes Knie bleibt über dem Fuss",
+      "Aufrecht bleiben beim Drehen"
+    ],
+    "avoid": "Das vordere Knie fällt beim Drehen nach innen oder das Becken dreht mit.",
+    "feel": "Vorne in der linken Leiste und rund um die Taille",
+    "slalom": "Unten ruhig, oben frei: Die Hüften bleiben stabil wie im Sitz verkeilt, und der Brustkorb dreht darüber wie beim Bogenschlag.",
+    "caution": "Wenn das vordere Knie schmerzt, mach den Schritt kürzer und geh weniger tief.",
+    "motion": "Cycle of 6 s. START: standing upright, feet hip-width, both arms extended straight forward at chest height, palms together. 0 to 2 s: the left foot steps about 90 cm straight back onto the ball of the foot, both knees bend to about 90 degrees, the left knee stops about 5 cm above the mat, right shin vertical, torso upright. 2 to 3.5 s: thorax and arms rotate together about 60 degrees to the right, over the front (right) thigh; the pelvis keeps facing forward, the right knee stays over the right foot, head turns with the chest. 3.5 to 4.5 s: rotate back to the centre. 4.5 to 6 s: push up through the right leg, the left foot returns next to the right foot, standing tall with the arms still forward."
+  }
+]
