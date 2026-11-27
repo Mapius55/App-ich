@@ -142,6 +142,34 @@ docs/farben-recherche.md         Farbforschung und Plan für Wada-Kombinationen 
 
 Charakter und Regeln des Coaches stehen auf Deutsch in `supabase/functions/coach/prompt.ts` und lassen sich dort direkt anpassen.
 
+## Kehrwasser: Dehnen und Mobilisieren für Kanuslalom
+
+Im selben Repository liegt eine zweite, eigenständige App: **Kehrwasser** (Ordner `dehnen/`). Sie läuft unter
+https://mapius55.github.io/App-ich/dehnen/ (nach dem Umbenennen des Repositorys unter `/bucket-list/dehnen/`) und lässt sich wie die Bucket List auf den Home-Bildschirm legen (Safari → Teilen → „Zum Home-Bildschirm“).
+
+- **Immer mit Bewegtbild:** Jede Übung zeigt eine kurze, sich wiederholende Animation einer Figur, mit leuchtender Stelle, wo es ziehen soll. Die Ansicht lässt sich mit dem Finger drehen.
+- **Kein Ton, nie:** Die App benutzt weder Audio noch Video. Musik (Spotify usw.) läuft ungestört weiter. Hinweise kommen als grosse Zahl, als Lichtblitz und, wo das Gerät es erlaubt, als Vibration. Ein Test (`tests/dehnen/figure.test.ts`) wacht darüber.
+- **Gleichmässig:** Jede Dehnung dauert gleich lang, links und rechts sind immer gleich, die Pause dazwischen ist immer dieselbe (unter Einstellungen → Rhythmus anpassbar).
+- **Schwerpunkt seitliche Hüfte**, dazu Hüftbeuger, Hüftrotation, Adduktoren, Beinrückseite, Rücken und Flanke, Brustwirbelsäule, Schultern, Unterarme: viele Übungen mit Varianten (leichter, intensiver, mit Paddel, an der Wand, dynamisch).
+- **Heute für dich:** eine Session in der gewünschten Länge, jeden Tag neu gemischt, nach deinen Schwerpunkten, deinem Boot (K1/C1) und dem, was in den letzten zwei Wochen zu kurz kam. Dazu feste Routinen (vor und nach dem Paddeln, Wettkampftag, Morgen, Abend, einzelne Regionen) und eigene.
+- **Verlauf:** Tage in Folge, Minuten pro Woche, Balance der Regionen. Alles bleibt auf dem Gerät (kein Konto, läuft offline); unter Einstellungen → Daten lässt es sich sichern.
+
+```bash
+npm run dev:dehnen      # lokal starten: http://localhost:5173/bucket-list/dehnen/
+npm run build           # baut beide Apps (Bucket List nach dist/, Kehrwasser nach dist/dehnen/)
+npm test                # auch die Tests von Kehrwasser (tests/dehnen/)
+```
+
+```
+dehnen/src/figure/        die Figur: Posen (pose.ts), Lösen (solve.ts), Körper (body.ts), Zeichnen (render.ts), Prüfen (check.ts), Grundhaltungen (bases.ts)
+dehnen/src/data/text/     die Übungen als Text (JSON), dehnen/src/data/anim/ ihre Animationen, routines.ts die festen Routinen
+dehnen/src/logic/         Ablauf einer Session, Mischen, Uhr, Statistik (ohne Oberfläche, mit Tests)
+dehnen/src/screens/       Heute, Übungen, Routinen, Mix, Player, Verlauf, Einstellungen
+scripts/dehnen/           POSEN.md (Anleitung für neue Animationen), sheet.ts (Kontrollbilder), check-text.mjs
+```
+
+Neue Übung: Text in `dehnen/src/data/text/*.json` eintragen, Animation nach `scripts/dehnen/POSEN.md` schreiben, mit `node scripts/dehnen/sheet.ts <datei> <id>` ansehen. Übungen ohne Animation zeigt die App nicht an.
+
 ## Nächste Schritte (geplant)
 - Kalender lesen (Google/Apple), damit der Coach auch deine anderen Termine kennt
 - Strava oder andere Sport-Apps (Trainings und Rennen)

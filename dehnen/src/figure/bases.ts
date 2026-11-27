@@ -1,5 +1,5 @@
 // Helpers and ready-made starting positions for writing poses. Copy a base and change what differs.
-import type { Arm, Frame, Leg, Pose, Prop } from "./pose.ts";
+import type { Anim, Arm, Frame, Keyframe, Leg, Pose, Prop } from "./pose.ts";
 import { norm, rot, slerp, type Vec } from "./vec.ts";
 
 export const UP: Vec = [0, 1, 0];
@@ -60,35 +60,33 @@ export const BASES = {
   stand: { pelvis: UPRIGHT, legL: legStraightL, legR: legStraightR, armL: armDownL, armR: armDownR },
   /** Kneeling upright on both knees, insteps on the floor. */
   tallKneel: { pelvis: UPRIGHT, legL: kneelL, legR: kneelR, armL: armDownL, armR: armDownR },
-  /** Half kneeling: LEFT knee on the floor under the hip, right foot in front, hands on the hips. */
+  /** Half kneeling: LEFT knee on the floor under the hip (the knee stays at [0, 0]), right foot planted in front at floor [-0.2, 0.46], hands on the hips. */
   halfKneel: {
     pelvis: UPRIGHT,
     legL: { thigh: [0.02, -1, 0], shank: [0, -0.03, -1], point: 68 },
-    legR: { thigh: [-0.03, 0, 1], shank: [0, -1, 0.02] },
+    legR: { ankle: { floor: [-0.2, 0.46] } },
     armL: armHipL,
     armR: armHipR,
     anchor: "kneeL",
   },
-  /** Low lunge: LEFT knee on the floor behind, right foot far in front, hips sunk forward, torso upright. */
+  /** Low lunge: LEFT knee on the floor behind (at [0, 0]), right foot planted far in front at floor [-0.2, 0.68], hips sunk forward, torso upright. */
   lunge: {
     pelvis: { up: [0, 1, 0.12], fwd: [0, -0.12, 1] },
     chest: UPRIGHT,
     legL: { thigh: sag(-24), shank: [0, -0.02, -1], point: 68 },
-    legR: { thigh: [-0.03, 0.1, 1], shank: [0, -1, 0.12] },
+    legR: { ankle: { floor: [-0.2, 0.68] } },
     armL: armHipL,
     armR: armHipR,
     anchor: "kneeL",
   },
-  /** On all fours, hands under the shoulders, knees under the hips. */
+  /** On all fours: pelvis over [0, 0], knees under the hips, hands planted under the shoulders at floor [±0.185, 0.46]. */
   quadruped: {
     pelvis: ALL_FOURS,
     head: { up: [0, 0.25, 1], fwd: [0, -1, 0.25] },
     legL: { thigh: [0.02, -1, 0], shank: [0, -0.03, -1], point: 68 },
     legR: { thigh: [-0.02, -1, 0], shank: [0, -0.03, -1], point: 68 },
-    armL: { wrist: { under: "shoulderL" } },
-    armR: { wrist: { under: "shoulderR" } },
-    anchor: "kneeL",
-    at: [0.11, 0],
+    armL: { wrist: { floor: [0.185, 0.46] } },
+    armR: { wrist: { floor: [-0.185, 0.46] } },
   },
   /** Sitting on the heels (seiza), hands on the thighs. */
   heelSit: {
@@ -234,3 +232,22 @@ export const BASES = {
 } satisfies Record<string, Pose>;
 
 export type BaseName = keyof typeof BASES;
+
+// ---------- the rhythm of the loops (the same for every exercise) ----------
+
+/** A stretch that is held: `start` is the way in (shown briefly), `end` is the stretch (held, with breathing). */
+export function hold(start: Pose, end: Pose): Pick<Anim, "frames" | "main"> {
+  return { frames: [{ pose: start, move: 1.8, hold: 0.9 }, { pose: end, move: 1.8, hold: 3.6 }], main: 1 };
+}
+
+/** A stretch with a stop on the way: start → middle → end (held) → start. */
+export function hold3(start: Pose, middle: Pose, end: Pose): Pick<Anim, "frames" | "main"> {
+  return { frames: [{ pose: start, move: 1.8, hold: 0.7 }, { pose: middle, move: 1.5, hold: 0.3 }, { pose: end, move: 1.5, hold: 3.6 }], main: 2 };
+}
+
+/** A movement that repeats: the poses are passed through evenly, one round takes `tempo` seconds (the exercise's "tempo"). `pause` holds each pose briefly. */
+export function flow(tempo: number, poses: Pose[], main = 1, pause = 0): Pick<Anim, "frames" | "main"> {
+  const move = Math.max(0.3, tempo / poses.length - pause);
+  const frames: Keyframe[] = poses.map((pose) => ({ pose, move, hold: pause }));
+  return { frames, main: Math.min(main, poses.length - 1) };
+}
